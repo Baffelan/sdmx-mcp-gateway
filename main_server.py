@@ -7,12 +7,19 @@ Provides tools, resources, and prompts for exploring statistical data.
 
 import logging
 import asyncio
+from typing import Optional, List
 from mcp.server.fastmcp import FastMCP
 
 # Import our modular components
 from tools.sdmx_tools import (
-    list_dataflows, get_dataflow_structure, explore_codelist,
-    validate_query_syntax, build_data_query, cleanup_sdmx_client
+    list_dataflows,
+    get_dataflow_structure,
+    get_dimension_codes,
+    get_data_availability,
+    validate_query,
+    build_data_url as build_data_url_impl,
+    build_sdmx_key,
+    cleanup_sdmx_client
 )
 from resources.sdmx_resources import (
     list_known_agencies, get_agency_info, get_sdmx_format_guide,
@@ -30,81 +37,205 @@ logger = logging.getLogger(__name__)
 # Initialize FastMCP server
 mcp = FastMCP("SDMX Data Gateway")
 
-# Register tools
+# Register tools with consistent naming
 @mcp.tool()
-async def discover_dataflows(keywords: list[str] = None, 
-                           agency_id: str = "SPC",
-                           include_references: bool = False):
+async def list_dataflows(keywords: Optional[List[str]] = None, 
+                        agency_id: str = "SPC",
+                        limit: int = 10,
+                        offset: int = 0):
     """
-    Discover available SDMX dataflows, optionally filtered by keywords.
+    List available SDMX dataflows, optionally filtered by keywords.
     
     This is typically the first step in SDMX data discovery. Returns a list of
     statistical domains (dataflows) available from the specified agency.
+    
+    Args:
+        keywords: Optional list of keywords to filter dataflows
+        agency_id: The agency to query (default: "SPC")
+        limit: Number of results to return (default: 10)
+        offset: Number of results to skip for pagination (default: 0)
+    
+    Returns:
+        Dictionary with dataflows, pagination info, and navigation hints
     """
-    return await list_dataflows(keywords, agency_id, include_references)
+    # Returns minimal metadata by design for efficiency
+    return await list_dataflows(keywords, agency_id, limit, offset)
 
 @mcp.tool()
-async def get_structure(dataflow_id: str,
-                       agency_id: str = "SPC", 
-                       version: str = "latest",
-                       include_references: bool = True):
+async def get_dataflow_structure(dataflow_id: str,
+                                agency_id: str = "SPC", 
+                                version: str = "latest"):
     """
     Get detailed structure information for a specific dataflow.
     
     Returns dimensions, attributes, measures, and codelist references.
-    Use this after discover_dataflows() to understand data organization.
+    Use this after list_dataflows() to understand data organization.
     """
-    return await get_dataflow_structure(dataflow_id, agency_id, version, include_references)
+    # Always returns structure with codelist references
+    return await get_dataflow_structure(dataflow_id, agency_id, version)
 
 @mcp.tool()
-async def browse_codelist(codelist_id: str,
-                         agency_id: str = "SPC",
-                         version: str = "latest", 
-                         search_term: str = None):
+async def get_codelist(codelist_id: str,
+                      agency_id: str = "SPC",
+                      version: str = "latest", 
+                      search_term: Optional[str] = None):
     """
-    Browse codes and values for a specific codelist.
+    Get codes and values for a specific codelist.
     
     Codelists define the allowed values for dimensions (e.g., country codes, commodity codes).
     Use this to find the exact codes needed for your data query.
     """
-    return await explore_codelist(codelist_id, agency_id, version, search_term)
+    # Use the proper SDMX codelist endpoint
+    from sdmx_client import SDMXClient
+    client = SDMXClient()
+    try:
+        result = await client.browse_codelist(codelist_id, agency_id, version, search_term)
+        return result
+    finally:
+        await client.close()
 
 @mcp.tool()
-def validate_syntax(dataflow_id: str,
-                   key: str = "all",
-                   provider: str = "all", 
-                   start_period: str = None,
-                   end_period: str = None,
-                   agency_id: str = "SPC",
-                   version: str = "latest"):
+async def get_dimension_codes(dataflow_id: str,
+                             dimension_id: str,
+                             search_term: Optional[str] = None,
+                             limit: int = 20,
+                             agency_id: str = "SPC",
+                             version: str = "latest"):
+    """
+    Get codes for a specific dimension of a dataflow.
+    
+    This allows drilling down into specific dimensions without loading all codelists at once.
+    Useful for finding valid values for a particular dimension in your data query.
+    """
+    return await get_dimension_codes(
+        dataflow_id, dimension_id, search_term, limit, agency_id, version
+    )
+
+@mcp.tool()
+async def get_data_availability(dataflow_id: str,
+                               agency_id: str = "SPC",
+                               version: str = "latest"):
+    """
+    Get actual data availability for a dataflow.
+    
+    Returns information about what data actually exists, including time ranges 
+    and dimension combinations. Use this to understand data coverage before querying.
+    """
+    return await get_data_availability(dataflow_id, agency_id, version)
+
+@mcp.tool()
+async def validate_query(dataflow_id: str,
+                        key: str = "all",
+                        provider: str = "all", 
+                        start_period: Optional[str] = None,
+                        end_period: Optional[str] = None,
+                        validate_codes: bool = False,
+                        agency_id: str = "SPC",
+                        version: str = "latest"):
     """
     Validate SDMX query parameters before building the final URL.
     
     Checks syntax according to SDMX 2.1 REST API specification.
+    Optionally validates that dimension codes actually exist in the dataflow.
+    
+    Args:
+        dataflow_id: The dataflow to validate against
+        key: The data key (dimensions separated by dots)
+        provider: Provider specification
+        start_period: Start of time range
+        end_period: End of time range
+        validate_codes: If True, check dimension codes exist (slower but thorough)
+        agency_id: The agency
+        version: Version
+    
+    Returns:
+        Validation results including any errors, warnings, and invalid codes
     """
-    return validate_query_syntax(dataflow_id, key, provider, start_period, end_period, agency_id, version)
+    return await validate_query(
+        dataflow_id, key, provider, start_period, end_period,
+        validate_codes, agency_id, version
+    )
 
 @mcp.tool()
-def build_query(dataflow_id: str,
-               key: str = "all",
-               provider: str = "all",
-               start_period: str = None,
-               end_period: str = None,
-               dimension_at_observation: str = "TIME_PERIOD",
-               detail: str = "full",
-               agency_id: str = "SPC",
-               version: str = "latest",
-               format_type: str = "csv"):
+async def build_key(dataflow_id: str,
+                   dimensions: Optional[dict] = None,
+                   agency_id: str = "SPC",
+                   version: str = "latest"):
+    """
+    Build a properly formatted SDMX key from dimension values.
+    
+    This helper tool constructs the key string with dimensions in the correct order
+    according to the dataflow structure. Unspecified dimensions are left empty
+    (meaning "all values").
+    
+    Use this before build_data_url() to ensure your key has the correct format.
+    """
+    return await build_sdmx_key(dataflow_id, dimensions, agency_id, version)
+
+@mcp.tool()
+async def build_data_url(dataflow_id: str,
+                        key: str = "all",
+                        start_period: Optional[str] = None,
+                        end_period: Optional[str] = None,
+                        dimension_at_observation: str = "AllDimensions",
+                        format_type: str = "csv",
+                        agency_id: str = "SPC",
+                        version: str = "latest"):
     """
     Generate final SDMX REST API URLs for data retrieval.
     
     Creates URLs that can be used directly to download data in various formats.
     This is the final step in the SDMX query construction process.
+    
+    Args:
+        dataflow_id: The dataflow to query
+        key: The data key (use build_key() to construct)
+        start_period: Start of time range (optional)
+        end_period: End of time range (optional)
+        dimension_at_observation: Data structure (default: "AllDimensions" for flat structure)
+        format_type: Output format (csv, json, xml)
+        agency_id: The agency (default: "SPC")
+        version: Version (default: "latest")
     """
-    return build_data_query(
-        dataflow_id, key, provider, start_period, end_period,
-        dimension_at_observation, detail, agency_id, version, format_type
-    )
+    # Need to pass dimension_at_observation to the implementation
+    from urllib.parse import quote
+    
+    # Build base URL
+    base_url = "https://stats-sdmx-disseminate.pacificdata.org/rest"  # Default for SPC
+    flow_spec = f"{agency_id},{dataflow_id},{version}"
+    data_url = f"{base_url}/data/{flow_spec}/{quote(key)}/all"
+    
+    # Build query parameters
+    params = []
+    if start_period:
+        params.append(f"startPeriod={quote(start_period)}")
+    if end_period:
+        params.append(f"endPeriod={quote(end_period)}")
+    if dimension_at_observation != "TIME_PERIOD":  # Only add if not default SDMX value
+        params.append(f"dimensionAtObservation={quote(dimension_at_observation)}")
+    
+    # Add format parameter
+    if format_type.lower() == "csv":
+        params.append("format=csv")
+    elif format_type.lower() == "json":
+        params.append("format=jsondata")
+    
+    if params:
+        data_url += "?" + "&".join(params)
+    
+    return {
+        "dataflow_id": dataflow_id,
+        "key": key,
+        "format": format_type,
+        "url": data_url,
+        "dimension_at_observation": dimension_at_observation,
+        "time_range": {
+            "start": start_period,
+            "end": end_period
+        } if start_period or end_period else None,
+        "usage": "Use this URL to retrieve the actual statistical data",
+        "formats_available": ["csv", "json", "xml"]
+    }
 
 # Register resources
 @mcp.resource("sdmx://agencies")
@@ -159,11 +290,12 @@ def query_builder(dataflow_info: dict, user_requirements: str):
     """
     return sdmx_query_builder(dataflow_info, user_requirements)
 
-# Cleanup handler
-@mcp.cleanup()
-async def cleanup():
-    """Cleanup resources on shutdown."""
-    await cleanup_sdmx_client()
+# Note: Cleanup will be handled automatically by the SDMX client's context manager
+# If FastMCP adds cleanup support in the future, we can add:
+# @mcp.cleanup()
+# async def cleanup():
+#     """Cleanup resources on shutdown."""
+#     await cleanup_sdmx_client()
 
 if __name__ == "__main__":
     # Run the MCP server

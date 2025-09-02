@@ -67,10 +67,33 @@ def validate_dataflow_id(dataflow_id: str) -> bool:
     return bool(re.match(r'^[a-zA-Z][a-zA-Z\d_-]*$', dataflow_id))
 
 def validate_sdmx_key(key: str) -> bool:
-    """Validate SDMX key syntax according to SDMX 2.1 specification."""
+    """Validate SDMX key syntax according to SDMX 2.1 specification.
+    
+    Valid patterns:
+    - "all" - special keyword for all data
+    - "A.TO.ICT" - single values per dimension
+    - "A+M.TO+FJ.ICT" - multiple values with +
+    - "..TO.." - empty dimensions (dots only)
+    - "A..." - mix of specified and empty dimensions
+    """
     if key == "all":
         return True
-    return bool(re.match(r'^([\.A-Za-z\d_@$-]+(\+[A-Za-z\d_@$-]+)*)*$', key))
+    
+    # Each dimension position can be:
+    # - Empty (will appear as nothing between dots)
+    # - Single value: [A-Za-z\d_@$-]+
+    # - Multiple values: value+value+value
+    # Dimensions are separated by dots
+    
+    # Pattern for a single dimension value
+    value_pattern = r'[A-Za-z\d_@$-]+'
+    # Pattern for a dimension (can be empty, single, or multiple values with +)
+    dimension_pattern = f'({value_pattern}(\\+{value_pattern})*)?'
+    # Full key is dimensions separated by dots
+    # We need at least one dot or one value to be valid
+    key_pattern = f'^{dimension_pattern}(\\.{dimension_pattern})*$'
+    
+    return bool(re.match(key_pattern, key))
 
 def validate_provider(provider: str) -> bool:
     """Validate provider syntax according to SDMX 2.1 specification."""

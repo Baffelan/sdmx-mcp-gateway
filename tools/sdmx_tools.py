@@ -1,5 +1,8 @@
 """
-SDMX-specific MCP tools for progressive data discovery.
+Enhanced SDMX MCP tools with progressive discovery capabilities.
+
+These tools implement a layered approach to SDMX metadata discovery,
+allowing LLMs to efficiently explore data without overwhelming context windows.
 """
 
 import logging
@@ -9,7 +12,12 @@ from urllib.parse import quote
 
 from mcp.server.fastmcp import Context
 
-from sdmx_client import SDMXClient
+# Import the progressive client instead of the basic one
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from sdmx_progressive_client import SDMXProgressiveClient
 from utils import (
     validate_dataflow_id, validate_sdmx_key, validate_provider, validate_period,
     filter_dataflows_by_keywords, SDMX_FORMATS
@@ -17,91 +25,176 @@ from utils import (
 
 logger = logging.getLogger(__name__)
 
-# Global SDMX client instance
-sdmx_client = SDMXClient()
+# Global progressive SDMX client instance
+sdmx_client = SDMXProgressiveClient()
 
 
-async def list_dataflows(keywords: List[str] = None, 
-                        agency_id: str = "SPC",
-                        include_references: bool = False,
-                        ctx: Context = None) -> Dict[str, Any]:
+async def list_dataflows(
+    keywords: Optional[List[str]] = None,
+    agency_id: str = "SPC",
+    limit: int = 10,
+    offset: int = 0,
+    ctx: Context = None
+) -> Dict[str, Any]:
     """
-    Discover available SDMX dataflows, optionally filtered by keywords.
+    Step 1: Discover available dataflows with minimal metadata.
     
-    This is typically the first step in SDMX data discovery.
+    This provides a high-level overview without overwhelming detail.
+    Use this to identify dataflows of interest before drilling down.
+    
+    Args:
+        keywords: Optional list of keywords to filter dataflows
+        agency_id: The agency to query (default: "SPC")
+        limit: Number of results to return (default: 10)
+        offset: Number of results to skip for pagination (default: 0)
+        ctx: MCP context for progress reporting
     """
-    references = "all" if include_references else "none"
-    
     try:
-        all_dataflows = await sdmx_client.discover_dataflows(
+        if ctx:
+            ctx.info("Discovering dataflows (overview mode)...")
+        
+        # For discovery, we still need to get the list of all dataflows
+        # But we'll return minimal info
+        from sdmx_client import SDMXClient
+        basic_client = SDMXClient()
+        
+        all_dataflows = await basic_client.discover_dataflows(
             agency_id=agency_id,
-            references=references,
+            references="none",  # Minimal references
             ctx=ctx
         )
         
         # Filter by keywords if provided
         if keywords:
-            if ctx:
-                ctx.info(f"Filtering dataflows by keywords: {keywords}")
-            
-            dataflows = filter_dataflows_by_keywords(all_dataflows, keywords)[:10]  # Top 10
+            filtered_dataflows = filter_dataflows_by_keywords(all_dataflows, keywords)
         else:
-            dataflows = all_dataflows
+            filtered_dataflows = all_dataflows
         
-        return {
+        # Apply pagination
+        total_count = len(filtered_dataflows)
+        start_idx = offset
+        end_idx = min(offset + limit, total_count)
+        dataflows = filtered_dataflows[start_idx:end_idx]
+        
+        # Create lightweight summaries
+        summaries = []
+        for df in dataflows:
+            summaries.append({
+                "id": df["id"],
+                "name": df["name"],
+                "description": df["description"][:100] + "..." if len(df["description"]) > 100 else df["description"]
+            })
+        
+        await basic_client.close()
+        
+        # Calculate pagination info
+        has_more = end_idx < total_count
+        next_offset = end_idx if has_more else None
+        
+        result = {
+            "discovery_level": "overview",
             "agency_id": agency_id,
-            "total_dataflows": len(all_dataflows),
-            "filtered_dataflows": len(dataflows),
+            "total_found": total_count,  # This is now the filtered count
+            "showing": len(summaries),
+            "offset": offset,
+            "limit": limit,
             "keywords": keywords,
-            "dataflows": dataflows,
-            "next_steps": [
-                "Use get_dataflow_structure() to explore dimensions and structure",
-                "Use explore_codelist() to browse available codes for dimensions",
-                "Use build_data_query() to construct data retrieval URLs"
-            ]
+            "dataflows": summaries,
+            "pagination": {
+                "has_more": has_more,
+                "next_offset": next_offset,
+                "total_pages": (total_count + limit - 1) // limit if limit > 0 else 0,
+                "current_page": (offset // limit) + 1 if limit > 0 else 1
+            }
         }
         
+        # Add unfiltered total if keywords were used
+        if keywords:
+            result["total_before_filtering"] = len(all_dataflows)
+            result["filtering_info"] = f"Found {total_count} dataflows matching keywords out of {len(all_dataflows)} total"
+        
+        # Add navigation hints
+        if has_more:
+            result["next_step"] = (
+                "To see more dataflows, call discover_dataflows_overview() with " +
+                "offset=" + str(next_offset) + " to get the next page, or " +
+                "use get_dataflow_structure() to explore a specific dataflow's dimensions"
+            )
+        else:
+            result["next_step"] = "Use get_dataflow_structure() to explore a specific dataflow's dimensions"
+        
+        return result
+        
     except Exception as e:
-        logger.exception("Failed to list dataflows")
+        logger.exception("Failed to discover dataflows")
         return {
             "error": str(e),
-            "agency_id": agency_id,
-            "keywords": keywords,
+            "discovery_level": "overview",
             "dataflows": []
         }
 
 
-async def get_dataflow_structure(dataflow_id: str,
-                                agency_id: str = "SPC", 
-                                version: str = "latest",
-                                include_references: bool = True,
-                                ctx: Context = None) -> Dict[str, Any]:
+async def get_dataflow_structure(
+    dataflow_id: str,
+    agency_id: str = "SPC",
+    version: str = "latest",
+    ctx: Context = None
+) -> Dict[str, Any]:
     """
-    Get detailed structure information for a specific dataflow.
+    Step 2: Get the structure of a specific dataflow.
     
-    Returns dimensions, attributes, measures, and codelist references.
-    Use this after list_dataflows() to understand data organization.
+    Returns dimension order and codelist references without actual codes.
+    This helps understand how to construct queries.
     """
-    references = "all" if include_references else "none"
-    
     try:
-        structure_info = await sdmx_client.get_datastructure(
+        if ctx:
+            ctx.info(f"Getting structure for dataflow {dataflow_id}...")
+        
+        # Get overview first
+        overview = await sdmx_client.get_dataflow_overview(
             dataflow_id=dataflow_id,
             agency_id=agency_id,
             version=version,
-            references=references,
             ctx=ctx
         )
         
+        # Get structure summary
+        summary = await sdmx_client.get_structure_summary(
+            dataflow_id=dataflow_id,
+            agency_id=agency_id,
+            version=version,
+            ctx=ctx
+        )
+        
+        # Build response
         return {
-            "dataflow_id": dataflow_id,
-            "agency_id": agency_id,
-            "version": version,
-            "structure": structure_info,
+            "discovery_level": "structure",
+            "dataflow": {
+                "id": overview.id,
+                "name": overview.name,
+                "description": overview.description
+            },
+            "structure": {
+                "id": summary.id,
+                "key_template": summary.to_dict()["key_template"],
+                "key_example": summary.to_dict()["example_key"],
+                "dimensions": [
+                    {
+                        "id": dim.id,
+                        "position": dim.position,
+                        "type": dim.type,
+                        "codelist": dim.codelist_ref["id"] if dim.codelist_ref else None
+                    }
+                    for dim in summary.dimensions
+                ],
+                "attributes": summary.attributes,
+                "measure": summary.primary_measure
+            },
             "next_steps": [
-                "Use explore_codelist() to browse codes for specific dimensions",
-                "Use validate_query_syntax() to check query parameters",
-                "Use build_data_query() to construct data URLs"
+                "Use get_dimension_codes() to see available codes for a specific dimension",
+                "Use get_data_availability() to see what data actually exists",
+                "Use validate_query() to check your query parameters",
+                "Use build_data_url() to construct a data retrieval URL"
             ]
         }
         
@@ -109,87 +202,149 @@ async def get_dataflow_structure(dataflow_id: str,
         logger.exception(f"Failed to get structure for {dataflow_id}")
         return {
             "error": str(e),
-            "dataflow_id": dataflow_id,
-            "agency_id": agency_id,
-            "structure": None
+            "discovery_level": "structure",
+            "dataflow_id": dataflow_id
         }
 
 
-async def explore_codelist(codelist_id: str,
-                          agency_id: str = "SPC",
-                          version: str = "latest", 
-                          search_term: str = None,
-                          ctx: Context = None) -> Dict[str, Any]:
+async def get_dimension_codes(
+    dataflow_id: str,
+    dimension_id: str,
+    search_term: Optional[str] = None,
+    limit: int = 20,
+    agency_id: str = "SPC",
+    version: str = "latest",
+    ctx: Context = None
+) -> Dict[str, Any]:
     """
-    Browse codes and values for a specific codelist.
+    Step 3: Explore codes for a specific dimension.
     
-    Codelists define the allowed values for dimensions (e.g., country codes, commodity codes).
-    Use this to find the exact codes needed for your data query.
+    This allows drilling down into specific dimensions without
+    loading all codelists at once.
     """
     try:
-        codelist_info = await sdmx_client.get_codelist(
-            codelist_id=codelist_id,
+        if ctx:
+            ctx.info(f"Exploring codes for dimension {dimension_id}...")
+        
+        result = await sdmx_client.get_dimension_codes(
+            dataflow_id=dataflow_id,
+            dimension_id=dimension_id,
+            agency_id=agency_id,
+            version=version,
+            search_term=search_term,
+            limit=limit,
+            ctx=ctx
+        )
+        
+        # Add usage guidance
+        if "error" not in result:
+            result["discovery_level"] = "dimension_codes"
+            result["usage"] = f"Use these codes in position {result.get('position', '?')} of the data key"
+            result["example_keys"] = []
+            
+            # Generate example keys if we have codes
+            if result.get("codes"):
+                first_code = result["codes"][0]["id"]
+                result["example_keys"] = [
+                    f"Using '{first_code}': Place in position {result.get('position', '?')} of the key",
+                    f"For all values: Leave position {result.get('position', '?')} empty (just dots)"
+                ]
+        
+        return result
+        
+    except Exception as e:
+        logger.exception(f"Failed to explore dimension {dimension_id}")
+        return {
+            "error": str(e),
+            "discovery_level": "dimension_codes",
+            "dataflow_id": dataflow_id,
+            "dimension_id": dimension_id
+        }
+
+
+async def get_data_availability(
+    dataflow_id: str,
+    agency_id: str = "SPC",
+    version: str = "latest",
+    ctx: Context = None
+) -> Dict[str, Any]:
+    """
+    Step 4: Check actual data availability.
+    
+    Returns information about what data actually exists,
+    including time ranges and dimension combinations.
+    """
+    try:
+        if ctx:
+            ctx.info(f"Checking data availability for {dataflow_id}...")
+        
+        availability = await sdmx_client.get_actual_availability(
+            dataflow_id=dataflow_id,
             agency_id=agency_id,
             version=version,
             ctx=ctx
         )
         
-        if not codelist_info or codelist_info.get("error"):
-            return codelist_info
-        
-        codes = codelist_info.get("codes", [])
-        
-        # Filter by search term if provided
-        if search_term:
-            if ctx:
-                ctx.info(f"Filtering codes by search term: {search_term}")
+        # Enhance response with interpretation
+        if availability.get("has_constraint"):
+            availability["discovery_level"] = "availability"
+            availability["interpretation"] = []
             
-            search_lower = search_term.lower()
-            filtered_codes = []
+            if availability.get("time_range"):
+                availability["interpretation"].append(
+                    f"Data available from {availability['time_range']['start']} to {availability['time_range']['end']}"
+                )
             
-            for code in codes:
-                if (search_lower in code["id"].lower() or 
-                    search_lower in code["name"].lower() or 
-                    search_lower in code["description"].lower()):
-                    filtered_codes.append(code)
-            
-            codes = filtered_codes
+            if availability.get("cube_regions"):
+                availability["interpretation"].append(
+                    f"Data exists for {len(availability['cube_regions'])} specific dimension combinations"
+                )
+                
+                # Show first region as example
+                if availability["cube_regions"]:
+                    region = availability["cube_regions"][0]
+                    if region.get("keys"):
+                        example_dims = list(region["keys"].keys())[:3]
+                        availability["interpretation"].append(
+                            f"Example dimensions with data: {', '.join(example_dims)}"
+                        )
         
-        return {
-            "codelist_id": codelist_id,
-            "agency_id": agency_id,
-            "version": version,
-            "search_term": search_term,
-            "total_codes": codelist_info.get("total_codes", 0),
-            "filtered_codes": len(codes),
-            "codes": codes[:50],  # Limit to first 50 for readability
-            "next_steps": [
-                "Use these codes in validate_query_syntax()",
-                "Use these codes in build_data_query() key parameter"
-            ]
-        }
+        return availability
         
     except Exception as e:
-        logger.exception(f"Failed to explore codelist {codelist_id}")
+        logger.exception(f"Failed to check availability for {dataflow_id}")
         return {
             "error": str(e),
-            "codelist_id": codelist_id,
-            "agency_id": agency_id,
-            "codes": []
+            "discovery_level": "availability",
+            "dataflow_id": dataflow_id
         }
 
 
-def validate_query_syntax(dataflow_id: str,
+async def validate_query(dataflow_id: str,
                          key: str = "all",
                          provider: str = "all", 
                          start_period: str = None,
                          end_period: str = None,
+                         validate_codes: bool = False,
                          agency_id: str = "SPC",
-                         version: str = "latest") -> Dict[str, Any]:
+                         version: str = "latest",
+                         ctx: Context = None) -> Dict[str, Any]:
     """
     Validate SDMX query parameters before building the final URL.
     
     Checks syntax according to SDMX 2.1 REST API specification.
+    Optionally validates that dimension codes actually exist.
+    
+    Args:
+        dataflow_id: The dataflow ID
+        key: The data key (dimensions separated by dots)
+        provider: Provider specification
+        start_period: Start of time range
+        end_period: End of time range
+        validate_codes: If True, check that dimension codes actually exist (slower)
+        agency_id: The agency
+        version: Version
+        ctx: MCP context
     """
     try:
         validation_results = {
@@ -249,9 +404,71 @@ def validate_query_syntax(dataflow_id: str,
                 "Requesting all data without time constraints may return very large datasets"
             )
         
+        # Validate dimension codes if requested
+        if validate_codes and key != "all" and validation_results["validation"]["is_valid"]:
+            if ctx:
+                ctx.info("Validating dimension codes against dataflow structure...")
+            
+            # Get the dataflow structure
+            try:
+                summary = await sdmx_client.get_structure_summary(
+                    dataflow_id=dataflow_id,
+                    agency_id=agency_id,
+                    version=version,
+                    ctx=ctx
+                )
+                
+                # Parse the key
+                key_parts = key.split(".")
+                
+                # Check each dimension
+                invalid_codes = []
+                for i, (dim, key_part) in enumerate(zip(summary.dimensions, key_parts)):
+                    if dim.id == "TIME_PERIOD":
+                        continue
+                    
+                    if key_part and key_part != "":  # Not empty dimension
+                        # Split multiple values (A+M)
+                        values = key_part.split("+")
+                        
+                        # Get valid codes for this dimension
+                        if dim.codelist_ref:
+                            result = await sdmx_client.get_dimension_codes(
+                                dataflow_id=dataflow_id,
+                                dimension_id=dim.id,
+                                agency_id=agency_id,
+                                version=version,
+                                limit=1000,  # Get more codes for validation
+                                ctx=ctx
+                            )
+                            
+                            if "codes" in result:
+                                valid_codes = {code["id"] for code in result["codes"]}
+                                
+                                for value in values:
+                                    if value not in valid_codes:
+                                        invalid_codes.append({
+                                            "dimension": dim.id,
+                                            "position": i + 1,
+                                            "invalid_code": value,
+                                            "suggestion": f"Use get_dimension_codes('{dataflow_id}', '{dim.id}') to see valid codes"
+                                        })
+                
+                if invalid_codes:
+                    validation_results["validation"]["errors"].append("Some dimension codes do not exist")
+                    validation_results["validation"]["invalid_codes"] = invalid_codes
+                    validation_results["validation"]["is_valid"] = False
+                else:
+                    validation_results["validation"]["code_validation"] = "All dimension codes are valid"
+                    
+            except Exception as e:
+                validation_results["validation"]["warnings"].append(
+                    f"Could not validate codes: {str(e)}"
+                )
+        
         if validation_results["validation"]["is_valid"]:
             validation_results["next_steps"] = [
-                "Parameters are valid - use build_data_query() to generate URLs",
+                "Parameters are valid - use build_data_url() to generate URLs",
                 "Consider adding time constraints to limit data size",
                 "Use different dimensionAtObservation values for different data views"
             ]
@@ -267,102 +484,338 @@ def validate_query_syntax(dataflow_id: str,
         }
 
 
-def build_data_query(dataflow_id: str,
-                    key: str = "all",
-                    provider: str = "all",
-                    start_period: str = None,
-                    end_period: str = None,
-                    dimension_at_observation: str = "TIME_PERIOD",
-                    detail: str = "full",
-                    agency_id: str = "SPC",
-                    version: str = "latest",
-                    format_type: str = "csv") -> Dict[str, Any]:
+async def build_data_url(
+    dataflow_id: str,
+    key: str = None,
+    dimensions: Dict[str, str] = None,
+    start_period: Optional[str] = None,
+    end_period: Optional[str] = None,
+    format_type: str = "csv",
+    agency_id: str = "SPC",
+    version: str = "latest",
+    ctx: Context = None
+) -> Dict[str, Any]:
     """
-    Generate final SDMX REST API URLs for data retrieval.
+    Step 5: Build a data query URL with correct dimension handling.
     
-    Creates URLs that can be used directly to download data in various formats.
-    This is the final step in the SDMX query construction process.
+    Can accept either a pre-formed key or a dictionary of dimensions.
+    Properly handles:
+    - Dimension ordering from DSD
+    - Time dimensions via startPeriod/endPeriod
+    - Empty strings for non-filtered dimensions
     """
     try:
-        # Build base data URL according to SDMX 2.1 spec
-        base_url = sdmx_client.base_url
-        flow_spec = f"{agency_id},{dataflow_id},{version}"
-        data_url = f"{base_url}/data/{flow_spec}/{quote(key)}/{quote(provider)}"
+        if ctx:
+            ctx.info("Building data query URL with correct dimension handling...")
         
-        # Build query parameters
-        params = []
+        # Import the query builder
+        from sdmx_query_builder import SDMXQueryBuilder, SDMXQuerySpec
+        builder = SDMXQueryBuilder(base_url=sdmx_client.base_url)
         
-        if start_period:
-            params.append(f"startPeriod={quote(start_period)}")
-        
-        if end_period:
-            params.append(f"endPeriod={quote(end_period)}")
-        
-        if dimension_at_observation != "TIME_PERIOD":
-            params.append(f"dimensionAtObservation={quote(dimension_at_observation)}")
-        
-        if detail != "full":
-            params.append(f"detail={quote(detail)}")
-        
-        # Add format-specific parameters
-        if params:
-            data_url += "?" + "&".join(params)
-        
-        # Get format definitions
-        formats = {}
-        for fmt_name, fmt_info in SDMX_FORMATS.items():
-            formats[fmt_name] = {
-                "url": data_url,
-                "headers": fmt_info["headers"],
-                "description": fmt_info["description"]
+        # If dimensions provided instead of key, build the key properly
+        if dimensions and not key:
+            # Get structure to know dimension order
+            summary = await sdmx_client.get_structure_summary(
+                dataflow_id=dataflow_id,
+                agency_id=agency_id,
+                version=version,
+                ctx=ctx
+            )
+            
+            # Build query spec
+            spec = SDMXQuerySpec(
+                dataflow_id=dataflow_id,
+                agency_id=agency_id,
+                version=version if version != "latest" else "1.0",  # Use actual version
+                dimension_values=dimensions,
+                start_period=start_period,
+                end_period=end_period,
+                format_type=format_type
+            )
+            
+            # Build the query URL
+            result = builder.build_query_url(spec, summary.key_family)
+            
+            if "error" in result:
+                return result
+            
+            # Add explanation of key structure
+            key_explanation = builder.explain_key_structure(
+                summary.key_family,
+                result["key"]
+            )
+            
+            return {
+                "discovery_level": "query",
+                "dataflow_id": dataflow_id,
+                "key": result["key"],
+                "format": format_type,
+                "url": result["url"],
+                "dimension_order": summary.key_family,
+                "dimension_values": dimensions,
+                "key_breakdown": key_explanation.get("breakdown", []),
+                "time_range": result.get("time_range"),
+                "usage": "Use this URL to retrieve the actual statistical data",
+                "formats_available": ["csv", "json", "xml"],
+                "note": "Key maintains proper dimension order with empty strings for unfiltered dimensions"
             }
         
-        result = {
-            "dataflow_id": dataflow_id,
-            "agency_id": agency_id,
-            "version": version,
-            "query_parameters": {
+        # If key provided directly, validate and use it
+        elif key:
+            # Validate the key format
+            if key != "all" and not validate_sdmx_key(key):
+                return {
+                    "error": "Invalid SDMX key format",
+                    "key": key,
+                    "valid_format": "Use periods to separate dimensions, maintain all positions",
+                    "special_values": "Use empty string for all values, '+' for multiple values"
+                }
+            
+            # Build the URL with provided key
+            flow = f"{agency_id},{dataflow_id},{version}"
+            url = f"{sdmx_client.base_url}/data/{flow}/{key}/all"
+            
+            # Add query parameters
+            params = []
+            if start_period:
+                params.append(f"startPeriod={start_period}")
+            if end_period:
+                params.append(f"endPeriod={end_period}")
+            
+            # Add format parameter
+            if format_type.lower() == "csv":
+                params.append("format=csv")
+            elif format_type.lower() == "json":
+                params.append("format=jsondata")
+            
+            if params:
+                url += "?" + "&".join(params)
+            
+            return {
+                "discovery_level": "query",
+                "dataflow_id": dataflow_id,
                 "key": key,
-                "provider": provider,
-                "start_period": start_period,
-                "end_period": end_period,
-                "dimension_at_observation": dimension_at_observation,
-                "detail": detail
-            },
-            "primary_format": format_type,
-            "primary_url": formats[format_type]["url"],
-            "primary_headers": formats[format_type]["headers"],
-            "all_formats": formats,
-            "example_usage": {
-                "python": f'''
-import requests
-import pandas as pd
-
-url = "{formats[format_type]["url"]}"
-headers = {json.dumps(formats[format_type]["headers"], indent=2)}
-
-response = requests.get(url, headers=headers)
-response.raise_for_status()
-
-{"df = pd.read_csv(StringIO(response.text))" if format_type == "csv" else "data = response.json()" if format_type == "json" else "# Parse XML response"}
-print({"df.head()" if format_type == "csv" else "data" if format_type == "json" else "response.text[:1000]"})
-''',
-                "curl": f'''curl -H "{list(formats[format_type]["headers"].items())[0][0]}: {list(formats[format_type]["headers"].items())[0][1]}" \\
-     "{formats[format_type]["url"]}"'''
+                "format": format_type,
+                "url": url,
+                "time_range": {
+                    "start": start_period,
+                    "end": end_period
+                } if start_period or end_period else None,
+                "usage": "Use this URL to retrieve the actual statistical data",
+                "formats_available": ["csv", "json", "xml"]
             }
-        }
         
-        return result
+        # No key or dimensions provided - return all data
+        else:
+            flow = f"{agency_id},{dataflow_id},{version}"
+            url = f"{sdmx_client.base_url}/data/{flow}/all/all"
+            
+            # Add query parameters
+            params = []
+            if start_period:
+                params.append(f"startPeriod={start_period}")
+            if end_period:
+                params.append(f"endPeriod={end_period}")
+            
+            if format_type.lower() == "csv":
+                params.append("format=csv")
+            elif format_type.lower() == "json":
+                params.append("format=jsondata")
+            
+            if params:
+                url += "?" + "&".join(params)
+            
+            return {
+                "discovery_level": "query",
+                "dataflow_id": dataflow_id,
+                "key": "all",
+                "format": format_type,
+                "url": url,
+                "time_range": {
+                    "start": start_period,
+                    "end": end_period
+                } if start_period or end_period else None,
+                "usage": "Use this URL to retrieve ALL statistical data (no filters)",
+                "formats_available": ["csv", "json", "xml"]
+            }
         
     except Exception as e:
         logger.exception("Failed to build data query")
         return {
             "error": str(e),
+            "discovery_level": "query",
+            "dataflow_id": dataflow_id
+        }
+
+
+async def get_discovery_guide(ctx: Context = None) -> Dict[str, Any]:
+    """
+    Get a guide for using the progressive discovery tools.
+    
+    This helps users understand the discovery workflow.
+    """
+    return {
+        "title": "SDMX Progressive Discovery Guide",
+        "description": "Follow these steps to efficiently explore SDMX data without overwhelming the context",
+        "workflow": [
+            {
+                "step": 1,
+                "tool": "list_dataflows",
+                "purpose": "Find relevant dataflows by keyword",
+                "output": "List of dataflow IDs and names",
+                "data_size": "~300 bytes per dataflow"
+            },
+            {
+                "step": 2,
+                "tool": "get_dataflow_structure",
+                "purpose": "Understand dimensions and their order",
+                "output": "Dimension list with positions and codelist references",
+                "data_size": "~1-2 KB"
+            },
+            {
+                "step": 3,
+                "tool": "get_dimension_codes",
+                "purpose": "Get specific codes for a dimension",
+                "output": "List of valid codes with descriptions",
+                "data_size": "~200-500 bytes for limited results"
+            },
+            {
+                "step": 4,
+                "tool": "get_data_availability",
+                "purpose": "See what data actually exists",
+                "output": "Time ranges and dimension combinations with data",
+                "data_size": "~500-1000 bytes"
+            },
+            {
+                "step": 5,
+                "tool": "build_data_url",
+                "purpose": "Construct the final data URL",
+                "output": "Ready-to-use URL for data retrieval",
+                "data_size": "~200 bytes"
+            }
+        ],
+        "benefits": [
+            "Total data: ~2-3 KB vs 100+ KB for full metadata",
+            "Focused exploration: Only load what you need",
+            "Better for LLMs: Fits within context windows",
+            "Faster responses: Less data to parse"
+        ],
+        "example_workflow": {
+            "goal": "Get Tonga's digital development indicators for 2020",
+            "steps": [
+                "1. list_dataflows(['digital', 'development'])",
+                "2. get_dataflow_structure('DF_DIGITAL_DEVELOPMENT')",
+                "3. get_dimension_codes('DF_DIGITAL_DEVELOPMENT', 'GEO_PICT', 'tonga')",
+                "4. get_dimension_codes('DF_DIGITAL_DEVELOPMENT', 'INDICATOR')",
+                "5. build_data_url('DF_DIGITAL_DEVELOPMENT', dimensions={'FREQ': 'A', 'GEO_PICT': 'TO', 'TIME_PERIOD': '2020'})"
+            ]
+        }
+    }
+
+
+async def build_sdmx_key(
+    dataflow_id: str,
+    dimensions: Dict[str, str] = None,
+    agency_id: str = "SPC",
+    version: str = "latest",
+    ctx: Context = None
+) -> Dict[str, Any]:
+    """
+    Helper tool to build a properly formatted SDMX key from dimension values.
+    
+    This tool helps construct the key string with dimensions in the correct order
+    according to the dataflow structure. Unspecified dimensions are left empty
+    (meaning "all values").
+    
+    Args:
+        dataflow_id: The dataflow to build a key for
+        dimensions: Dictionary of dimension IDs and their values. 
+                   Values can be strings or lists of strings for multiple selections.
+        agency_id: The agency (default: "SPC")
+        version: Version (default: "latest")
+        ctx: MCP context
+    
+    Returns:
+        Dictionary with the constructed key and examples of how to use it
+    """
+    try:
+        if ctx:
+            ctx.info(f"Building SDMX key for dataflow {dataflow_id}...")
+        
+        # Get the structure to know dimension order
+        summary = await sdmx_client.get_structure_summary(
+            dataflow_id=dataflow_id,
+            agency_id=agency_id,
+            version=version,
+            ctx=ctx
+        )
+        
+        # Build the key with proper dimension ordering
+        key_parts = []
+        dimension_breakdown = []
+        
+        for dim in summary.dimensions:
+            if dim.id == "TIME_PERIOD":
+                # TIME_PERIOD is handled via startPeriod/endPeriod parameters
+                continue
+                
+            value = ""
+            if dimensions and dim.id in dimensions:
+                dim_value = dimensions[dim.id]
+                # Handle lists of values - join with +
+                if isinstance(dim_value, list):
+                    value = "+".join(dim_value)
+                else:
+                    value = dim_value
+            
+            key_parts.append(value)
+            dimension_breakdown.append({
+                "position": dim.position,
+                "dimension_id": dim.id,
+                "value": value if value else "(all values)",
+                "meaning": f"Position {dim.position}: {dim.id} = {value if value else 'all values'}"
+            })
+        
+        # Join with dots
+        key = ".".join(key_parts)
+        
+        # Handle special cases
+        if not key or all(part == "" for part in key_parts):
+            key = "all"
+            key_explanation = "Using 'all' - retrieves all data without dimension filters"
+        else:
+            key_explanation = "Key uses dots to separate dimensions, empty positions mean 'all values'"
+        
+        return {
             "dataflow_id": dataflow_id,
-            "agency_id": agency_id
+            "dimensions_provided": dimensions or {},
+            "key": key,
+            "key_explanation": key_explanation,
+            "dimension_breakdown": dimension_breakdown,
+            "usage_examples": [
+                f"build_data_url(dataflow_id='{dataflow_id}', key='{key}')",
+                f"build_data_url(dataflow_id='{dataflow_id}', key='{key}', start_period='2020', end_period='2023')"
+            ],
+            "notes": [
+                "Empty positions (consecutive dots) mean 'all values' for that dimension",
+                "Pass lists for multiple values: {'GEO_PICT': ['TO', 'FJ']} becomes 'TO+FJ'",
+                "Or use '+' directly in strings: {'FREQ': 'A+M'} for Annual and Monthly",
+                "TIME_PERIOD is typically specified via start_period/end_period parameters"
+            ]
+        }
+        
+    except Exception as e:
+        logger.exception(f"Failed to build SDMX key for {dataflow_id}")
+        return {
+            "error": str(e),
+            "dataflow_id": dataflow_id,
+            "dimensions_provided": dimensions or {}
         }
 
 
 async def cleanup_sdmx_client():
-    """Cleanup SDMX client resources."""
+    """Clean up the SDMX client session."""
     await sdmx_client.close()
+
+
+# No backward compatibility needed - this is a new project

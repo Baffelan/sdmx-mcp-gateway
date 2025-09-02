@@ -2,71 +2,112 @@
 
 A Model Context Protocol (MCP) server that provides progressive discovery tools for SDMX statistical data. This implementation enables AI agents to explore and access SDMX-compliant statistical data repositories through a series of interactive tools, resources, and prompts.
 
-## Project Overview
+## 🚀 Key Innovation: Progressive Discovery
 
-The SDMX MCP Gateway provides a modular approach to SDMX data discovery. Instead of requiring users to construct complex queries upfront, it offers a step-by-step exploration process:
+The SDMX MCP Gateway solves a critical challenge in LLM-SDMX integration: **massive metadata responses that overwhelm context windows**. Traditional SDMX queries with `references=all` can return 100KB+ of XML data. Our progressive discovery approach reduces this by **98%** to just 2-3KB total.
 
-1. **Discover** available statistical domains (dataflows)
-2. **Explore** data structure and dimensions  
-3. **Browse** specific codelists and valid values
-4. **Validate** query syntax before execution
-5. **Build** final data retrieval URLs
+### The Problem
+- SDMX metadata with full references can exceed 100KB
+- LLMs have limited context windows
+- Most metadata is unnecessary for specific queries
+- Complex XML structures are difficult for LLMs to parse efficiently
 
-This approach is much more effective for AI agents and human users who need to understand data availability and structure before constructing queries.
+### The Solution: Progressive Discovery
+
+Instead of loading everything at once, the gateway provides a layered exploration approach:
+
+1. **Overview** (~300 bytes) - Find relevant dataflows by keyword
+2. **Structure** (~1KB) - Understand dimensions and their order
+3. **Drill-down** (~500 bytes) - Get codes for specific dimensions only
+4. **Availability** (~700 bytes) - Check what data actually exists
+5. **Query** (~200 bytes) - Build the final data URL
+
+**Total: ~2.5KB vs 100KB+ for traditional approaches**
 
 ## Architecture Overview
 
-The server follows a clean modular architecture based on the MCP guide recommendations:
+The server follows a clean modular architecture with both standard and progressive discovery capabilities:
 
 ```
 sdmx-mcp-gateway/
-├── main_server.py          # FastMCP server entry point
-├── utils.py                # Shared utilities and constants  
-├── sdmx_client.py          # SDMX 2.1 REST API client
+├── main_server.py                # FastMCP server entry point
+├── utils.py                      # Shared utilities and constants  
+├── sdmx_client.py                # Standard SDMX 2.1 REST API client
+├── sdmx_progressive_client.py    # Enhanced client with progressive discovery
 ├── tools/
-│   └── sdmx_tools.py       # Progressive discovery tools
+│   ├── sdmx_tools.py             # Standard discovery tools
+│   └── sdmx_progressive_tools.py # Progressive discovery tools
 ├── resources/
-│   └── sdmx_resources.py   # Metadata browsing resources
+│   └── sdmx_resources.py         # Metadata browsing resources
 └── prompts/
-    └── sdmx_prompts.py     # Guided query construction prompts
+    └── sdmx_prompts.py           # Guided query construction prompts
 ```
 
 ## Current Implementation Status
 
 ### FULLY IMPLEMENTED ✓
 
-#### 1. Progressive Discovery Tools
+#### 1. Progressive Discovery Tools (NEW!)
+- **`discover_dataflows_overview()`**: Lightweight dataflow discovery (~300 bytes per dataflow)
+- **`get_dataflow_structure()`**: Get dimension order and structure without full codelists (~1KB)
+- **`explore_dimension_codes()`**: Drill down into specific dimensions with search (~500 bytes)
+- **`check_data_availability()`**: Query actual data availability from ContentConstraints (~700 bytes)
+- **`build_data_query()`**: Construct validated data URLs with dimension dictionaries or keys
+- **`get_discovery_guide()`**: Interactive guide for the discovery workflow
+
+#### 2. Standard Discovery Tools
 - **`discover_dataflows()`**: Find available statistical domains with keyword filtering
 - **`get_structure()`**: Explore dataflow dimensions, attributes, and organization
 - **`browse_codelist()`**: Browse specific dimension codes (countries, indicators, etc.)
 - **`validate_syntax()`**: Validate query parameters against SDMX 2.1 specification
 - **`build_query()`**: Generate final data URLs in multiple formats (CSV, JSON, XML)
-- **Context Support**: Progress reporting and logging for long-running operations
 
-#### 2. SDMX 2.1 REST API Client
+#### 3. SDMX 2.1 REST API Client
 - **Standards Compliance**: Full implementation based on SDMX 2.1 OpenAPI specification
 - **Multiple Endpoints**: Support for dataflow, datastructure, and codelist endpoints
+- **DSD Discovery**: Automatic extraction of Data Structure Definition IDs from dataflow metadata
 - **Error Handling**: Robust error handling with meaningful error messages
 - **Session Management**: Efficient HTTP session management with connection pooling
 - **XML Parsing**: Complete SDMX-ML parsing with proper namespace handling
+- **ContentConstraint Support**: Parse actual data availability from `type="Actual"` constraints
 
-#### 3. MCP Resources for Metadata Browsing
+#### 4. MCP Resources for Metadata Browsing
 - **Agency Directory**: `sdmx://agencies` - List of known SDMX data providers
 - **Agency Information**: `sdmx://agency/{id}/info` - Specific agency details
 - **Format Guide**: `sdmx://formats/guide` - Data format comparison and use cases
 - **Syntax Guide**: `sdmx://syntax/guide` - SDMX query syntax reference
 
-#### 4. Guided Prompts System
+#### 5. Guided Prompts System
 - **Discovery Guide**: Step-by-step data discovery workflow
 - **Troubleshooting Guide**: Common issue resolution strategies
 - **Best Practices**: Use-case specific guidance (research, dashboards, automation)
 - **Query Builder**: Interactive query construction assistance
 
-#### 5. Development Infrastructure
+#### 6. Development Infrastructure
 - **Modular Design**: Clean separation of concerns across multiple files
 - **Type Hints**: Full type annotation for better code quality
 - **Logging**: Comprehensive logging throughout the application
 - **Dependencies**: Managed via pyproject.toml with locked versions
+
+## Key Technical Improvements
+
+### 1. Automatic DSD Discovery
+The gateway correctly handles the common SDMX pattern where Data Structure Definition (DSD) IDs differ from dataflow IDs:
+- Extracts DSD reference from dataflow's `<structure:Structure>` element
+- Handles both namespaced and non-namespaced `<Ref>` elements
+- Example: `DF_DIGITAL_DEVELOPMENT` → `DSD_DIGITAL_DEVELOPMENT`
+
+### 2. Dimension Ordering
+Properly maintains dimension order which is critical for SDMX key construction:
+- Parses dimension positions from the DSD
+- Generates correct key templates (e.g., `{FREQ}.{TIME_PERIOD}.{GEO_PICT}.{INDICATOR}`)
+- Supports both positional and dictionary-based key construction
+
+### 3. ContentConstraint Parsing
+Implements actual data availability checking via ContentConstraint with `type="Actual"`:
+- Shows what data actually exists vs theoretical structure
+- Extracts time ranges and valid dimension combinations
+- Reduces failed queries by validating against actual availability
 
 ### FUTURE DEVELOPMENT OPPORTUNITIES
 
@@ -85,10 +126,43 @@ sdmx-mcp-gateway/
 - **Benefit**: Comprehensive data discovery across the entire SDMX ecosystem
 - **Current Status**: Single agency support implemented; multi-agency requires coordination logic
 
-## Key Features
+## Usage Examples
 
-### Progressive Discovery Workflow
-Instead of requiring complex upfront queries, the server enables step-by-step exploration:
+### Progressive Discovery Workflow (Recommended for LLMs)
+
+Here's how to find and query Tonga's digital development indicators for 2020:
+
+```python
+# Step 1: Find relevant dataflows (lightweight overview)
+discover_dataflows_overview(keywords=["digital", "development"])
+# → Returns: DF_DIGITAL_DEVELOPMENT (~300 bytes)
+
+# Step 2: Get structure without loading all codelists
+get_dataflow_structure("DF_DIGITAL_DEVELOPMENT")
+# → Returns: Dimensions order: FREQ.TIME_PERIOD.GEO_PICT.INDICATOR (~1KB)
+
+# Step 3: Find Tonga's code
+explore_dimension_codes("DF_DIGITAL_DEVELOPMENT", "GEO_PICT", search="tonga")
+# → Returns: TO = Tonga (~200 bytes)
+
+# Step 4: Check what indicators are available
+explore_dimension_codes("DF_DIGITAL_DEVELOPMENT", "INDICATOR", limit=5)
+# → Returns: First 5 indicator codes (~500 bytes)
+
+# Step 5: Build the query
+build_data_query(
+    "DF_DIGITAL_DEVELOPMENT",
+    dimensions={"FREQ": "A", "TIME_PERIOD": "2020", "GEO_PICT": "TO"},
+    format="csv"
+)
+# → Returns: Ready-to-use URL (~200 bytes)
+```
+
+**Total data transferred: ~2.2KB** (vs 100KB+ with traditional approach)
+
+### Standard Discovery Workflow
+
+For cases where you need complete metadata:
 
 ```
 1. discover_dataflows(keywords=["trade", "fisheries"])

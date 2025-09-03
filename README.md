@@ -233,9 +233,29 @@ pytest tests/e2e/          # End-to-end tests only
 - Internet connectivity for SDMX API access
 
 ### Setup
+
+#### Option 1: Using UV (Recommended)
 ```bash
 # Navigate to project directory
-cd MCP/sdmx-mcp-gateway
+cd sdmx-mcp-gateway
+
+# Install UV if not already installed
+# See: https://docs.astral.sh/uv/getting-started/installation/
+
+# Sync dependencies (creates virtual environment automatically)
+uv sync
+
+# Test the server
+uv run python main_server.py
+
+# Or use MCP development tools
+uv run mcp dev ./main_server.py
+```
+
+#### Option 2: Using pip
+```bash
+# Navigate to project directory
+cd sdmx-mcp-gateway
 
 # Install dependencies including MCP SDK
 pip install mcp "mcp[cli]" httpx
@@ -253,7 +273,44 @@ mcp dev ./main_server.py
 ### MCP Integration
 
 #### With Claude Desktop
-Add to your MCP configuration file:
+
+##### Windows Configuration
+
+Add to `%APPDATA%\Claude\claude_desktop_config.json`:
+
+**Using UV (Recommended):**
+```json
+{
+  "mcpServers": {
+    "sdmx-gateway": {
+      "command": "uv",
+      "args": ["run", "--directory", "C:\\Users\\YOUR_USERNAME\\path\\to\\sdmx-mcp-gateway", "python", "main_server.py"]
+    }
+  }
+}
+```
+
+**Using Python directly:**
+```json
+{
+  "mcpServers": {
+    "sdmx-gateway": {
+      "command": "python",
+      "args": ["C:\\Users\\YOUR_USERNAME\\path\\to\\sdmx-mcp-gateway\\main_server.py"]
+    }
+  }
+}
+```
+
+**Important Windows Notes:**
+- Use double backslashes (`\\`) in paths
+- Use full absolute paths (the `cwd` parameter doesn't work reliably on Windows)
+- If using UV, first run `uv sync` in the project directory to install dependencies
+- Restart Claude Desktop after changing the configuration
+
+##### macOS/Linux Configuration
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/Claude/claude_desktop_config.json` (Linux):
 
 ```json
 {
@@ -293,6 +350,27 @@ The implementation follows a modified version of the original four-pillar archit
 4. **Structured Output Generator** (JSON formatting, not script generation)
 
 The server operates as a lightweight, stateless service that processes metadata only, never handling bulk statistical data transfer. This design ensures scalability and security while providing the intelligence needed for effective data discovery.
+
+## Known Issues & Future Enhancements
+
+### Multi-User Considerations
+⚠️ **Warning**: The current endpoint switching implementation uses global state, which means in a multi-user server deployment, when one user switches endpoints (e.g., from SPC to ECB), it affects ALL users. This is suitable for:
+- Single-user Claude Desktop integration
+- Local development and testing
+- Single-tenant deployments
+
+For multi-user production deployments, see `MULTI_USER_CONSIDERATIONS.md`.
+
+### Planned Enhancements
+
+1. **Enhanced Data Availability Checking**: 
+   - Current limitation: The availability tool checks if dimensions exist individually, but not their combinations
+   - Example: There might be data for "Vanuatu" and data for "2024", but no data for "Vanuatu in 2024"
+   - TODO: Extend the `get_data_availability` tool to check specific dimension combinations
+
+2. **Session-Based Endpoint Configuration**:
+   - Implement per-session endpoint configuration for multi-user scenarios
+   - Store endpoint selection in MCP Context rather than global state
 
 ## Contributing
 

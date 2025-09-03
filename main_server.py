@@ -12,14 +12,19 @@ from mcp.server.fastmcp import FastMCP
 
 # Import our modular components
 from tools.sdmx_tools import (
-    list_dataflows,
-    get_dataflow_structure,
-    get_dimension_codes,
-    get_data_availability,
-    validate_query,
+    list_dataflows as list_dataflows_impl,
+    get_dataflow_structure as get_dataflow_structure_impl,
+    get_dimension_codes as get_dimension_codes_impl,
+    get_data_availability as get_data_availability_impl,
+    validate_query as validate_query_impl,
     build_data_url as build_data_url_impl,
-    build_sdmx_key,
+    build_sdmx_key as build_sdmx_key_impl,
     cleanup_sdmx_client
+)
+from tools.endpoint_tools import (
+    get_current_endpoint as get_current_endpoint_impl,
+    list_available_endpoints as list_available_endpoints_impl,
+    switch_endpoint as switch_endpoint_impl
 )
 from resources.sdmx_resources import (
     list_known_agencies, get_agency_info, get_sdmx_format_guide,
@@ -59,7 +64,7 @@ async def list_dataflows(keywords: Optional[List[str]] = None,
         Dictionary with dataflows, pagination info, and navigation hints
     """
     # Returns minimal metadata by design for efficiency
-    return await list_dataflows(keywords, agency_id, limit, offset)
+    return await list_dataflows_impl(keywords, agency_id, limit, offset)
 
 @mcp.tool()
 async def get_dataflow_structure(dataflow_id: str,
@@ -72,7 +77,7 @@ async def get_dataflow_structure(dataflow_id: str,
     Use this after list_dataflows() to understand data organization.
     """
     # Always returns structure with codelist references
-    return await get_dataflow_structure(dataflow_id, agency_id, version)
+    return await get_dataflow_structure_impl(dataflow_id, agency_id, version)
 
 @mcp.tool()
 async def get_codelist(codelist_id: str,
@@ -107,7 +112,7 @@ async def get_dimension_codes(dataflow_id: str,
     This allows drilling down into specific dimensions without loading all codelists at once.
     Useful for finding valid values for a particular dimension in your data query.
     """
-    return await get_dimension_codes(
+    return await get_dimension_codes_impl(
         dataflow_id, dimension_id, search_term, limit, agency_id, version
     )
 
@@ -121,7 +126,7 @@ async def get_data_availability(dataflow_id: str,
     Returns information about what data actually exists, including time ranges 
     and dimension combinations. Use this to understand data coverage before querying.
     """
-    return await get_data_availability(dataflow_id, agency_id, version)
+    return await get_data_availability_impl(dataflow_id, agency_id, version)
 
 @mcp.tool()
 async def validate_query(dataflow_id: str,
@@ -151,7 +156,7 @@ async def validate_query(dataflow_id: str,
     Returns:
         Validation results including any errors, warnings, and invalid codes
     """
-    return await validate_query(
+    return await validate_query_impl(
         dataflow_id, key, provider, start_period, end_period,
         validate_codes, agency_id, version
     )
@@ -170,7 +175,7 @@ async def build_key(dataflow_id: str,
     
     Use this before build_data_url() to ensure your key has the correct format.
     """
-    return await build_sdmx_key(dataflow_id, dimensions, agency_id, version)
+    return await build_sdmx_key_impl(dataflow_id, dimensions, agency_id, version)
 
 @mcp.tool()
 async def build_data_url(dataflow_id: str,
@@ -197,13 +202,41 @@ async def build_data_url(dataflow_id: str,
         agency_id: The agency (default: "SPC")
         version: Version (default: "latest")
     """
-    # Need to pass dimension_at_observation to the implementation
     from urllib.parse import quote
+    from config import SDMX_BASE_URL
     
-    # Build base URL
-    base_url = "https://stats-sdmx-disseminate.pacificdata.org/rest"  # Default for SPC
-    flow_spec = f"{agency_id},{dataflow_id},{version}"
-    data_url = f"{base_url}/data/{flow_spec}/{quote(key)}/all"
+    # If version is "latest", we need to resolve it to the actual version number
+    actual_version = version
+    if version == "latest":
+        # Get the dataflow metadata to find the actual latest version
+        from sdmx_client import SDMXClient
+        client = SDMXClient()
+        try:
+            # Fetch dataflow to get actual version
+            url = f"{SDMX_BASE_URL}/dataflow/{agency_id}/{dataflow_id}/latest"
+            async with client.session.get(url) as response:
+                if response.status == 200:
+                    text = await response.text()
+                    # Parse version from the dataflow response
+                    import xml.etree.ElementTree as ET
+                    from utils import SDMX_NAMESPACES
+                    root = ET.fromstring(text)
+                    # Find the dataflow element and get its version
+                    for df in root.findall('.//str:Dataflow', SDMX_NAMESPACES):
+                        actual_version = df.get('version', '1.0')
+                        break
+                else:
+                    # Fallback to 1.0 if we can't fetch
+                    actual_version = "1.0"
+        except Exception:
+            # If we can't resolve, default to 1.0 which is common
+            actual_version = "1.0"
+        finally:
+            await client.close()
+    
+    # Build base URL with resolved version
+    flow_spec = f"{agency_id},{dataflow_id},{actual_version}"
+    data_url = f"{SDMX_BASE_URL}/data/{flow_spec}/{quote(key)}/all"
     
     # Build query parameters
     params = []
@@ -225,6 +258,7 @@ async def build_data_url(dataflow_id: str,
     
     return {
         "dataflow_id": dataflow_id,
+        "version": actual_version,  # Show the resolved version
         "key": key,
         "format": format_type,
         "url": data_url,
@@ -234,8 +268,57 @@ async def build_data_url(dataflow_id: str,
             "end": end_period
         } if start_period or end_period else None,
         "usage": "Use this URL to retrieve the actual statistical data",
-        "formats_available": ["csv", "json", "xml"]
+        "formats_available": ["csv", "json", "xml"],
+        "note": f"Version 'latest' resolved to '{actual_version}'" if version == "latest" else None
     }
+
+# Register endpoint management tools
+@mcp.tool()
+async def get_current_endpoint():
+    """
+    Get information about the currently active SDMX data source.
+    
+    Shows which statistical organization's API is being used (e.g., Pacific Data, 
+    European Central Bank, UNICEF).
+    
+    Returns:
+        Current endpoint name, URL, agency ID, and description
+    """
+    return await get_current_endpoint_impl()
+
+@mcp.tool()
+async def list_available_endpoints():
+    """
+    List all available SDMX data sources that can be switched to.
+    
+    Shows all configured statistical data providers (e.g., SPC, ECB, UNICEF)
+    and indicates which one is currently active.
+    
+    Returns:
+        List of available endpoints with their descriptions and status
+    """
+    return await list_available_endpoints_impl()
+
+@mcp.tool()
+async def switch_endpoint(endpoint_key: str):
+    """
+    Switch to a different SDMX data source.
+    
+    Changes the active statistical data provider. All subsequent queries will
+    use the new endpoint until switched again.
+    
+    Args:
+        endpoint_key: The endpoint to switch to (e.g., "SPC", "ECB", "UNICEF")
+        
+    Returns:
+        Confirmation of the switch with new endpoint details
+        
+    Examples:
+        - switch_endpoint("ECB") - Switch to European Central Bank
+        - switch_endpoint("UNICEF") - Switch to UNICEF data
+        - switch_endpoint("SPC") - Switch to Pacific Data Hub
+    """
+    return await switch_endpoint_impl(endpoint_key)
 
 # Register resources
 @mcp.resource("sdmx://agencies")

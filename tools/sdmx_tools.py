@@ -108,6 +108,15 @@ async def list_dataflows(
             }
         }
         
+        # Add filtering information if keywords were used
+        if keywords:
+            result["filter_info"] = {
+                "keywords_used": keywords,
+                "total_before_filter": len(all_dataflows),
+                "total_after_filter": total_count,
+                "filter_reduced_by": len(all_dataflows) - total_count
+            }
+        
         # Add unfiltered total if keywords were used
         if keywords:
             result["total_before_filtering"] = len(all_dataflows)

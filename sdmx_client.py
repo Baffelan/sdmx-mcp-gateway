@@ -11,6 +11,7 @@ import httpx
 from mcp.server.fastmcp import Context
 
 from utils import SDMX_NAMESPACES
+from config import SDMX_BASE_URL, SDMX_AGENCY_ID
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +19,9 @@ logger = logging.getLogger(__name__)
 class SDMXClient:
     """SDMX REST API client with full SDMX 2.1 support."""
     
-    def __init__(self, base_url: str = "https://stats-sdmx-disseminate.pacificdata.org/rest", agency_id: str = "SPC"):
-        self.base_url = base_url.rstrip('/')
-        self.agency_id = agency_id
+    def __init__(self, base_url: str = None, agency_id: str = None):
+        self.base_url = (base_url or SDMX_BASE_URL).rstrip('/')
+        self.agency_id = agency_id or SDMX_AGENCY_ID
         self.session = None
         
     async def _get_session(self) -> httpx.AsyncClient:

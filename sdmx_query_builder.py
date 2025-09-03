@@ -11,6 +11,7 @@ SDMX 2.1 REST API specification:
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 import logging
+from config import SDMX_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,8 @@ class SDMXQuerySpec:
 class SDMXQueryBuilder:
     """Builder for correct SDMX data queries."""
     
-    def __init__(self, base_url: str = "https://stats-sdmx-disseminate.pacificdata.org/rest"):
-        self.base_url = base_url.rstrip('/')
+    def __init__(self, base_url: str = None):
+        self.base_url = (base_url or SDMX_BASE_URL).rstrip('/')
     
     def build_data_key(self,
                       dimension_order: List[str],

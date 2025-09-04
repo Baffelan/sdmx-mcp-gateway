@@ -55,8 +55,8 @@ async def list_dataflows(
         
         # For discovery, we still need to get the list of all dataflows
         # But we'll return minimal info
-        from sdmx_client import SDMXClient
-        basic_client = SDMXClient()
+        # Note: SDMXProgressiveClient already has this functionality
+        basic_client = sdmx_client  # Use the existing progressive client instance
         
         all_dataflows = await basic_client.discover_dataflows(
             agency_id=agency_id,

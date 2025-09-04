@@ -470,6 +470,240 @@ class SDMXProgressiveClient:
                 "error": str(e)
             }
     
+    async def discover_dataflows(self, 
+                                agency_id: Optional[str] = None,
+                                resource_id: str = "all",
+                                version: str = "latest",
+                                references: str = "none",
+                                detail: str = "full",
+                                ctx: Optional[Context] = None) -> List[Dict[str, Any]]:
+        """
+        Discover available dataflows using SDMX 2.1 REST API.
+        
+        Endpoint: GET /dataflow/{agencyID}/{resourceID}/{version}
+        """
+        if ctx:
+            ctx.info("Starting dataflow discovery...")
+            await ctx.report_progress(0, 100)
+        
+        agency = agency_id or self.agency_id
+        url = f"{self.base_url}/dataflow/{agency}/{resource_id}/{version}"
+        
+        headers = {
+            "Accept": "application/vnd.sdmx.structure+xml;version=2.1"
+        }
+        
+        params = []
+        if references != "none":
+            params.append(f"references={references}")
+        if detail != "full":
+            params.append(f"detail={detail}")
+        
+        if params:
+            url += "?" + "&".join(params)
+        
+        try:
+            if ctx:
+                ctx.info(f"Fetching dataflows from: {url}")
+                await ctx.report_progress(25, 100)
+            
+            session = await self._get_session()
+            response = await session.get(url, headers=headers)
+            response.raise_for_status()
+            
+            if ctx:
+                ctx.info("Parsing SDMX-ML response...")
+                await ctx.report_progress(50, 100)
+            
+            # Parse SDMX-ML response
+            root = ET.fromstring(response.content)
+            
+            dataflows = []
+            df_elements = root.findall('.//str:Dataflow', SDMX_NAMESPACES)
+            
+            if ctx and df_elements:
+                ctx.info(f"Processing {len(df_elements)} dataflows...")
+            
+            for i, df in enumerate(df_elements):
+                df_id = df.get('id')
+                df_agency = df.get('agencyID', agency)
+                df_version = df.get('version', 'latest')
+                is_final = df.get('isFinal', 'false').lower() == 'true'
+                
+                # Extract name and description
+                name_elem = df.find('./com:Name', SDMX_NAMESPACES)
+                desc_elem = df.find('./com:Description', SDMX_NAMESPACES)
+                
+                name = name_elem.text if name_elem is not None else df_id
+                description = desc_elem.text if desc_elem is not None else ""
+                
+                # Extract structure reference if available
+                structure_ref = None
+                struct_elem = df.find('./str:Structure', SDMX_NAMESPACES)
+                if struct_elem is not None:
+                    struct_ref = struct_elem.find('./com:Ref', SDMX_NAMESPACES)
+                    if struct_ref is not None:
+                        structure_ref = {
+                            'id': struct_ref.get('id'),
+                            'agency': struct_ref.get('agencyID', df_agency),
+                            'version': struct_ref.get('version', df_version)
+                        }
+                
+                dataflow_info = {
+                    "id": df_id,
+                    "agency": df_agency,
+                    "version": df_version,
+                    "name": name,
+                    "description": description,
+                    "is_final": is_final,
+                    "structure_reference": structure_ref,
+                    "data_url_template": f"{self.base_url}/data/{df_agency},{df_id},{df_version}/{{key}}/{{provider}}",
+                    "metadata_url": f"{self.base_url}/dataflow/{df_agency}/{df_id}/{df_version}"
+                }
+                
+                dataflows.append(dataflow_info)
+                
+                if ctx:
+                    progress = 50 + ((i + 1) * 40 // len(df_elements))
+                    await ctx.report_progress(progress, 100)
+            
+            if ctx:
+                ctx.info(f"Successfully discovered {len(dataflows)} dataflows")
+                await ctx.report_progress(100, 100)
+            
+            return dataflows
+            
+        except Exception as e:
+            if ctx:
+                ctx.info(f"Error discovering dataflows: {str(e)}")
+            logger.exception("Failed to discover dataflows")
+            raise
+    
+    async def browse_codelist(self,
+                            codelist_id: str,
+                            agency_id: Optional[str] = None,
+                            version: str = "latest",
+                            search_term: Optional[str] = None,
+                            ctx: Optional[Context] = None) -> Dict[str, Any]:
+        """
+        Browse codes in a specific codelist using the SDMX codelist endpoint.
+        
+        This is used for standalone codelist browsing (not in dataflow context).
+        
+        Endpoint: GET /codelist/{agencyID}/{resourceID}/{version}
+        
+        Args:
+            codelist_id: The codelist identifier
+            agency_id: The agency ID (defaults to configured agency)
+            version: The version (default: "latest")
+            search_term: Optional search filter for codes
+            ctx: Optional MCP context
+            
+        Returns:
+            Dict containing codelist metadata and codes
+        """
+        if ctx:
+            ctx.info(f"Retrieving codelist {codelist_id}...")
+        
+        agency = agency_id or self.agency_id
+        
+        # Build the codelist URL according to SDMX 2.1 spec
+        url = f"{self.base_url}/codelist/{agency}/{codelist_id}/{version}"
+        
+        try:
+            session = await self._get_session()
+            
+            if ctx:
+                await ctx.report_progress(25, 100)
+            
+            # Request the codelist
+            response = await session.get(url)
+            response.raise_for_status()
+            
+            if ctx:
+                await ctx.report_progress(50, 100)
+            
+            # Parse the XML response
+            root = ET.fromstring(response.text)
+            
+            codes = []
+            
+            # Find the codelist element
+            codelist_elem = root.find('.//str:Codelist', SDMX_NAMESPACES)
+            if codelist_elem is None:
+                # Try without namespace prefix
+                codelist_elem = root.find('.//Codelist', SDMX_NAMESPACES)
+            
+            if codelist_elem:
+                # Get codelist metadata
+                cl_id = codelist_elem.get('id')
+                cl_agency = codelist_elem.get('agencyID', agency)
+                cl_version = codelist_elem.get('version', '1.0')
+                
+                # Get name
+                name_elem = codelist_elem.find('.//com:Name', SDMX_NAMESPACES)
+                cl_name = name_elem.text if name_elem is not None else cl_id
+                
+                # Extract codes
+                for code_elem in codelist_elem.findall('.//str:Code', SDMX_NAMESPACES):
+                    code_id = code_elem.get('id')
+                    
+                    # Get code name/description
+                    name_elem = code_elem.find('.//com:Name', SDMX_NAMESPACES)
+                    code_name = name_elem.text if name_elem is not None else code_id
+                    
+                    # Get description if available
+                    desc_elem = code_elem.find('.//com:Description', SDMX_NAMESPACES)
+                    code_desc = desc_elem.text if desc_elem is not None else ""
+                    
+                    # Apply search filter if provided
+                    if search_term:
+                        search_lower = search_term.lower()
+                        if (search_lower not in code_id.lower() and 
+                            search_lower not in code_name.lower() and
+                            search_lower not in code_desc.lower()):
+                            continue
+                    
+                    codes.append({
+                        "id": code_id,
+                        "name": code_name,
+                        "description": code_desc
+                    })
+            
+            if ctx:
+                await ctx.report_progress(100, 100)
+                ctx.info(f"Retrieved {len(codes)} codes from codelist")
+            
+            return {
+                "codelist_id": cl_id if codelist_elem else codelist_id,
+                "agency_id": cl_agency if codelist_elem else agency,
+                "version": cl_version if codelist_elem else version,
+                "name": cl_name if codelist_elem else codelist_id,
+                "codes": codes,
+                "total_codes": len(codes),
+                "filtered_by": search_term if search_term else None
+            }
+            
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP error {e.response.status_code}: {e.response.text[:200]}"
+            if ctx:
+                ctx.info(f"Error retrieving codelist: {error_msg}")
+            logger.error(f"Failed to get codelist {codelist_id}: {error_msg}")
+            return {
+                "codelist_id": codelist_id,
+                "error": error_msg,
+                "codes": []
+            }
+        except Exception as e:
+            if ctx:
+                ctx.info(f"Error retrieving codelist: {str(e)}")
+            logger.exception(f"Failed to get codelist {codelist_id}")
+            return {
+                "codelist_id": codelist_id,
+                "error": str(e),
+                "codes": []
+            }
+    
     async def get_actual_availability(self,
                                      dataflow_id: str,
                                      agency_id: Optional[str] = None,

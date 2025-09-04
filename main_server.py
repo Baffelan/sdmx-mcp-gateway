@@ -91,8 +91,8 @@ async def get_codelist(codelist_id: str,
     Use this to find the exact codes needed for your data query.
     """
     # Use the proper SDMX codelist endpoint
-    from sdmx_client import SDMXClient
-    client = SDMXClient()
+    from sdmx_progressive_client import SDMXProgressiveClient
+    client = SDMXProgressiveClient()
     try:
         result = await client.browse_codelist(codelist_id, agency_id, version, search_term)
         return result
@@ -236,8 +236,8 @@ async def build_data_url(dataflow_id: str,
     from config import SDMX_BASE_URL
     
     # Resolve version using the cached method
-    from sdmx_client import SDMXClient
-    client = SDMXClient()
+    from sdmx_progressive_client import SDMXProgressiveClient
+    client = SDMXProgressiveClient()
     try:
         actual_version = await client.resolve_version(
             dataflow_id=dataflow_id,

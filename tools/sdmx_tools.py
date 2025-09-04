@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sdmx_progressive_client import SDMXProgressiveClient
 from utils import (
     validate_dataflow_id, validate_sdmx_key, validate_provider, validate_period,
-    filter_dataflows_by_keywords, SDMX_FORMATS
+    filter_dataflows_by_keywords, SDMX_FORMATS, SDMX_NAMESPACES
 )
 
 logger = logging.getLogger(__name__)
@@ -159,11 +159,19 @@ async def get_dataflow_structure(
         if ctx:
             ctx.info(f"Getting structure for dataflow {dataflow_id}...")
         
+        # Resolve version first and cache it
+        resolved_version = await sdmx_client.resolve_version(
+            dataflow_id=dataflow_id,
+            agency_id=agency_id,
+            version=version,
+            ctx=ctx
+        )
+        
         # Get overview first
         overview = await sdmx_client.get_dataflow_overview(
             dataflow_id=dataflow_id,
             agency_id=agency_id,
-            version=version,
+            version=resolved_version,
             ctx=ctx
         )
         
@@ -171,7 +179,7 @@ async def get_dataflow_structure(
         summary = await sdmx_client.get_structure_summary(
             dataflow_id=dataflow_id,
             agency_id=agency_id,
-            version=version,
+            version=resolved_version,
             ctx=ctx
         )
         
@@ -181,7 +189,8 @@ async def get_dataflow_structure(
             "dataflow": {
                 "id": overview.id,
                 "name": overview.name,
-                "description": overview.description
+                "description": overview.description,
+                "version": resolved_version  # Include resolved version
             },
             "structure": {
                 "id": summary.id,
@@ -273,19 +282,69 @@ async def get_dimension_codes(
 
 async def get_data_availability(
     dataflow_id: str,
+    dimension_values: Optional[Dict[str, str]] = None,
     agency_id: str = "SPC",
     version: str = "latest",
+    start_period: Optional[str] = None,
+    end_period: Optional[str] = None,
+    progressive_check: Optional[List[Dict[str, str]]] = None,
     ctx: Context = None
 ) -> Dict[str, Any]:
     """
-    Step 4: Check actual data availability.
+    Step 4: Check actual data availability for the entire dataflow or specific dimension combinations.
     
-    Returns information about what data actually exists,
-    including time ranges and dimension combinations.
+    This tool is critical for avoiding empty query results. It can:
+    1. Check overall dataflow availability (when dimension_values is None)
+    2. Check specific dimension combinations (when dimension_values is provided)
+    3. Perform progressive checking (when progressive_check is provided)
+    
+    Args:
+        dataflow_id: The dataflow to check
+        dimension_values: Optional dict of dimension=value pairs to check
+                         e.g., {"GEO": "VU", "INDICATOR": "GDP"}
+                         If None, checks overall dataflow availability
+        agency_id: The agency ID
+        version: Dataflow version
+        start_period: Optional start period filter
+        end_period: Optional end period filter
+        progressive_check: List of dimension combinations to check progressively
+                          e.g., [{"GEO": "VU"}, {"GEO": "VU", "INDICATOR": "GDP"}]
+        ctx: MCP context
+        
+    Returns:
+        Information about what data exists, including time ranges and suggestions
+        
+    Examples:
+        1. Check overall: get_data_availability("DF_GDP")
+        2. Check combination: get_data_availability("DF_GDP", {"GEO": "VU", "YEAR": "2024"})
+        3. Progressive: get_data_availability("DF_GDP", progressive_check=[...])
     """
     try:
+        # If progressive_check is provided, do progressive checking
+        if progressive_check:
+            return await _progressive_availability_check(
+                dataflow_id=dataflow_id,
+                dimensions_to_check=progressive_check,
+                agency_id=agency_id,
+                version=version,
+                ctx=ctx
+            )
+        
+        # If dimension_values is provided, check specific combination
+        if dimension_values:
+            return await _check_dimension_combination(
+                dataflow_id=dataflow_id,
+                dimension_values=dimension_values,
+                agency_id=agency_id,
+                version=version,
+                start_period=start_period,
+                end_period=end_period,
+                ctx=ctx
+            )
+        
+        # Otherwise, check overall dataflow availability
         if ctx:
-            ctx.info(f"Checking data availability for {dataflow_id}...")
+            ctx.info(f"Checking overall data availability for {dataflow_id}...")
         
         availability = await sdmx_client.get_actual_availability(
             dataflow_id=dataflow_id,
@@ -820,6 +879,329 @@ async def build_sdmx_key(
             "dataflow_id": dataflow_id,
             "dimensions_provided": dimensions or {}
         }
+
+
+async def _check_dimension_combination(
+    dataflow_id: str,
+    dimension_values: Dict[str, str],
+    agency_id: str,
+    version: str,
+    start_period: Optional[str],
+    end_period: Optional[str],
+    ctx: Context
+) -> Dict[str, Any]:
+    """Check availability for a specific dimension combination."""
+    from urllib.parse import quote
+    import xml.etree.ElementTree as ET
+    
+    if ctx:
+        ctx.info(f"Checking availability for dimensions: {dimension_values}")
+    
+    try:
+        # Get structure to know dimension order
+        structure = await sdmx_client.get_structure_summary(
+            dataflow_id=dataflow_id,
+            agency_id=agency_id,
+            version=version,
+            ctx=ctx
+        )
+        
+        # Check if structure is a DataStructureSummary object or dict
+        if hasattr(structure, 'dimensions'):
+            dimensions_list = structure.dimensions
+        elif isinstance(structure, dict) and "dimensions" in structure:
+            dimensions_list = structure["dimensions"]
+        else:
+            return {
+                "error": "Could not retrieve dataflow structure",
+                "has_data": False
+            }
+        
+        # Build SDMX key from dimension values
+        # Note: TIME_PERIOD is handled separately via query params, not in the key
+        key_parts = []
+        
+        for dim in dimensions_list:
+            # Handle both dict and object access
+            if isinstance(dim, dict):
+                dim_id = dim["id"]
+                dim_type = dim.get("type", "Dimension")
+            else:
+                dim_id = dim.id
+                dim_type = getattr(dim, "type", "Dimension")
+            
+            # Skip TIME_PERIOD as it's a TimeDimension handled via query params
+            if dim_id == "TIME_PERIOD" or dim_type == "TimeDimension":
+                continue
+                
+            if dim_id in dimension_values:
+                key_parts.append(dimension_values[dim_id])
+            else:
+                key_parts.append("")  # Empty means all values
+        
+        sdmx_key = ".".join(key_parts) if key_parts else "all"
+        
+        # Use availableconstraint endpoint per SDMX 2.1 REST spec
+        # Format: /availableconstraint/{flow}/{key}/{provider}/{componentID}
+        from config import SDMX_BASE_URL
+        
+        # Resolve version using the client's cached method
+        try:
+            actual_version = await sdmx_client.resolve_version(
+                dataflow_id=dataflow_id,
+                agency_id=agency_id,
+                version=version,
+                ctx=ctx
+            )
+        except ValueError as e:
+            return {
+                "error": f"Version resolution failed: {e}",
+                "has_data": False
+            }
+        
+        flow = f"{agency_id},{dataflow_id},{actual_version}"
+        
+        # Build URL: {flow}/{key}/{provider}/{componentID}
+        url = f"{SDMX_BASE_URL}/availableconstraint/{flow}/{sdmx_key}/all/all"
+        
+        params = []
+        
+        # Handle TIME_PERIOD from dimension_values if present
+        if "TIME_PERIOD" in dimension_values:
+            time_value = dimension_values["TIME_PERIOD"]
+            params.append(f"startPeriod={quote(time_value)}")
+            params.append(f"endPeriod={quote(time_value)}")
+        elif start_period or end_period:
+            if start_period:
+                params.append(f"startPeriod={quote(start_period)}")
+            if end_period:
+                params.append(f"endPeriod={quote(end_period)}")
+        
+        # Use mode=exact (default) to check what data actually exists for this key
+        # params.append("mode=exact")  # Not needed as exact is the default
+        
+        if params:
+            url += "?" + "&".join(params)
+        
+        # Make request
+        session = await sdmx_client._get_session()
+        response = await session.get(url)
+        
+        if response.status_code == 404:
+            return {
+                "has_data": False,
+                "dimension_combination": dimension_values,
+                "message": "No data exists for this dimension combination",
+                "suggestions": [
+                    "Try removing the most specific dimension",
+                    "Check each dimension individually first"
+                ]
+            }
+        elif response.status_code != 200:
+            return {
+                "error": f"Availability check failed: {response.status_code}",
+                "has_data": False
+            }
+        
+        # Parse response to check if data exists
+        root = ET.fromstring(response.content)
+        
+        # Look for cube regions (in structure namespace, not common)
+        cube_regions = root.findall('.//str:CubeRegion', SDMX_NAMESPACES)
+        time_ranges = []
+        available_dims = {}
+        
+        # Validate that the response actually confirms our requested dimensions
+        has_valid_data = False
+        
+        for region in cube_regions:
+            # Check if this region actually validates our requested dimensions
+            region_matches = True
+            for req_dim, req_value in dimension_values.items():
+                # Find the KeyValue for this dimension
+                dim_found = False
+                for key_value in region.findall(f'.//com:KeyValue[@id="{req_dim}"]', SDMX_NAMESPACES):
+                    # Check if it's a time dimension with TimeRange
+                    time_range = key_value.find('.//com:TimeRange', SDMX_NAMESPACES)
+                    if time_range is not None:
+                        # For time dimensions, check if the requested value falls within the range
+                        # For now, consider it valid if a TimeRange exists
+                        # TODO: Implement proper date range checking
+                        dim_found = True
+                        break
+                    
+                    # Regular dimension with Value elements
+                    values = key_value.findall('.//com:Value', SDMX_NAMESPACES)
+                    if values:
+                        # Check if any value matches or is empty (wildcard)
+                        for v in values:
+                            if v.text == req_value or not v.text:  # Match or wildcard
+                                dim_found = True
+                                break
+                    else:
+                        # No values means wildcard (all values)
+                        dim_found = True
+                    break
+                    
+                if not dim_found:
+                    region_matches = False
+                    break
+            
+            if region_matches:
+                has_valid_data = True
+            # Check for time periods in any KeyValue that has a TimeRange
+            # (time dimension can have different names, not always TIME_PERIOD)
+            for key_value in region.findall('.//com:KeyValue', SDMX_NAMESPACES):
+                # Check if this KeyValue contains a TimeRange (indicates it's a time dimension)
+                for time_range in key_value.findall('.//com:TimeRange', SDMX_NAMESPACES):
+                    start = time_range.find('.//com:StartPeriod', SDMX_NAMESPACES)
+                    end = time_range.find('.//com:EndPeriod', SDMX_NAMESPACES)
+                    if start is not None and start.text:
+                        # Extract just the date part (YYYY-MM-DD) from datetime
+                        start_date = start.text.split('T')[0]
+                        time_ranges.append(start_date)
+                    if end is not None and end.text:
+                        # Extract just the date part (YYYY-MM-DD) from datetime
+                        end_date = end.text.split('T')[0]
+                        if end_date not in time_ranges:
+                            time_ranges.append(end_date)
+            
+            # Collect available dimension values
+            for key_value in region.findall('.//com:KeyValue', SDMX_NAMESPACES):
+                dim_id = key_value.get('id')
+                if dim_id and dim_id not in dimension_values:
+                    # Skip if this KeyValue has a TimeRange (it's a time dimension)
+                    if key_value.find('.//com:TimeRange', SDMX_NAMESPACES) is not None:
+                        continue
+                    if dim_id not in available_dims:
+                        available_dims[dim_id] = set()
+                    for value in key_value.findall('.//com:Value', SDMX_NAMESPACES):
+                        if value.text:
+                            available_dims[dim_id].add(value.text)
+            
+        # Convert sets to lists
+        for dim_id in available_dims:
+            available_dims[dim_id] = sorted(list(available_dims[dim_id]))[:10]  # Limit to 10 examples
+        
+        # Use our validation result instead of just checking if regions exist
+        has_data = has_valid_data
+        
+        result = {
+            "has_data": has_data,
+            "dimension_combination": dimension_values,
+            "dataflow_id": dataflow_id
+        }
+        
+        if has_data:
+            if time_ranges:
+                result["time_range"] = {
+                    "earliest": min(time_ranges),
+                    "latest": max(time_ranges),
+                    "periods_available": len(set(time_ranges))
+                }
+            
+            if available_dims:
+                result["other_available_dimensions"] = available_dims
+                
+            result["suggestions"] = [
+                "Data exists for this combination",
+                f"You can query this data using the key: {sdmx_key}"
+            ]
+        else:
+            result["suggestions"] = [
+                "No data found for this exact combination",
+                "Try broader criteria by removing specific dimensions"
+            ]
+        
+        return result
+            
+    except Exception as e:
+        logger.exception(f"Failed to check dimension combination")
+        return {
+            "error": str(e),
+            "has_data": False,
+            "dimension_combination": dimension_values
+        }
+
+
+async def _progressive_availability_check(
+    dataflow_id: str,
+    dimensions_to_check: List[Dict[str, str]],
+    agency_id: str,
+    version: str,
+    ctx: Context
+) -> Dict[str, Any]:
+    """Perform progressive availability checking."""
+    results = []
+    
+    for i, dimension_combo in enumerate(dimensions_to_check, 1):
+        if ctx:
+            ctx.info(f"Progressive check {i}/{len(dimensions_to_check)}: {dimension_combo}")
+        
+        availability = await _check_dimension_combination(
+            dataflow_id=dataflow_id,
+            dimension_values=dimension_combo,
+            agency_id=agency_id,
+            version=version,
+            start_period=None,
+            end_period=None,
+            ctx=ctx
+        )
+        
+        results.append({
+            "step": i,
+            "dimensions": dimension_combo,
+            "has_data": availability.get("has_data", False),
+            "details": availability
+        })
+        
+        # Stop if no data found
+        if not availability.get("has_data", False):
+            break
+    
+    # Find last valid combination
+    last_valid = None
+    for r in results:
+        if r["has_data"]:
+            last_valid = r
+    
+    return {
+        "dataflow_id": dataflow_id,
+        "progressive_results": results,
+        "last_valid_combination": last_valid["dimensions"] if last_valid else None,
+        "recommendation": _generate_recommendation(results)
+    }
+
+
+def _generate_recommendation(results: List[Dict]) -> str:
+    """Generate recommendation based on progressive results."""
+    if not results:
+        return "No checks performed"
+    
+    last_valid_idx = -1
+    for i, r in enumerate(results):
+        if r["has_data"]:
+            last_valid_idx = i
+    
+    if last_valid_idx == -1:
+        return "No data available even at the broadest level. Check the dataflow ID."
+    
+    if last_valid_idx == len(results) - 1:
+        return "All dimension combinations have data. Query is valid."
+    
+    # Data stops at some point
+    failed = results[last_valid_idx + 1]
+    valid = results[last_valid_idx]
+    
+    # Find what dimension was added
+    added_dims = {k: v for k, v in failed["dimensions"].items() 
+                  if k not in valid["dimensions"]}
+    
+    if added_dims:
+        dim_str = ", ".join(f"{k}={v}" for k, v in added_dims.items())
+        return f"Data exists up to {valid['dimensions']} but not when adding {dim_str}. Use the last valid combination."
+    
+    return "Use the last valid dimension combination for your query."
 
 
 async def cleanup_sdmx_client():

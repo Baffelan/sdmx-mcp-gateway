@@ -7,7 +7,7 @@ Provides tools, resources, and prompts for exploring statistical data.
 
 import logging
 import asyncio
-from typing import Optional, List
+from typing import Optional, List, Dict
 from mcp.server.fastmcp import FastMCP
 
 # Import our modular components
@@ -117,16 +117,46 @@ async def get_dimension_codes(dataflow_id: str,
     )
 
 @mcp.tool()
-async def get_data_availability(dataflow_id: str,
-                               agency_id: str = "SPC",
-                               version: str = "latest"):
+async def get_data_availability(
+    dataflow_id: str,
+    dimension_values: Optional[Dict[str, str]] = None,
+    agency_id: str = "SPC",
+    version: str = "latest",
+    start_period: Optional[str] = None,
+    end_period: Optional[str] = None,
+    progressive_check: Optional[List[Dict[str, str]]] = None
+):
     """
-    Get actual data availability for a dataflow.
+    Get actual data availability for a dataflow or specific dimension combinations.
     
-    Returns information about what data actually exists, including time ranges 
-    and dimension combinations. Use this to understand data coverage before querying.
+    This tool is critical for avoiding empty query results. It can:
+    1. Check overall dataflow availability (when dimension_values is None)
+    2. Check specific dimension combinations (when dimension_values is provided)
+    3. Perform progressive checking (when progressive_check is provided)
+    
+    Args:
+        dataflow_id: The dataflow to check
+        dimension_values: Optional dict of dimension=value pairs to check
+                         e.g., {"GEO": "VU", "INDICATOR": "GDP"}
+        agency_id: The agency ID
+        version: Dataflow version
+        start_period: Optional start period filter
+        end_period: Optional end period filter
+        progressive_check: List of dimension combinations to check progressively
+                          e.g., [{"GEO": "VU"}, {"GEO": "VU", "INDICATOR": "GDP"}]
+        
+    Returns:
+        Information about what data exists, including time ranges and suggestions
     """
-    return await get_data_availability_impl(dataflow_id, agency_id, version)
+    return await get_data_availability_impl(
+        dataflow_id=dataflow_id,
+        dimension_values=dimension_values,
+        agency_id=agency_id,
+        version=version,
+        start_period=start_period,
+        end_period=end_period,
+        progressive_check=progressive_check
+    )
 
 @mcp.tool()
 async def validate_query(dataflow_id: str,
@@ -205,34 +235,24 @@ async def build_data_url(dataflow_id: str,
     from urllib.parse import quote
     from config import SDMX_BASE_URL
     
-    # If version is "latest", we need to resolve it to the actual version number
-    actual_version = version
-    if version == "latest":
-        # Get the dataflow metadata to find the actual latest version
-        from sdmx_client import SDMXClient
-        client = SDMXClient()
-        try:
-            # Fetch dataflow to get actual version
-            url = f"{SDMX_BASE_URL}/dataflow/{agency_id}/{dataflow_id}/latest"
-            async with client.session.get(url) as response:
-                if response.status == 200:
-                    text = await response.text()
-                    # Parse version from the dataflow response
-                    import xml.etree.ElementTree as ET
-                    from utils import SDMX_NAMESPACES
-                    root = ET.fromstring(text)
-                    # Find the dataflow element and get its version
-                    for df in root.findall('.//str:Dataflow', SDMX_NAMESPACES):
-                        actual_version = df.get('version', '1.0')
-                        break
-                else:
-                    # Fallback to 1.0 if we can't fetch
-                    actual_version = "1.0"
-        except Exception:
-            # If we can't resolve, default to 1.0 which is common
-            actual_version = "1.0"
-        finally:
-            await client.close()
+    # Resolve version using the cached method
+    from sdmx_client import SDMXClient
+    client = SDMXClient()
+    try:
+        actual_version = await client.resolve_version(
+            dataflow_id=dataflow_id,
+            agency_id=agency_id,
+            version=version
+        )
+    except ValueError as e:
+        # Return error if version cannot be resolved
+        return {
+            "error": f"Failed to resolve version: {e}",
+            "dataflow_id": dataflow_id,
+            "version": version
+        }
+    finally:
+        await client.close()
     
     # Build base URL with resolved version
     flow_spec = f"{agency_id},{dataflow_id},{actual_version}"

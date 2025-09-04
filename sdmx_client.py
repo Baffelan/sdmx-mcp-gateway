@@ -23,6 +23,9 @@ class SDMXClient:
         self.base_url = (base_url or SDMX_BASE_URL).rstrip('/')
         self.agency_id = agency_id or SDMX_AGENCY_ID
         self.session = None
+        # Cache for dataflow versions to avoid repeated lookups
+        # Format: {(agency_id, dataflow_id): version}
+        self.version_cache = {}
         
     async def _get_session(self) -> httpx.AsyncClient:
         """Get or create HTTP session."""
@@ -35,6 +38,78 @@ class SDMXClient:
         if self.session:
             await self.session.aclose()
             self.session = None
+    
+    async def resolve_version(self, 
+                             dataflow_id: str,
+                             agency_id: str = None,
+                             version: str = "latest",
+                             ctx: Optional[Context] = None) -> str:
+        """
+        Resolve a version string to actual version number.
+        Returns the version as-is if not "latest", otherwise fetches and caches the actual version.
+        
+        Args:
+            dataflow_id: The dataflow ID
+            agency_id: The agency ID
+            version: The version string (could be "latest" or a specific version)
+            ctx: Optional MCP context
+            
+        Returns:
+            The resolved version number
+            
+        Raises:
+            ValueError: If version cannot be resolved
+        """
+        # If not "latest", return as-is
+        if version != "latest":
+            return version
+            
+        agency_id = agency_id or self.agency_id
+        cache_key = (agency_id, dataflow_id)
+        
+        # Check cache first
+        if cache_key in self.version_cache:
+            if ctx:
+                ctx.info(f"Using cached version for {dataflow_id}: {self.version_cache[cache_key]}")
+            return self.version_cache[cache_key]
+        
+        # Fetch the actual version
+        if ctx:
+            ctx.info(f"Resolving 'latest' version for {dataflow_id}...")
+            
+        session = await self._get_session()
+        url = f"{self.base_url}/dataflow/{agency_id}/{dataflow_id}/latest"
+        
+        try:
+            response = await session.get(url)
+            if response.status_code != 200:
+                raise ValueError(f"Failed to fetch dataflow metadata: HTTP {response.status_code}")
+            
+            # Parse to get the actual version
+            root = ET.fromstring(response.text)
+            actual_version = None
+            
+            # Find the dataflow element and extract version
+            for df_elem in root.findall('.//str:Dataflow', SDMX_NAMESPACES):
+                actual_version = df_elem.get('version')
+                if actual_version:
+                    break
+            
+            if not actual_version:
+                raise ValueError(f"Could not extract version from dataflow response")
+            
+            # Cache the result
+            self.version_cache[cache_key] = actual_version
+            
+            if ctx:
+                ctx.info(f"Resolved 'latest' to version {actual_version}")
+                
+            return actual_version
+            
+        except httpx.RequestError as e:
+            raise ValueError(f"Network error resolving version: {e}")
+        except ET.ParseError as e:
+            raise ValueError(f"Error parsing dataflow response: {e}")
     
     async def discover_dataflows(self, 
                                 agency_id: Optional[str] = None,

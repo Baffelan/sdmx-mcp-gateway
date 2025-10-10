@@ -13,7 +13,6 @@ import xml.etree.ElementTree as ET
 from urllib.parse import quote
 from dataclasses import dataclass
 from enum import Enum
-import ssl
 
 import httpx
 import certifi
@@ -115,13 +114,11 @@ class SDMXProgressiveClient:
     async def _get_session(self) -> httpx.AsyncClient:
         """Get or create HTTP session with proper SSL certificate verification."""
         if self.session is None:
-            # Create SSL context with certifi's certificate bundle
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
-
-            # Create httpx client with the SSL context
+            # Use certifi's certificate bundle directly
+            # This works better cross-platform (Windows/Linux/macOS)
             self.session = httpx.AsyncClient(
                 timeout=30.0,
-                verify=ssl_context
+                verify=certifi.where()  # Pass cert file path directly
             )
         return self.session
     

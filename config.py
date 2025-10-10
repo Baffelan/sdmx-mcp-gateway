@@ -38,14 +38,14 @@ SDMX_ENDPOINTS = {
         "description": "Children and youth statistics",
         "status": "✅ Fully working"
     },
+    "IMF": {
+        "name": "International Monetary Fund",
+        "base_url": "https://api.imf.org/external/sdmx/2.1",
+        "agency_id": "IMF.STA",
+        "description": "Global financial statistics",
+        "status": "✅ Fully working"
+    },
     # These endpoints have limitations:
-    # "IMF": {
-    #     "name": "International Monetary Fund",
-    #     "base_url": "https://api.imf.org/external/sdmx/2.1",
-    #     "agency_id": "IMF",
-    #     "description": "Global financial statistics",
-    #     "status": "⚠️ Returns 204 for agency-specific queries, use /dataflow without agency"
-    # },
     # "OECD": {
     #     "name": "OECD",
     #     "base_url": "https://sdmx.oecd.org/public/rest",

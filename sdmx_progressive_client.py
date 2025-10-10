@@ -277,26 +277,54 @@ class SDMXProgressiveClient:
         if cache_key in self._cache:
             return self._cache[cache_key]
         
-        # Fetch DSD with minimal references
-        dsd_url = f"{self.base_url}/datastructure/{overview.dsd_ref['agency']}/{overview.dsd_ref['id']}/{overview.dsd_ref['version']}?references=none"
-        
+        # Fetch DSD with codelist references
+        # Use references=children to get codelists referenced by the DSD
+        # Also use detail=full to get concept scheme information for IMF-style references
+        dsd_url = f"{self.base_url}/datastructure/{overview.dsd_ref['agency']}/{overview.dsd_ref['id']}/{overview.dsd_ref['version']}?references=children&detail=full"
+
         if ctx:
             ctx.info(f"Getting structure summary for {overview.dsd_ref['id']}...")
-        
+
         try:
             session = await self._get_session()
             response = await session.get(dsd_url, headers={"Accept": "application/vnd.sdmx.structure+xml;version=2.1"})
             response.raise_for_status()
-            
+
             root = ET.fromstring(response.content)
             dsd_elem = root.find('.//str:DataStructure', SDMX_NAMESPACES)
-            
+
             if not dsd_elem:
                 raise ValueError("No DataStructure found in response")
-            
+
+            # Build a concept->codelist mapping from ConceptSchemes in the response
+            # This handles IMF-style references where dimensions use ConceptIdentity
+            concept_to_codelist = {}
+            for concept_scheme in root.findall('.//str:ConceptScheme', SDMX_NAMESPACES):
+                for concept in concept_scheme.findall('.//str:Concept', SDMX_NAMESPACES):
+                    concept_id = concept.get('id')
+                    # Look for CoreRepresentation/Enumeration/Ref
+                    # Try with namespace prefix first
+                    cl_ref = concept.find('.//str:CoreRepresentation/str:Enumeration/Ref', SDMX_NAMESPACES)
+                    if not cl_ref:
+                        cl_ref = concept.find('.//str:CoreRepresentation/str:Enumeration/com:Ref', SDMX_NAMESPACES)
+                    # IMF uses unprefixed Ref elements, so search for any Ref element
+                    if not cl_ref:
+                        # Search for unprefixed Ref that is a Codelist
+                        for elem in concept.iter():
+                            if elem.tag.endswith('Ref') and elem.get('class') == 'Codelist':
+                                cl_ref = elem
+                                break
+
+                    if cl_ref is not None and concept_id:
+                        concept_to_codelist[concept_id] = {
+                            'id': cl_ref.get('id'),
+                            'agency': cl_ref.get('agencyID'),
+                            'version': cl_ref.get('version', '1.0')
+                        }
+
             dimensions = []
             key_family = []
-            
+
             # Parse dimensions in order
             dim_list = dsd_elem.find('.//str:DimensionList', SDMX_NAMESPACES)
             if dim_list:
@@ -304,24 +332,36 @@ class SDMXProgressiveClient:
                 for dim in dim_list.findall('.//str:Dimension', SDMX_NAMESPACES):
                     position = int(dim.get('position', '0'))
                     dim_id = dim.get('id')
-                    
-                    # Get codelist reference
+                    concept_id = None
+
+                    # Get codelist reference - support two SDMX patterns:
+                    # Pattern 1: Direct LocalRepresentation/Enumeration/Ref (SPC, ECB, UNICEF)
                     codelist_ref = None
                     cl_ref = dim.find('.//str:LocalRepresentation/str:Enumeration/Ref', SDMX_NAMESPACES)
                     if cl_ref is None:
                         cl_ref = dim.find('.//str:LocalRepresentation/str:Enumeration/com:Ref', SDMX_NAMESPACES)
-                    
+
                     if cl_ref is not None:
+                        # Found direct enumeration reference
                         codelist_ref = {
                             'id': cl_ref.get('id'),
                             'agency': cl_ref.get('agencyID', agency),
                             'version': cl_ref.get('version', '1.0')
                         }
-                    
+                    else:
+                        # Pattern 2: ConceptIdentity reference (IMF style)
+                        # Look up the concept in our concept->codelist mapping
+                        concept_ref = dim.find('.//str:ConceptIdentity/Ref', SDMX_NAMESPACES)
+                        if concept_ref is not None:
+                            concept_id = concept_ref.get('id')
+                            if concept_id in concept_to_codelist:
+                                codelist_ref = concept_to_codelist[concept_id]
+
                     dim_info = DimensionInfo(
                         id=dim_id,
                         position=position,
                         type="Dimension",
+                        concept=concept_id,
                         codelist_ref=codelist_ref
                     )
                     dimensions.append(dim_info)

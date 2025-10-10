@@ -26,6 +26,7 @@ from utils import (
 logger = logging.getLogger(__name__)
 
 # Global progressive SDMX client instance
+# Note: This client will be reinitialized when endpoints are switched
 sdmx_client = SDMXProgressiveClient()
 
 
@@ -552,6 +553,58 @@ async def validate_query(dataflow_id: str,
         }
 
 
+def _get_accept_header(format_type: str) -> Dict[str, Any]:
+    """
+    Get the appropriate Accept header for a given format type.
+
+    Returns both the recommended header and alternatives based on testing
+    with different SDMX endpoints (SPC, ECB, IMF, UNICEF).
+
+    Args:
+        format_type: The format type (csv, json, xml)
+
+    Returns:
+        Dictionary with 'recommended' header and 'alternatives'
+    """
+    format_lower = format_type.lower()
+
+    if format_lower == "csv":
+        return {
+            "recommended": "text/csv",
+            "alternatives": [
+                {
+                    "header": "application/vnd.sdmx.data+csv;version=2.0.0",
+                    "note": "Official SDMX-CSV 2.0 format with additional metadata columns (STRUCTURE, STRUCTURE_ID, ACTION). Supported by SPC but rejected by ECB."
+                }
+            ],
+            "compatibility": "text/csv works with SPC, ECB, IMF, and UNICEF"
+        }
+    elif format_lower == "json":
+        return {
+            "recommended": "application/vnd.sdmx.data+json;version=1.0.0",
+            "alternatives": [
+                {"header": "application/json", "note": "Generic JSON, less structured"}
+            ],
+            "compatibility": "SDMX-JSON is widely supported"
+        }
+    elif format_lower == "xml":
+        return {
+            "recommended": "application/vnd.sdmx.structurespecificdata+xml;version=2.1",
+            "alternatives": [
+                {"header": "application/vnd.sdmx.genericdata+xml;version=2.1", "note": "Generic XML format"},
+                {"header": "application/xml", "note": "May return default XML format"}
+            ],
+            "compatibility": "SDMX-ML is the most complete format"
+        }
+    else:
+        # Default to CSV
+        return {
+            "recommended": "text/csv",
+            "alternatives": [],
+            "compatibility": "Universal compatibility"
+        }
+
+
 async def build_data_url(
     dataflow_id: str,
     key: str = None,
@@ -565,12 +618,13 @@ async def build_data_url(
 ) -> Dict[str, Any]:
     """
     Step 5: Build a data query URL with correct dimension handling.
-    
+
     Can accept either a pre-formed key or a dictionary of dimensions.
     Properly handles:
     - Dimension ordering from DSD
     - Time dimensions via startPeriod/endPeriod
     - Empty strings for non-filtered dimensions
+    - Accept headers for proper format negotiation
     """
     try:
         if ctx:
@@ -613,6 +667,9 @@ async def build_data_url(
                 result["key"]
             )
             
+            # Get Accept header information for this format
+            accept_info = _get_accept_header(format_type)
+
             return {
                 "discovery_level": "query",
                 "dataflow_id": dataflow_id,
@@ -625,7 +682,11 @@ async def build_data_url(
                 "time_range": result.get("time_range"),
                 "usage": "Use this URL to retrieve the actual statistical data",
                 "formats_available": ["csv", "json", "xml"],
-                "note": "Key maintains proper dimension order with empty strings for unfiltered dimensions"
+                "http_headers": {
+                    "Accept": accept_info["recommended"]
+                },
+                "accept_header_info": accept_info,
+                "note": "Key maintains proper dimension order with empty strings for unfiltered dimensions. Use the recommended Accept header for proper format response."
             }
         
         # If key provided directly, validate and use it
@@ -658,7 +719,10 @@ async def build_data_url(
             
             if params:
                 url += "?" + "&".join(params)
-            
+
+            # Get Accept header information for this format
+            accept_info = _get_accept_header(format_type)
+
             return {
                 "discovery_level": "query",
                 "dataflow_id": dataflow_id,
@@ -670,7 +734,12 @@ async def build_data_url(
                     "end": end_period
                 } if start_period or end_period else None,
                 "usage": "Use this URL to retrieve the actual statistical data",
-                "formats_available": ["csv", "json", "xml"]
+                "formats_available": ["csv", "json", "xml"],
+                "http_headers": {
+                    "Accept": accept_info["recommended"]
+                },
+                "accept_header_info": accept_info,
+                "note": "Use the recommended Accept header for proper format response."
             }
         
         # No key or dimensions provided - return all data
@@ -692,7 +761,10 @@ async def build_data_url(
             
             if params:
                 url += "?" + "&".join(params)
-            
+
+            # Get Accept header information for this format
+            accept_info = _get_accept_header(format_type)
+
             return {
                 "discovery_level": "query",
                 "dataflow_id": dataflow_id,
@@ -704,7 +776,12 @@ async def build_data_url(
                     "end": end_period
                 } if start_period or end_period else None,
                 "usage": "Use this URL to retrieve ALL statistical data (no filters)",
-                "formats_available": ["csv", "json", "xml"]
+                "formats_available": ["csv", "json", "xml"],
+                "http_headers": {
+                    "Accept": accept_info["recommended"]
+                },
+                "accept_header_info": accept_info,
+                "note": "Use the recommended Accept header for proper format response."
             }
         
     except Exception as e:

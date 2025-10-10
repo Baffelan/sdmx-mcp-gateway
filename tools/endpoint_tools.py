@@ -69,18 +69,34 @@ async def list_available_endpoints() -> Dict[str, Any]:
 async def switch_endpoint(endpoint_key: str) -> Dict[str, Any]:
     """
     Switch to a different SDMX endpoint.
-    
+
     Args:
-        endpoint_key: The key of the endpoint to switch to (e.g., "SPC", "ECB", "UNICEF")
-        
+        endpoint_key: The key of the endpoint to switch to (e.g., "SPC", "ECB", "UNICEF", "IMF")
+
     Returns:
         Dictionary with the new endpoint configuration
-        
+
     Raises:
         ValueError: If the endpoint_key is not recognized
     """
     try:
         new_config = config.set_endpoint(endpoint_key)
+
+        # Reinitialize the global SDMX client with new endpoint
+        # Import here to avoid circular dependency
+        from tools import sdmx_tools
+        from sdmx_progressive_client import SDMXProgressiveClient
+
+        # Close existing client if it has a session
+        if sdmx_tools.sdmx_client.session:
+            await sdmx_tools.sdmx_client.close()
+
+        # Create new client with updated endpoint
+        sdmx_tools.sdmx_client = SDMXProgressiveClient(
+            base_url=new_config["base_url"],
+            agency_id=new_config["agency_id"]
+        )
+
         return {
             "success": True,
             "message": f"Switched to {new_config['name']}",

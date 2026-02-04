@@ -1,386 +1,385 @@
 # SDMX MCP Gateway
 
-A Model Context Protocol (MCP) server that provides progressive discovery tools for SDMX statistical data. This implementation enables AI agents to explore and access SDMX-compliant statistical data repositories through a series of interactive tools, resources, and prompts.
+A Model Context Protocol (MCP) server that provides progressive discovery tools for SDMX statistical data. This implementation enables AI agents to explore and access SDMX-compliant statistical data repositories through interactive tools, resources, and prompts.
 
-## 🚀 Key Innovation: Progressive Discovery
+**Version 0.2.0** - Now with structured outputs, Streamable HTTP transport, and elicitation support.
 
-The SDMX MCP Gateway solves a critical challenge in LLM-SDMX integration: **massive metadata responses that overwhelm context windows**. Traditional SDMX queries with `references=all` can return 100KB+ of XML data. Our progressive discovery approach reduces this by **98%** to just 2-3KB total.
+## 🚀 Key Features
 
-### The Problem
-- SDMX metadata with full references can exceed 100KB
-- LLMs have limited context windows
-- Most metadata is unnecessary for specific queries
-- Complex XML structures are difficult for LLMs to parse efficiently
+- **Progressive Discovery**: Reduces metadata transfer from 100KB+ to ~2.5KB
+- **Structured Outputs**: All tools return validated Pydantic models
+- **Multiple Transports**: STDIO (development) and Streamable HTTP (production)
+- **Interactive Elicitation**: User confirmation dialogs for endpoint switching
+- **Multi-Provider Support**: SPC, ECB, UNICEF, IMF data sources
 
-### The Solution: Progressive Discovery
+## Quick Start
 
-Instead of loading everything at once, the gateway provides a layered exploration approach:
+```bash
+# Install dependencies
+cd sdmx-mcp-gateway
+uv sync
 
-1. **Overview** (~300 bytes) - Find relevant dataflows by keyword
-2. **Structure** (~1KB) - Understand dimensions and their order
-3. **Drill-down** (~500 bytes) - Get codes for specific dimensions only
-4. **Availability** (~700 bytes) - Check what data actually exists
-5. **Query** (~200 bytes) - Build the final data URL
+# Run the server (STDIO mode for development)
+uv run python main_server.py
 
-**Total: ~2.5KB vs 100KB+ for traditional approaches**
+# Run with MCP Inspector
+uv run mcp dev ./main_server.py
 
-## Architecture Overview
+# Run in production mode (Streamable HTTP)
+uv run python main_server.py --transport http --port 8000 --stateless --json-response
+```
 
-The server follows a clean modular architecture with both standard and progressive discovery capabilities:
+## The Problem We Solve
+
+Traditional SDMX queries with `references=all` return 100KB+ of XML metadata, overwhelming LLM context windows. Our progressive discovery approach provides a layered exploration:
+
+| Step      | Operation                        | Data Size  |
+| --------- | -------------------------------- | ---------- |
+| 1         | Find dataflows by keyword        | ~300 bytes |
+| 2         | Get dimension structure          | ~1KB       |
+| 3         | Explore specific dimension codes | ~500 bytes |
+| 4         | Check data availability          | ~700 bytes |
+| 5         | Build final query URL            | ~200 bytes |
+| **Total** |                                  | **~2.5KB** |
+
+## Architecture
 
 ```
 sdmx-mcp-gateway/
-├── main_server.py                # FastMCP server entry point
-├── utils.py                      # Shared utilities and constants  
-├── sdmx_client.py                # Standard SDMX 2.1 REST API client
-├── sdmx_progressive_client.py    # Enhanced client with progressive discovery
+├── main_server.py              # FastMCP server with CLI
+├── app_context.py              # Lifespan management & shared resources
+├── config.py                   # Endpoint configuration
+├── sdmx_progressive_client.py  # SDMX 2.1 REST client
+├── utils.py                    # Validation & utilities
+├── models/
+│   ├── __init__.py
+│   └── schemas.py              # Pydantic output schemas
 ├── tools/
-│   ├── sdmx_tools.py             # Standard discovery tools
-│   └── sdmx_progressive_tools.py # Progressive discovery tools
+│   ├── sdmx_tools.py           # Discovery tools implementation
+│   └── endpoint_tools.py       # Endpoint management
 ├── resources/
-│   └── sdmx_resources.py         # Metadata browsing resources
-└── prompts/
-    └── sdmx_prompts.py           # Guided query construction prompts
+│   └── sdmx_resources.py       # MCP resources
+├── prompts/
+│   └── sdmx_prompts.py         # Guided prompts
+└── tests/                      # Test suite
 ```
 
-## Current Implementation Status
+## Available Tools
 
-### FULLY IMPLEMENTED ✓
+### Discovery Tools
 
-#### 1. Progressive Discovery Tools (NEW!)
-- **`discover_dataflows_overview()`**: Lightweight dataflow discovery (~300 bytes per dataflow)
-- **`get_dataflow_structure()`**: Get dimension order and structure without full codelists (~1KB)
-- **`explore_dimension_codes()`**: Drill down into specific dimensions with search (~500 bytes)
-- **`check_data_availability()`**: Query actual data availability from ContentConstraints (~700 bytes)
-- **`build_data_query()`**: Construct validated data URLs with dimension dictionaries or keys
-- **`get_discovery_guide()`**: Interactive guide for the discovery workflow
+| Tool                     | Description                   | Output Schema             |
+| ------------------------ | ----------------------------- | ------------------------- |
+| `list_dataflows`         | Find dataflows by keyword     | `DataflowListResult`      |
+| `get_dataflow_structure` | Get dimensions and structure  | `DataflowStructureResult` |
+| `get_dimension_codes`    | Explore codes for a dimension | `DimensionCodesResult`    |
+| `get_data_availability`  | Check what data exists        | `DataAvailabilityResult`  |
+| `validate_query`         | Validate query parameters     | `ValidationResult`        |
+| `build_key`              | Construct SDMX key            | `KeyBuildResult`          |
+| `build_data_url`         | Generate data retrieval URL   | `DataUrlResult`           |
+| `get_codelist`           | Browse specific codelist      | `dict`                    |
 
-#### 2. Standard Discovery Tools
-- **`discover_dataflows()`**: Find available statistical domains with keyword filtering
-- **`get_structure()`**: Explore dataflow dimensions, attributes, and organization
-- **`browse_codelist()`**: Browse specific dimension codes (countries, indicators, etc.)
-- **`validate_syntax()`**: Validate query parameters against SDMX 2.1 specification
-- **`build_query()`**: Generate final data URLs in multiple formats (CSV, JSON, XML)
+### Endpoint Management
 
-#### 3. SDMX 2.1 REST API Client
-- **Standards Compliance**: Full implementation based on SDMX 2.1 OpenAPI specification
-- **Multiple Endpoints**: Support for dataflow, datastructure, and codelist endpoints
-- **DSD Discovery**: Automatic extraction of Data Structure Definition IDs from dataflow metadata
-- **Error Handling**: Robust error handling with meaningful error messages
-- **Session Management**: Efficient HTTP session management with connection pooling
-- **XML Parsing**: Complete SDMX-ML parsing with proper namespace handling
-- **ContentConstraint Support**: Parse actual data availability from `type="Actual"` constraints
+| Tool                          | Description                            | Output Schema          |
+| ----------------------------- | -------------------------------------- | ---------------------- |
+| `get_current_endpoint`        | Show active data source                | `EndpointInfo`         |
+| `list_available_endpoints`    | List all providers                     | `EndpointListResult`   |
+| `switch_endpoint`             | Change data provider                   | `EndpointSwitchResult` |
+| `switch_endpoint_interactive` | Interactive selection with elicitation | `EndpointSwitchResult` |
 
-#### 4. MCP Resources for Metadata Browsing
-- **Agency Directory**: `sdmx://agencies` - List of known SDMX data providers
-- **Agency Information**: `sdmx://agency/{id}/info` - Specific agency details
-- **Format Guide**: `sdmx://formats/guide` - Data format comparison and use cases
-- **Syntax Guide**: `sdmx://syntax/guide` - SDMX query syntax reference
+### Resources
 
-#### 5. Guided Prompts System
-- **Discovery Guide**: Step-by-step data discovery workflow
-- **Troubleshooting Guide**: Common issue resolution strategies
-- **Best Practices**: Use-case specific guidance (research, dashboards, automation)
-- **Query Builder**: Interactive query construction assistance
+- `sdmx://agencies` - List of known SDMX data providers
+- `sdmx://agency/{id}/info` - Specific agency details
+- `sdmx://formats/guide` - Data format comparison
+- `sdmx://syntax/guide` - Query syntax reference
 
-#### 6. Development Infrastructure
-- **Modular Design**: Clean separation of concerns across multiple files
-- **Type Hints**: Full type annotation for better code quality
-- **Logging**: Comprehensive logging throughout the application
-- **Dependencies**: Managed via pyproject.toml with locked versions
+### Prompts
 
-## Key Technical Improvements
+- `discovery_guide` - Step-by-step data discovery workflow
+- `troubleshooting_guide` - Common issue resolution
+- `best_practices` - Use-case specific guidance
+- `query_builder` - Interactive query construction
 
-### 1. Automatic DSD Discovery
-The gateway correctly handles the common SDMX pattern where Data Structure Definition (DSD) IDs differ from dataflow IDs:
-- Extracts DSD reference from dataflow's `<structure:Structure>` element
-- Handles both namespaced and non-namespaced `<Ref>` elements
-- Example: `DF_DIGITAL_DEVELOPMENT` → `DSD_DIGITAL_DEVELOPMENT`
+## Supported Data Sources
 
-### 2. Dimension Ordering
-Properly maintains dimension order which is critical for SDMX key construction:
-- Parses dimension positions from the DSD
-- Generates correct key templates (e.g., `{FREQ}.{TIME_PERIOD}.{GEO_PICT}.{INDICATOR}`)
-- Supports both positional and dictionary-based key construction
+| Key      | Provider                    | Description                           |
+| -------- | --------------------------- | ------------------------------------- |
+| `SPC`    | Pacific Data Hub            | Pacific regional statistics (default) |
+| `ECB`    | European Central Bank       | European financial statistics         |
+| `UNICEF` | UNICEF                      | Children and youth statistics         |
+| `IMF`    | International Monetary Fund | Global financial statistics           |
 
-### 3. ContentConstraint Parsing
-Implements actual data availability checking via ContentConstraint with `type="Actual"`:
-- Shows what data actually exists vs theoretical structure
-- Extracts time ranges and valid dimension combinations
-- Reduces failed queries by validating against actual availability
-
-### FUTURE DEVELOPMENT OPPORTUNITIES
-
-#### 1. Advanced DSD Parsing
-- **Opportunity**: Full parsing of Data Structure Definitions to extract complete dimension and attribute metadata
-- **Benefit**: Would enable automatic dimension mapping (e.g., "Tonga" → "TO" in REF_AREA codelist)
-- **Current Status**: Basic structure information is retrieved; full parsing would require significant SDMX-ML processing
-
-#### 2. Caching Layer
-- **Opportunity**: Implement caching for frequently accessed dataflows and codelists
-- **Benefit**: Improved performance and reduced API load
-- **Implementation Options**: In-memory caching for development, Redis for production
-
-#### 3. Multi-Agency Federation
-- **Opportunity**: Simultaneous search across multiple SDMX providers (ECB, OECD, EUROSTAT, etc.)
-- **Benefit**: Comprehensive data discovery across the entire SDMX ecosystem
-- **Current Status**: Single agency support implemented; multi-agency requires coordination logic
-
-## Usage Examples
-
-### Progressive Discovery Workflow (Recommended for LLMs)
-
-Here's how to find and query Tonga's digital development indicators for 2020:
+Switch providers using:
 
 ```python
-# Step 1: Find relevant dataflows (lightweight overview)
-discover_dataflows_overview(keywords=["digital", "development"])
-# → Returns: DF_DIGITAL_DEVELOPMENT (~300 bytes)
+# Direct switch
+switch_endpoint("ECB")
 
-# Step 2: Get structure without loading all codelists
-get_dataflow_structure("DF_DIGITAL_DEVELOPMENT")
-# → Returns: Dimensions order: FREQ.TIME_PERIOD.GEO_PICT.INDICATOR (~1KB)
-
-# Step 3: Find Tonga's code
-explore_dimension_codes("DF_DIGITAL_DEVELOPMENT", "GEO_PICT", search="tonga")
-# → Returns: TO = Tonga (~200 bytes)
-
-# Step 4: Check what indicators are available
-explore_dimension_codes("DF_DIGITAL_DEVELOPMENT", "INDICATOR", limit=5)
-# → Returns: First 5 indicator codes (~500 bytes)
-
-# Step 5: Build the query
-build_data_query(
-    "DF_DIGITAL_DEVELOPMENT",
-    dimensions={"FREQ": "A", "TIME_PERIOD": "2020", "GEO_PICT": "TO"},
-    format="csv"
-)
-# → Returns: Ready-to-use URL (~200 bytes)
+# Interactive selection (with elicitation)
+switch_endpoint_interactive()
 ```
 
-**Total data transferred: ~2.2KB** (vs 100KB+ with traditional approach)
-
-### Standard Discovery Workflow
-
-For cases where you need complete metadata:
-
-```
-1. discover_dataflows(keywords=["trade", "fisheries"])
-   ↓
-2. get_structure(dataflow_id="DF_TRADE_FOOD") 
-   ↓
-3. browse_codelist(codelist_id="REF_AREA", search_term="tonga")
-   ↓
-4. validate_syntax(dataflow_id="DF_TRADE_FOOD", key="A.TO.FISH")
-   ↓
-5. build_query(dataflow_id="DF_TRADE_FOOD", key="A.TO.FISH", format_type="csv")
-```
-
-### Context-Aware Operations
-All long-running operations provide progress reporting and informational logging:
-
-```python
-# Example: Dataflow discovery with progress reporting
-async def discover_dataflows(ctx: Context):
-    ctx.info("Starting dataflow discovery...")
-    await ctx.report_progress(0, 100)
-    
-    # Fetch and process dataflows
-    ctx.info("Fetching dataflow list from SDMX API...")
-    await ctx.report_progress(25, 100)
-    
-    # Parse results
-    ctx.info(f"Processing {len(dataflows)} dataflows...")
-    await ctx.report_progress(75, 100)
-```
-
-### Standards Compliance
-Built on the official SDMX 2.1 REST API specification:
-- Proper URL construction following SDMX patterns
-- Correct MIME types for different data formats  
-- Full parameter validation against SDMX regex patterns
-- Support for all standard SDMX time period formats
-
-## Testing & Validation
-
-### Test Coverage
-- **Unit Tests**: Validation functions, utility functions, and data parsing
-- **Integration Tests**: MCP tool functionality with mock SDMX responses
-- **End-to-End Tests**: Live API connectivity with real SDMX endpoints
-- **Error Handling**: Network failures, malformed responses, and edge cases
-
-### Running Tests
-```bash
-# Install test dependencies
-pip install pytest pytest-asyncio pytest-mock
-
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=. --cov-report=html
-
-# Run specific test categories  
-pytest tests/unit/          # Unit tests only
-pytest tests/integration/   # Integration tests only
-pytest tests/e2e/          # End-to-end tests only
-```
-
-## Installation & Usage
+## Installation
 
 ### Prerequisites
-- Python 3.10 or higher
-- Internet connectivity for SDMX API access
 
-### Setup
+- Python 3.12 or higher
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
-#### Option 1: Using UV (Recommended)
+### Using UV (Recommended)
+
 ```bash
-# Navigate to project directory
 cd sdmx-mcp-gateway
-
-# Install UV if not already installed
-# See: https://docs.astral.sh/uv/getting-started/installation/
-
-# Sync dependencies (creates virtual environment automatically)
 uv sync
+```
 
-# Test the server
+### Using pip
+
+```bash
+cd sdmx-mcp-gateway
+pip install -r requirements.txt
+```
+
+### Dependencies
+
+- `mcp[cli]>=1.26.0` - Model Context Protocol SDK
+- `pydantic>=2.0.0` - Structured output validation
+- `httpx>=0.27.0` - Async HTTP client
+- `certifi>=2024.0.0` - SSL certificates
+
+## Running the Server
+
+### CLI Options
+
+```bash
+uv run python main_server.py [OPTIONS]
+
+Options:
+  --transport, -t    Transport type: stdio, http, streamable-http (default: stdio)
+  --host             Host for HTTP transport (default: 127.0.0.1)
+  --port, -p         Port for HTTP transport (default: 8000)
+  --stateless        Run in stateless mode (HTTP only)
+  --json-response    Use JSON responses instead of SSE (HTTP only)
+  --debug            Enable debug logging
+```
+
+### Development Mode (STDIO)
+
+```bash
+# Direct execution
 uv run python main_server.py
 
-# Or use MCP development tools
+# With MCP Inspector (opens browser UI)
 uv run mcp dev ./main_server.py
 ```
 
-#### Option 2: Using pip
+### Production Mode (Streamable HTTP)
+
 ```bash
-# Navigate to project directory
-cd sdmx-mcp-gateway
-
-# Install dependencies including MCP SDK
-pip install mcp "mcp[cli]" httpx
-
-# Install development dependencies (optional)
-pip install pytest pytest-asyncio pytest-mock pytest-cov
-
-# Test the server
-python main_server.py
-
-# Or use MCP development tools
-mcp dev ./main_server.py
+uv run python main_server.py --transport http --port 8000 --stateless --json-response
 ```
 
-### MCP Integration
+## MCP Client Configuration
 
-#### With Claude Desktop
+### Claude Desktop
 
-##### Windows Configuration
-
-Add to `%APPDATA%\Claude\claude_desktop_config.json`:
-
-**Using UV (Recommended):**
-```json
-{
-  "mcpServers": {
-    "sdmx-gateway": {
-      "command": "uv",
-      "args": ["run", "--directory", "C:\\Users\\YOUR_USERNAME\\path\\to\\sdmx-mcp-gateway", "python", "main_server.py"]
-    }
-  }
-}
-```
-
-**Using Python directly:**
-```json
-{
-  "mcpServers": {
-    "sdmx-gateway": {
-      "command": "python",
-      "args": ["C:\\Users\\YOUR_USERNAME\\path\\to\\sdmx-mcp-gateway\\main_server.py"]
-    }
-  }
-}
-```
-
-**Important Windows Notes:**
-- Use double backslashes (`\\`) in paths
-- Use full absolute paths (the `cwd` parameter doesn't work reliably on Windows)
-- If using UV, first run `uv sync` in the project directory to install dependencies
-- Restart Claude Desktop after changing the configuration
-
-##### macOS/Linux Configuration
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/Claude/claude_desktop_config.json` (Linux):
+**Linux** (`~/.config/Claude/claude_desktop_config.json`):
 
 ```json
 {
-  "mcpServers": {
-    "sdmx-gateway": {
-      "command": "python",
-      "args": ["main_server.py"],
-      "cwd": "/path/to/sdmx-mcp-gateway"
+    "mcpServers": {
+        "sdmx-gateway": {
+            "command": "uv",
+            "args": [
+                "run",
+                "--directory",
+                "/path/to/sdmx-mcp-gateway",
+                "python",
+                "main_server.py"
+            ]
+        }
     }
-  }
 }
 ```
 
-#### With Cursor
-1. Go to Cursor Settings > MCP
+**macOS** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+    "mcpServers": {
+        "sdmx-gateway": {
+            "command": "uv",
+            "args": [
+                "run",
+                "--directory",
+                "/path/to/sdmx-mcp-gateway",
+                "python",
+                "main_server.py"
+            ]
+        }
+    }
+}
+```
+
+**Windows** (`%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+    "mcpServers": {
+        "sdmx-gateway": {
+            "command": "uv",
+            "args": [
+                "run",
+                "--directory",
+                "C:\\path\\to\\sdmx-mcp-gateway",
+                "python",
+                "main_server.py"
+            ]
+        }
+    }
+}
+```
+
+### Cursor
+
+1. Go to **Cursor Settings > MCP**
 2. Add new global MCP server
 3. Use the configuration above
 
-#### Testing with MCP CLI
-```bash
-# Launch development dashboard
-mcp dev ./main_server.py
+## Usage Examples
 
-# This opens a browser interface where you can:
-# - View all available tools and resources
-# - Test tools with different parameters
-# - See real-time results and logging
+### Progressive Discovery Workflow
+
+```python
+# Step 1: Find relevant dataflows
+list_dataflows(keywords=["digital", "development"])
+# → Returns: DataflowListResult with matching dataflows
+
+# Step 2: Get structure
+get_dataflow_structure("DF_DIGITAL_DEVELOPMENT")
+# → Returns: DataflowStructureResult with dimensions
+
+# Step 3: Find country code
+get_dimension_codes("DF_DIGITAL_DEVELOPMENT", "GEO_PICT", search_term="tonga")
+# → Returns: DimensionCodesResult with TO = Tonga
+
+# Step 4: Check availability
+get_data_availability("DF_DIGITAL_DEVELOPMENT", dimension_values={"GEO_PICT": "TO"})
+# → Returns: DataAvailabilityResult with time ranges
+
+# Step 5: Build query
+build_data_url("DF_DIGITAL_DEVELOPMENT", key="A..TO.", format_type="csv")
+# → Returns: DataUrlResult with ready-to-use URL
 ```
 
-## Technical Architecture
+### Interactive Endpoint Switching
 
-The implementation follows a modified version of the original four-pillar architecture:
+For clients that support elicitation (shows interactive form):
 
-1. **MCP Interface** (Python MCP SDK)
-2. **Query Interpretation Engine** (Pattern matching + scoring)
-3. **SDMX Interaction Module** (HTTP client + XML parsing)
-4. **Structured Output Generator** (JSON formatting, not script generation)
+```python
+switch_endpoint_interactive()
+# → Shows form to select endpoint and confirm
+# → Returns: EndpointSwitchResult
+```
 
-The server operates as a lightweight, stateless service that processes metadata only, never handling bulk statistical data transfer. This design ensures scalability and security while providing the intelligence needed for effective data discovery.
+For clients without elicitation support:
 
-## Known Issues & Future Enhancements
+```python
+switch_endpoint("ECB")
+# → Directly switches to ECB
+# → Returns: EndpointSwitchResult
+```
 
-### Multi-User Considerations
-⚠️ **Warning**: The current endpoint switching implementation uses global state, which means in a multi-user server deployment, when one user switches endpoints (e.g., from SPC to ECB), it affects ALL users. This is suitable for:
+## Structured Outputs
+
+All tools return Pydantic models with validated, typed data:
+
+```python
+# Example: DataflowListResult
+{
+  "discovery_level": "overview",
+  "agency_id": "SPC",
+  "total_found": 45,
+  "showing": 10,
+  "offset": 0,
+  "limit": 10,
+  "dataflows": [
+    {"id": "DF_GDP", "name": "GDP Statistics", "description": "..."},
+    ...
+  ],
+  "pagination": {
+    "has_more": true,
+    "next_offset": 10,
+    "total_pages": 5,
+    "current_page": 1
+  },
+  "next_step": "Use get_dataflow_structure() to explore a dataflow"
+}
+```
+
+## Testing
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=. --cov-report=html
+
+# Run specific test categories
+uv run pytest tests/unit/
+uv run pytest tests/integration/
+uv run pytest tests/e2e/
+```
+
+## Known Limitations
+
+### Multi-User Endpoint Switching
+
+The endpoint switching uses global state. In multi-user deployments, switching affects all users. Suitable for:
+
 - Single-user Claude Desktop integration
-- Local development and testing
+- Local development
 - Single-tenant deployments
 
-For multi-user production deployments, see `MULTI_USER_CONSIDERATIONS.md`.
+See `MULTI_USER_CONSIDERATIONS.md` for production alternatives.
 
-### Planned Enhancements
+### Elicitation Support
 
-1. **Enhanced Data Availability Checking**: 
-   - Current limitation: The availability tool checks if dimensions exist individually, but not their combinations
-   - Example: There might be data for "Vanuatu" and data for "2024", but no data for "Vanuatu in 2024"
-   - TODO: Extend the `get_data_availability` tool to check specific dimension combinations
+Interactive tools (`switch_endpoint_interactive`) require client elicitation support. Clients without support receive a helpful fallback message with available endpoints.
 
-2. **Session-Based Endpoint Configuration**:
-   - Implement per-session endpoint configuration for multi-user scenarios
-   - Store endpoint selection in MCP Context rather than global state
+## Project Status
+
+| Feature                   | Status      |
+| ------------------------- | ----------- |
+| SDK upgrade (v1.26.0)     | ✅ Complete |
+| Structured outputs        | ✅ Complete |
+| Streamable HTTP transport | ✅ Complete |
+| Lifespan context          | ✅ Complete |
+| Elicitation support       | ✅ Complete |
+| Icons & metadata          | 🔄 Pending  |
+| Documentation             | ✅ Complete |
+
+See `TODO.md` for detailed modernization progress.
 
 ## Contributing
 
-The project is currently in active development. Key areas for contribution:
-- Enhanced semantic mapping algorithms
+Key areas for contribution:
+
 - Additional SDMX provider support
+- Enhanced semantic search
 - Performance optimization
 - Test coverage expansion
-- Documentation improvements
+
+## References
+
+- [MCP Specification](https://modelcontextprotocol.io/specification)
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+- [SDMX 2.1 REST API](https://github.com/sdmx-twg/sdmx-rest)
+- [Pacific Data Hub](https://stats.pacificdata.org/)
 
 ## License
 
-This project implements the architectural design specified in "MCP-SDMX Go Implementation" blueprint while adapting implementation details for Python ecosystem compatibility.
+MIT License - See LICENSE file for details.

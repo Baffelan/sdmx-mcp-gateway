@@ -1,12 +1,43 @@
 [project]
 name = "sdmx-mcp-gateway"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "MCP server providing progressive discovery tools for SDMX statistical data"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "MIT"}
+keywords = ["mcp", "sdmx", "statistics", "data", "api"]
+
 dependencies = [
-    "mcp[cli]>=1.13.0",
-    "sdmx1>=2.22.0",
+    "mcp[cli]>=1.26.0",
+    "pydantic>=2.0.0",
     "httpx>=0.27.0",
     "certifi>=2024.0.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.12.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+]
+
+sdmx = [
+    "sdmx1>=2.22.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

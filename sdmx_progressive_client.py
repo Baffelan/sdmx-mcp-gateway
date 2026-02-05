@@ -892,6 +892,290 @@ class SDMXProgressiveClient:
             logger.error(f"Failed to get actual availability: {e}")
             return {"dataflow_id": dataflow_id, "error": str(e)}
 
+    async def get_structure_references(
+        self,
+        structure_type: str,
+        structure_id: str,
+        agency_id: str | None = None,
+        version: str = "latest",
+        direction: str = "both",
+        ctx: Context[Any, Any, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Fetch parent and/or child structure references for an SDMX artifact.
+
+        Uses the SDMX REST API `references` parameter to discover structural relationships:
+        - parents: Structures that USE this artifact
+        - children: Structures that this artifact REFERENCES
+        - both: Combines parents and children
+
+        Args:
+            structure_type: Type of structure ('dataflow', 'datastructure', 'codelist',
+                           'conceptscheme', 'categoryscheme')
+            structure_id: The structure identifier
+            agency_id: Agency ID (defaults to client's agency)
+            version: Version string (default 'latest')
+            direction: 'parents', 'children', or 'both'
+            ctx: Optional MCP context for logging
+
+        Returns:
+            Dictionary with:
+                - target: Info about the queried structure
+                - parents: List of structures that use this one (if direction includes parents)
+                - children: List of structures this one references (if direction includes children)
+                - error: Error message if failed
+        """
+        agency = agency_id or self.agency_id
+
+        # Map structure_type to SDMX REST endpoint
+        endpoint_map = {
+            "dataflow": "dataflow",
+            "datastructure": "datastructure",
+            "dsd": "datastructure",
+            "codelist": "codelist",
+            "conceptscheme": "conceptscheme",
+            "categoryscheme": "categoryscheme",
+            "constraint": "contentconstraint",
+            "contentconstraint": "contentconstraint",
+        }
+
+        endpoint = endpoint_map.get(structure_type.lower())
+        if not endpoint:
+            return {
+                "error": f"Unsupported structure type: {structure_type}",
+                "supported_types": list(endpoint_map.keys()),
+            }
+
+        # Determine which references parameter to use
+        if direction == "parents":
+            references_param = "parents"
+        elif direction == "children":
+            references_param = "children"
+        else:  # both
+            references_param = "all"
+
+        url = f"{self.base_url}/{endpoint}/{agency}/{structure_id}/{version}?references={references_param}&detail=referencestubs"
+
+        if ctx:
+            ctx.info(f"Fetching {direction} references for {structure_type}/{structure_id}...")
+
+        try:
+            session = await self._get_session()
+            response = await session.get(
+                url, headers={"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
+            )
+
+            if response.status_code == 404:
+                return {
+                    "error": f"Structure not found: {structure_type}/{agency}/{structure_id}/{version}",
+                    "status_code": 404,
+                }
+
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+
+            # Extract the target structure info
+            target_info = self._extract_target_structure(root, structure_type, structure_id)
+
+            # Extract all referenced structures
+            parents: list[dict[str, str]] = []
+            children: list[dict[str, str]] = []
+
+            # Parse all structures in the response
+            all_structures = self._extract_all_structures(root)
+
+            # Classify as parent or child based on relationship to target
+            for struct in all_structures:
+                # Skip the target itself
+                if (
+                    struct["id"] == structure_id
+                    and struct["type"].lower() == structure_type.lower()
+                ):
+                    continue
+
+                # Determine relationship direction based on structure types
+                # Parents: structures that typically USE others (dataflows use DSDs, DSDs use codelists)
+                # Children: structures that are typically USED BY others
+                relationship = self._classify_relationship(structure_type, struct["type"])
+
+                if relationship == "parent":
+                    struct["relationship"] = self._get_relationship_label(
+                        struct["type"], structure_type
+                    )
+                    parents.append(struct)
+                elif relationship == "child":
+                    struct["relationship"] = self._get_relationship_label(
+                        structure_type, struct["type"]
+                    )
+                    children.append(struct)
+
+            result: dict[str, Any] = {
+                "target": target_info,
+                "direction": direction,
+                "api_calls": 1,
+            }
+
+            if direction in ("parents", "both"):
+                result["parents"] = parents
+            if direction in ("children", "both"):
+                result["children"] = children
+
+            if ctx:
+                ctx.info(f"Found {len(parents)} parents, {len(children)} children")
+
+            return result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching structure references: {e}")
+            return {"error": f"HTTP error: {e.response.status_code}", "details": str(e)}
+        except ET.ParseError as e:
+            logger.error(f"XML parse error: {e}")
+            return {"error": f"Failed to parse response: {e}"}
+        except Exception as e:
+            logger.error(f"Error fetching structure references: {e}")
+            return {"error": str(e)}
+
+    def _extract_target_structure(
+        self, root: ET.Element, structure_type: str, structure_id: str
+    ) -> dict[str, str]:
+        """Extract information about the target structure from the response."""
+        # Map structure_type to XML element names
+        element_map = {
+            "dataflow": ".//str:Dataflow",
+            "datastructure": ".//str:DataStructure",
+            "dsd": ".//str:DataStructure",
+            "codelist": ".//str:Codelist",
+            "conceptscheme": ".//str:ConceptScheme",
+            "categoryscheme": ".//str:CategoryScheme",
+            "contentconstraint": ".//str:ContentConstraint",
+            "constraint": ".//str:ContentConstraint",
+        }
+
+        xpath = element_map.get(structure_type.lower(), f".//str:{structure_type}")
+
+        for elem in root.findall(xpath, SDMX_NAMESPACES):
+            if elem.get("id") == structure_id:
+                name_elem = elem.find(".//com:Name", SDMX_NAMESPACES)
+                name = name_elem.text if name_elem is not None and name_elem.text else structure_id
+
+                return {
+                    "type": structure_type,
+                    "id": elem.get("id", structure_id),
+                    "agency": elem.get("agencyID", ""),
+                    "version": elem.get("version", "1.0"),
+                    "name": name,
+                }
+
+        # Fallback if not found
+        return {
+            "type": structure_type,
+            "id": structure_id,
+            "agency": "",
+            "version": "",
+            "name": structure_id,
+        }
+
+    def _extract_all_structures(self, root: ET.Element) -> list[dict[str, str]]:
+        """Extract all SDMX structures from the response."""
+        structures: list[dict[str, str]] = []
+
+        # Map of element paths to structure types
+        structure_elements = [
+            (".//str:Dataflow", "dataflow"),
+            (".//str:DataStructure", "datastructure"),
+            (".//str:Codelist", "codelist"),
+            (".//str:ConceptScheme", "conceptscheme"),
+            (".//str:CategoryScheme", "categoryscheme"),
+            (".//str:ContentConstraint", "constraint"),
+            (".//str:Categorisation", "categorisation"),
+            (".//str:AgencyScheme", "agencyscheme"),
+            (".//str:DataProviderScheme", "dataproviderscheme"),
+        ]
+
+        for xpath, struct_type in structure_elements:
+            for elem in root.findall(xpath, SDMX_NAMESPACES):
+                name_elem = elem.find(".//com:Name", SDMX_NAMESPACES)
+                name = (
+                    name_elem.text
+                    if name_elem is not None and name_elem.text
+                    else elem.get("id", "")
+                )
+
+                structures.append(
+                    {
+                        "type": struct_type,
+                        "id": elem.get("id", ""),
+                        "agency": elem.get("agencyID", ""),
+                        "version": elem.get("version", "1.0"),
+                        "name": name,
+                    }
+                )
+
+        return structures
+
+    def _classify_relationship(self, target_type: str, other_type: str) -> str:
+        """
+        Classify the relationship direction between two structure types.
+
+        In SDMX, the dependency hierarchy is generally:
+        Dataflow -> DataStructure -> ConceptScheme -> Codelist
+                                  -> Codelist (directly)
+        CategoryScheme -> Categorisation -> Dataflow
+        Constraint -> Dataflow/DataStructure
+        """
+        target = target_type.lower()
+        other = other_type.lower()
+
+        # Define what each structure type typically references (children)
+        children_of = {
+            "dataflow": ["datastructure", "dsd"],
+            "datastructure": ["conceptscheme", "codelist"],
+            "dsd": ["conceptscheme", "codelist"],
+            "conceptscheme": ["codelist"],
+            "constraint": ["dataflow", "datastructure", "dsd"],
+            "contentconstraint": ["dataflow", "datastructure", "dsd"],
+            "categorisation": ["dataflow", "categoryscheme"],
+        }
+
+        # Define what typically references each structure type (parents)
+        parents_of = {
+            "codelist": ["conceptscheme", "datastructure", "dsd"],
+            "conceptscheme": ["datastructure", "dsd"],
+            "datastructure": ["dataflow", "constraint", "contentconstraint"],
+            "dsd": ["dataflow", "constraint", "contentconstraint"],
+            "dataflow": ["categorisation", "constraint", "contentconstraint"],
+            "categoryscheme": ["categorisation"],
+        }
+
+        if other in children_of.get(target, []):
+            return "child"
+        elif other in parents_of.get(target, []):
+            return "parent"
+        else:
+            # Default heuristic: if we got it from 'children' query, treat as child
+            return "child"
+
+    def _get_relationship_label(self, from_type: str, to_type: str) -> str:
+        """Get a human-readable label for the relationship between two types."""
+        from_t = from_type.lower()
+        to_t = to_type.lower()
+
+        labels = {
+            ("dataflow", "datastructure"): "defines structure",
+            ("dataflow", "dsd"): "defines structure",
+            ("datastructure", "codelist"): "uses codelist",
+            ("dsd", "codelist"): "uses codelist",
+            ("datastructure", "conceptscheme"): "uses concepts",
+            ("dsd", "conceptscheme"): "uses concepts",
+            ("conceptscheme", "codelist"): "enumerates with",
+            ("constraint", "dataflow"): "constrains",
+            ("contentconstraint", "dataflow"): "constrains",
+            ("categorisation", "dataflow"): "categorizes",
+            ("categorisation", "categoryscheme"): "uses category",
+        }
+
+        return labels.get((from_t, to_t), "references")
+
     def build_progressive_query_guide(
         self, structure_summary: DataStructureSummary
     ) -> dict[str, Any]:

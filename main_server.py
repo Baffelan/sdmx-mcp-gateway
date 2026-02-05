@@ -32,13 +32,17 @@ from app_context import AppContext, app_lifespan
 
 # Import structured output models
 from models.schemas import (
+    CodeChange,
     CodeInfo,
+    ComparisonSummary,
+    ConceptChange,
     DataAvailabilityResult,
     DataflowInfo,
     DataflowListResult,
     DataflowStructureResult,
     DataflowSummary,
     DataUrlResult,
+    DimensionChange,
     DimensionCodesResult,
     DimensionInfo,
     EndpointInfo,
@@ -48,7 +52,12 @@ from models.schemas import (
     FilterInfo,
     KeyBuildResult,
     PaginationInfo,
+    ReferenceChange,
+    StructureComparisonResult,
+    StructureDiagramResult,
+    StructureEdge,
     StructureInfo,
+    StructureNode,
     TimeRange,
     ValidationResult,
 )
@@ -655,6 +664,1090 @@ async def build_data_url(
         time_range=time_range,
         usage=result.get("usage", "Use this URL to retrieve the actual statistical data"),
         formats_available=["csv", "json", "xml"],
+        note=None,
+    )
+
+
+# =============================================================================
+# Structure Relationship Tools
+# =============================================================================
+
+
+def _generate_mermaid_diagram(
+    target: StructureNode,
+    nodes: list[StructureNode],
+    edges: list[StructureEdge],
+    show_versions: bool = False,
+) -> str:
+    """Generate a Mermaid diagram from nodes and edges.
+
+    Args:
+        target: The target structure node
+        nodes: All nodes in the graph
+        edges: All edges (relationships) in the graph
+        show_versions: If True, display version numbers on each node
+    """
+    # Icon mapping for structure types
+    icons = {
+        "dataflow": "📊",
+        "datastructure": "🏗️",
+        "dsd": "🏗️",
+        "codelist": "📋",
+        "conceptscheme": "💡",
+        "categoryscheme": "📁",
+        "constraint": "🔒",
+        "contentconstraint": "🔒",
+        "categorisation": "🏷️",
+        "agencyscheme": "🏛️",
+        "dataproviderscheme": "🏢",
+    }
+
+    lines = ["graph TD"]
+
+    # Group nodes by type for subgraphs
+    node_groups: dict[str, list[StructureNode]] = {}
+    for node in nodes:
+        group_key = node.structure_type
+        if group_key not in node_groups:
+            node_groups[group_key] = []
+        node_groups[group_key].append(node)
+
+    # Subgraph labels
+    subgraph_labels = {
+        "dataflow": "Dataflows",
+        "datastructure": "Data Structures",
+        "dsd": "Data Structures",
+        "codelist": "Codelists",
+        "conceptscheme": "Concept Schemes",
+        "categoryscheme": "Category Schemes",
+        "constraint": "Constraints",
+        "contentconstraint": "Constraints",
+        "categorisation": "Categorisations",
+    }
+
+    # Generate subgraphs
+    for group_type, group_nodes in node_groups.items():
+        icon = icons.get(group_type, "📦")
+        label = subgraph_labels.get(group_type, group_type.title())
+
+        # Highlight target's group
+        if target.structure_type == group_type:
+            lines.append(f'    subgraph {group_type}["{label} ⭐"]')
+        else:
+            lines.append(f'    subgraph {group_type}["{label}"]')
+
+        for node in group_nodes:
+            # Escape special characters in names
+            safe_name = node.name.replace('"', "'").replace("\n", " ")[:40]
+            # Build version suffix if requested
+            version_suffix = f" v{node.version}" if show_versions and node.version else ""
+            if node.is_target:
+                # Highlight target node
+                lines.append(
+                    f'        {node.node_id}["{icon} <b>{node.id}</b>{version_suffix}<br/>{safe_name}"]'
+                )
+            else:
+                lines.append(
+                    f'        {node.node_id}["{icon} {node.id}{version_suffix}<br/>{safe_name}"]'
+                )
+
+        lines.append("    end")
+
+    # Generate edges
+    for edge in edges:
+        label = edge.label or edge.relationship
+        lines.append(f'    {edge.source} -->|"{label}"| {edge.target}')
+
+    # Add styling for target node
+    lines.append(f"    style {target.node_id} fill:#e1f5fe,stroke:#01579b,stroke-width:3px")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def get_structure_diagram(
+    structure_type: str,
+    structure_id: str,
+    agency_id: str | None = None,
+    version: str = "latest",
+    direction: str = "both",
+    show_versions: bool = False,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> StructureDiagramResult:
+    """
+    Generate a Mermaid diagram showing structure relationships.
+
+    Visualizes how SDMX structural artifacts relate to each other:
+    - Parents: Structures that USE this artifact (e.g., what dataflows use this DSD?)
+    - Children: Structures this artifact REFERENCES (e.g., what codelists does this DSD use?)
+
+    This is invaluable for understanding the SDMX metadata ecosystem and
+    impact analysis (what breaks if I change this codelist?).
+
+    Args:
+        structure_type: Type of structure - one of:
+            - "dataflow": Statistical data publication
+            - "datastructure" or "dsd": Data Structure Definition
+            - "codelist": Code list (enumeration of valid values)
+            - "conceptscheme": Concept scheme (definitions)
+            - "categoryscheme": Category scheme (classification)
+        structure_id: The structure identifier
+        agency_id: Agency ID (uses current endpoint's default if not specified)
+        version: Version string (default "latest") - query a specific version
+        direction: Relationship direction to explore:
+            - "parents": Show structures that USE this one
+            - "children": Show structures this one REFERENCES
+            - "both": Show both directions (default)
+        show_versions: If True, display version numbers on each node in the diagram.
+            This is important for understanding exact dependencies since different
+            versions of the same artifact are independent (e.g., a dataflow using
+            codelist v1.0 won't be affected by changes to v2.0).
+
+    Returns:
+        StructureDiagramResult with:
+            - mermaid_diagram: Ready-to-render Mermaid code
+            - nodes: All structures in the relationship graph (includes version info)
+            - edges: Relationships between structures
+            - interpretation: Human-readable explanation
+
+    Example:
+        >>> get_structure_diagram("datastructure", "DSD_DF_POP", direction="children")
+        # Shows all codelists and concept schemes used by DSD_DF_POP
+
+        >>> get_structure_diagram("codelist", "CL_FREQ", version="1.0", show_versions=True)
+        # Shows what uses CL_FREQ v1.0 specifically, with versions displayed
+    """
+    client = get_session_client(ctx)
+
+    # Use client's agency if not specified
+    agency = agency_id or client.agency_id
+
+    if ctx:
+        ctx.info(f"Fetching {direction} references for {structure_type}/{structure_id}...")
+
+    # Fetch structure references from client
+    result = await client.get_structure_references(
+        structure_type=structure_type,
+        structure_id=structure_id,
+        agency_id=agency,
+        version=version,
+        direction=direction,
+        ctx=ctx,
+    )
+
+    if "error" in result:
+        # Return error result
+        error_node = StructureNode(
+            node_id="error",
+            structure_type=structure_type,
+            id=structure_id,
+            agency=agency,
+            version=version,
+            name=f"Error: {result['error']}",
+            is_target=True,
+        )
+        return StructureDiagramResult(
+            discovery_level="structure_relationships",
+            target=error_node,
+            direction=direction,
+            depth=1,
+            nodes=[error_node],
+            edges=[],
+            mermaid_diagram=f'graph TD\n    error["❌ Error: {result["error"]}"]',
+            interpretation=[f"Error: {result['error']}"],
+            api_calls_made=1,
+            note=result.get("details"),
+        )
+
+    # Build target node
+    target_info = result.get("target", {})
+    target_node = StructureNode(
+        node_id=f"{structure_type}_{structure_id}".replace("-", "_").replace(".", "_"),
+        structure_type=target_info.get("type", structure_type),
+        id=target_info.get("id", structure_id),
+        agency=target_info.get("agency", agency),
+        version=target_info.get("version", version),
+        name=target_info.get("name", structure_id),
+        is_target=True,
+    )
+
+    # Build all nodes and edges
+    nodes: list[StructureNode] = [target_node]
+    edges: list[StructureEdge] = []
+    interpretation: list[str] = []
+
+    # Process parents
+    parents = result.get("parents", [])
+    if parents:
+        interpretation.append(f"**{len(parents)} parent(s)** use this {structure_type}:")
+        for parent in parents:
+            node_id = f"{parent['type']}_{parent['id']}".replace("-", "_").replace(".", "_")
+            parent_version = parent.get("version", "1.0")
+            nodes.append(
+                StructureNode(
+                    node_id=node_id,
+                    structure_type=parent["type"],
+                    id=parent["id"],
+                    agency=parent.get("agency", ""),
+                    version=parent_version,
+                    name=parent.get("name", parent["id"]),
+                    is_target=False,
+                )
+            )
+            edges.append(
+                StructureEdge(
+                    source=node_id,
+                    target=target_node.node_id,
+                    relationship=parent.get("relationship", "uses"),
+                    label=parent.get("relationship", "uses"),
+                )
+            )
+            # Include version in interpretation if show_versions is enabled
+            version_info = f" v{parent_version}" if show_versions else ""
+            interpretation.append(
+                f"  - {parent['type']}: **{parent['id']}**{version_info} ({parent.get('name', '')})"
+            )
+
+    # Process children
+    children = result.get("children", [])
+    if children:
+        interpretation.append(
+            f"**{len(children)} child(ren)** referenced by this {structure_type}:"
+        )
+        for child in children:
+            node_id = f"{child['type']}_{child['id']}".replace("-", "_").replace(".", "_")
+            child_version = child.get("version", "1.0")
+            # Avoid duplicate nodes
+            if not any(n.node_id == node_id for n in nodes):
+                nodes.append(
+                    StructureNode(
+                        node_id=node_id,
+                        structure_type=child["type"],
+                        id=child["id"],
+                        agency=child.get("agency", ""),
+                        version=child_version,
+                        name=child.get("name", child["id"]),
+                        is_target=False,
+                    )
+                )
+            edges.append(
+                StructureEdge(
+                    source=target_node.node_id,
+                    target=node_id,
+                    relationship=child.get("relationship", "references"),
+                    label=child.get("relationship", "references"),
+                )
+            )
+            # Include version in interpretation if show_versions is enabled
+            version_info = f" v{child_version}" if show_versions else ""
+            interpretation.append(
+                f"  - {child['type']}: **{child['id']}**{version_info} ({child.get('name', '')})"
+            )
+
+    if not parents and not children:
+        interpretation.append(f"No {direction} relationships found for this {structure_type}.")
+        interpretation.append("This might mean:")
+        interpretation.append("  - The structure is a leaf node (codelists have no children)")
+        interpretation.append("  - The structure is a root node (no parents)")
+        interpretation.append("  - The API didn't return reference information")
+
+    # Generate Mermaid diagram
+    mermaid_diagram = _generate_mermaid_diagram(target_node, nodes, edges, show_versions)
+
+    return StructureDiagramResult(
+        discovery_level="structure_relationships",
+        target=target_node,
+        direction=direction,
+        depth=1,
+        nodes=nodes,
+        edges=edges,
+        mermaid_diagram=mermaid_diagram,
+        interpretation=interpretation,
+        api_calls_made=result.get("api_calls", 1),
+        note=None,
+    )
+
+
+def _generate_diff_diagram(
+    structure_a: StructureNode,
+    structure_b: StructureNode,
+    changes: list[ReferenceChange],
+) -> str:
+    """Generate a Mermaid diagram highlighting differences between two structures.
+
+    Color coding:
+    - Green (#c8e6c9): Added in B
+    - Red (#ffcdd2): Removed from A
+    - Yellow (#fff9c4): Version changed
+    - Default: Unchanged
+    """
+    # Icon mapping
+    icons = {
+        "dataflow": "📊",
+        "datastructure": "🏗️",
+        "dsd": "🏗️",
+        "codelist": "📋",
+        "conceptscheme": "💡",
+        "categoryscheme": "📁",
+        "constraint": "🔒",
+    }
+
+    lines = ["graph LR"]
+
+    # Add structure A and B nodes
+    icon_a = icons.get(structure_a.structure_type, "📦")
+    icon_b = icons.get(structure_b.structure_type, "📦")
+
+    lines.append('    subgraph comparison["Structure Comparison"]')
+    lines.append(f'        A["{icon_a} {structure_a.id}<br/>v{structure_a.version}"]')
+    lines.append(f'        B["{icon_b} {structure_b.id}<br/>v{structure_b.version}"]')
+    lines.append("    end")
+
+    # Group changes by type
+    added = [c for c in changes if c.change_type == "added"]
+    removed = [c for c in changes if c.change_type == "removed"]
+    version_changed = [c for c in changes if c.change_type == "version_changed"]
+    unchanged = [c for c in changes if c.change_type == "unchanged"]
+
+    # Add subgraphs for each change type
+    if added:
+        lines.append('    subgraph added_group["➕ Added"]')
+        for c in added:
+            icon = icons.get(c.structure_type, "📦")
+            node_id = f"add_{c.id}".replace("-", "_").replace(".", "_")
+            lines.append(f'        {node_id}["{icon} {c.id}<br/>v{c.version_b}"]')
+        lines.append("    end")
+
+    if removed:
+        lines.append('    subgraph removed_group["➖ Removed"]')
+        for c in removed:
+            icon = icons.get(c.structure_type, "📦")
+            node_id = f"rem_{c.id}".replace("-", "_").replace(".", "_")
+            lines.append(f'        {node_id}["{icon} {c.id}<br/>v{c.version_a}"]')
+        lines.append("    end")
+
+    if version_changed:
+        lines.append('    subgraph changed_group["🔄 Version Changed"]')
+        for c in version_changed:
+            icon = icons.get(c.structure_type, "📦")
+            node_id = f"chg_{c.id}".replace("-", "_").replace(".", "_")
+            lines.append(f'        {node_id}["{icon} {c.id}<br/>v{c.version_a} → v{c.version_b}"]')
+        lines.append("    end")
+
+    if unchanged and len(unchanged) <= 5:
+        # Only show unchanged if there are few of them
+        lines.append('    subgraph unchanged_group["✓ Unchanged"]')
+        for c in unchanged:
+            icon = icons.get(c.structure_type, "📦")
+            node_id = f"unc_{c.id}".replace("-", "_").replace(".", "_")
+            lines.append(f'        {node_id}["{icon} {c.id}<br/>v{c.version_a}"]')
+        lines.append("    end")
+    elif unchanged:
+        # Summarize if too many
+        lines.append('    subgraph unchanged_group["✓ Unchanged"]')
+        lines.append(f'        unc_summary["{len(unchanged)} references unchanged"]')
+        lines.append("    end")
+
+    # Add edges from A to removed, from B to added
+    for c in removed:
+        node_id = f"rem_{c.id}".replace("-", "_").replace(".", "_")
+        lines.append(f"    A -.->|removed| {node_id}")
+
+    for c in added:
+        node_id = f"add_{c.id}".replace("-", "_").replace(".", "_")
+        lines.append(f"    B -->|added| {node_id}")
+
+    for c in version_changed:
+        node_id = f"chg_{c.id}".replace("-", "_").replace(".", "_")
+        lines.append(f"    A -.->|was| {node_id}")
+        lines.append(f"    B -->|now| {node_id}")
+
+    # Add styling
+    lines.append("    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px")
+    lines.append("    style B fill:#e3f2fd,stroke:#1976d2,stroke-width:2px")
+
+    for c in added:
+        node_id = f"add_{c.id}".replace("-", "_").replace(".", "_")
+        lines.append(f"    style {node_id} fill:#c8e6c9,stroke:#388e3c")
+
+    for c in removed:
+        node_id = f"rem_{c.id}".replace("-", "_").replace(".", "_")
+        lines.append(f"    style {node_id} fill:#ffcdd2,stroke:#d32f2f")
+
+    for c in version_changed:
+        node_id = f"chg_{c.id}".replace("-", "_").replace(".", "_")
+        lines.append(f"    style {node_id} fill:#fff9c4,stroke:#fbc02d")
+
+    return "\n".join(lines)
+
+
+def _generate_codelist_diff_diagram(
+    structure_a: StructureNode,
+    structure_b: StructureNode,
+    code_changes: list[CodeChange],
+) -> str:
+    """Generate a Mermaid diagram for codelist comparison showing code differences."""
+    lines = ["graph LR"]
+
+    # Add codelist nodes
+    lines.append('    subgraph comparison["Codelist Comparison"]')
+    lines.append(f'        A["📋 {structure_a.id}<br/>v{structure_a.version}"]')
+    lines.append(f'        B["📋 {structure_b.id}<br/>v{structure_b.version}"]')
+    lines.append("    end")
+
+    # Group changes
+    added = [c for c in code_changes if c.change_type == "added"]
+    removed = [c for c in code_changes if c.change_type == "removed"]
+    name_changed = [c for c in code_changes if c.change_type == "name_changed"]
+    unchanged = [c for c in code_changes if c.change_type == "unchanged"]
+
+    # Show added codes (limit to 10)
+    if added:
+        lines.append('    subgraph added_group["➕ Added Codes"]')
+        for c in added[:10]:
+            node_id = f"add_{c.code_id}".replace("-", "_").replace(".", "_").replace(" ", "_")
+            safe_name = (c.name_b or c.code_id)[:25].replace('"', "'")
+            lines.append(f'        {node_id}["{c.code_id}<br/>{safe_name}"]')
+        if len(added) > 10:
+            lines.append(f'        add_more["... +{len(added) - 10} more"]')
+        lines.append("    end")
+
+    # Show removed codes (limit to 10)
+    if removed:
+        lines.append('    subgraph removed_group["➖ Removed Codes"]')
+        for c in removed[:10]:
+            node_id = f"rem_{c.code_id}".replace("-", "_").replace(".", "_").replace(" ", "_")
+            safe_name = (c.name_a or c.code_id)[:25].replace('"', "'")
+            lines.append(f'        {node_id}["{c.code_id}<br/>{safe_name}"]')
+        if len(removed) > 10:
+            lines.append(f'        rem_more["... +{len(removed) - 10} more"]')
+        lines.append("    end")
+
+    # Show name changes (limit to 5)
+    if name_changed:
+        lines.append('    subgraph changed_group["🔄 Name Changed"]')
+        for c in name_changed[:5]:
+            node_id = f"chg_{c.code_id}".replace("-", "_").replace(".", "_").replace(" ", "_")
+            lines.append(f'        {node_id}["{c.code_id}"]')
+        if len(name_changed) > 5:
+            lines.append(f'        chg_more["... +{len(name_changed) - 5} more"]')
+        lines.append("    end")
+
+    # Summarize unchanged
+    if unchanged:
+        lines.append('    subgraph unchanged_group["✓ Unchanged"]')
+        lines.append(f'        unc_summary["{len(unchanged)} codes unchanged"]')
+        lines.append("    end")
+
+    # Add styling
+    lines.append("    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px")
+    lines.append("    style B fill:#e3f2fd,stroke:#1976d2,stroke-width:2px")
+
+    for c in added[:10]:
+        node_id = f"add_{c.code_id}".replace("-", "_").replace(".", "_").replace(" ", "_")
+        lines.append(f"    style {node_id} fill:#c8e6c9,stroke:#388e3c")
+
+    for c in removed[:10]:
+        node_id = f"rem_{c.code_id}".replace("-", "_").replace(".", "_").replace(" ", "_")
+        lines.append(f"    style {node_id} fill:#ffcdd2,stroke:#d32f2f")
+
+    for c in name_changed[:5]:
+        node_id = f"chg_{c.code_id}".replace("-", "_").replace(".", "_").replace(" ", "_")
+        lines.append(f"    style {node_id} fill:#fff9c4,stroke:#fbc02d")
+
+    return "\n".join(lines)
+
+
+async def _compare_codelists(
+    client: "SDMXProgressiveClient",
+    codelist_id_a: str,
+    codelist_id_b: str,
+    version_a: str,
+    version_b: str,
+    agency: str,
+    show_diagram: bool,
+    ctx: Context[Any, Any, Any] | None,
+) -> StructureComparisonResult:
+    """Compare two codelists by their codes."""
+    api_calls = 0
+
+    # Fetch codelist A
+    result_a = await client.browse_codelist(
+        codelist_id=codelist_id_a,
+        agency_id=agency,
+        version=version_a,
+        ctx=ctx,
+    )
+    api_calls += 1
+
+    if "error" in result_a:
+        error_node = StructureNode(
+            node_id="error_a",
+            structure_type="codelist",
+            id=codelist_id_a,
+            agency=agency,
+            version=version_a,
+            name=f"Error: {result_a['error']}",
+            is_target=True,
+        )
+        return StructureComparisonResult(
+            structure_a=error_node,
+            structure_b=error_node,
+            comparison_type="version_comparison"
+            if codelist_id_a == codelist_id_b
+            else "cross_structure",
+            structure_type="codelist",
+            summary=ComparisonSummary(),
+            interpretation=[f"Error fetching codelist A: {result_a['error']}"],
+            api_calls_made=api_calls,
+            note="Comparison failed",
+        )
+
+    # Fetch codelist B
+    result_b = await client.browse_codelist(
+        codelist_id=codelist_id_b,
+        agency_id=agency,
+        version=version_b,
+        ctx=ctx,
+    )
+    api_calls += 1
+
+    if "error" in result_b:
+        node_a = StructureNode(
+            node_id="codelist_a",
+            structure_type="codelist",
+            id=result_a.get("codelist_id", codelist_id_a),
+            agency=result_a.get("agency_id", agency),
+            version=result_a.get("version", version_a),
+            name=result_a.get("name", codelist_id_a),
+            is_target=True,
+        )
+        error_node = StructureNode(
+            node_id="error_b",
+            structure_type="codelist",
+            id=codelist_id_b,
+            agency=agency,
+            version=version_b,
+            name=f"Error: {result_b['error']}",
+            is_target=False,
+        )
+        return StructureComparisonResult(
+            structure_a=node_a,
+            structure_b=error_node,
+            comparison_type="version_comparison"
+            if codelist_id_a == codelist_id_b
+            else "cross_structure",
+            structure_type="codelist",
+            summary=ComparisonSummary(),
+            interpretation=[f"Error fetching codelist B: {result_b['error']}"],
+            api_calls_made=api_calls,
+            note="Comparison failed",
+        )
+
+    # Build structure nodes
+    node_a = StructureNode(
+        node_id="codelist_a",
+        structure_type="codelist",
+        id=result_a.get("codelist_id", codelist_id_a),
+        agency=result_a.get("agency_id", agency),
+        version=result_a.get("version", version_a),
+        name=result_a.get("name", codelist_id_a),
+        is_target=True,
+    )
+
+    node_b = StructureNode(
+        node_id="codelist_b",
+        structure_type="codelist",
+        id=result_b.get("codelist_id", codelist_id_b),
+        agency=result_b.get("agency_id", agency),
+        version=result_b.get("version", version_b),
+        name=result_b.get("name", codelist_id_b),
+        is_target=False,
+    )
+
+    # Build code maps: {code_id: {name, description}}
+    codes_a: dict[str, dict] = {c["id"]: c for c in result_a.get("codes", [])}
+    codes_b: dict[str, dict] = {c["id"]: c for c in result_b.get("codes", [])}
+
+    # Compare codes
+    code_changes: list[CodeChange] = []
+    all_code_ids = set(codes_a.keys()) | set(codes_b.keys())
+
+    for code_id in sorted(all_code_ids):
+        in_a = code_id in codes_a
+        in_b = code_id in codes_b
+
+        if in_a and in_b:
+            name_a = codes_a[code_id].get("name", "")
+            name_b = codes_b[code_id].get("name", "")
+            if name_a != name_b:
+                code_changes.append(
+                    CodeChange(
+                        code_id=code_id,
+                        name_a=name_a,
+                        name_b=name_b,
+                        change_type="name_changed",
+                    )
+                )
+            else:
+                code_changes.append(
+                    CodeChange(
+                        code_id=code_id,
+                        name_a=name_a,
+                        name_b=name_b,
+                        change_type="unchanged",
+                    )
+                )
+        elif in_a:
+            code_changes.append(
+                CodeChange(
+                    code_id=code_id,
+                    name_a=codes_a[code_id].get("name", ""),
+                    name_b=None,
+                    change_type="removed",
+                )
+            )
+        else:
+            code_changes.append(
+                CodeChange(
+                    code_id=code_id,
+                    name_a=None,
+                    name_b=codes_b[code_id].get("name", ""),
+                    change_type="added",
+                )
+            )
+
+    # Build summary
+    summary = ComparisonSummary(
+        added=sum(1 for c in code_changes if c.change_type == "added"),
+        removed=sum(1 for c in code_changes if c.change_type == "removed"),
+        modified=sum(1 for c in code_changes if c.change_type == "name_changed"),
+        unchanged=sum(1 for c in code_changes if c.change_type == "unchanged"),
+    )
+    summary.total_changes = summary.added + summary.removed + summary.modified
+
+    # Build interpretation
+    comparison_type = "version_comparison" if codelist_id_a == codelist_id_b else "cross_structure"
+    interpretation: list[str] = []
+
+    if comparison_type == "version_comparison":
+        interpretation.append(
+            f"**Comparing codelist {codelist_id_a}**: v{node_a.version} → v{node_b.version}"
+        )
+    else:
+        interpretation.append(
+            f"**Comparing codelists**: {codelist_id_a} v{node_a.version} vs {codelist_id_b} v{node_b.version}"
+        )
+
+    interpretation.append(f"Total codes: A has {len(codes_a)}, B has {len(codes_b)}")
+    interpretation.append("")
+
+    if summary.total_changes == 0:
+        interpretation.append("✅ **No changes detected** - codelists have identical codes.")
+    else:
+        interpretation.append(f"📊 **Summary**: {summary.total_changes} change(s) detected")
+        interpretation.append(f"   - ➕ Added codes: {summary.added}")
+        interpretation.append(f"   - ➖ Removed codes: {summary.removed}")
+        interpretation.append(f"   - 🔄 Name changed: {summary.modified}")
+        interpretation.append(f"   - ✓ Unchanged: {summary.unchanged}")
+
+    # Detail added codes (limit to 10)
+    added_codes = [c for c in code_changes if c.change_type == "added"]
+    if added_codes:
+        interpretation.append("")
+        interpretation.append("**➕ Added codes:**")
+        for c in added_codes[:10]:
+            interpretation.append(f"   - `{c.code_id}`: {c.name_b}")
+        if len(added_codes) > 10:
+            interpretation.append(f"   ... and {len(added_codes) - 10} more")
+
+    # Detail removed codes (limit to 10)
+    removed_codes = [c for c in code_changes if c.change_type == "removed"]
+    if removed_codes:
+        interpretation.append("")
+        interpretation.append("**➖ Removed codes:**")
+        for c in removed_codes[:10]:
+            interpretation.append(f"   - `{c.code_id}`: {c.name_a}")
+        if len(removed_codes) > 10:
+            interpretation.append(f"   ... and {len(removed_codes) - 10} more")
+
+    # Detail name changes (limit to 5)
+    name_changed = [c for c in code_changes if c.change_type == "name_changed"]
+    if name_changed:
+        interpretation.append("")
+        interpretation.append("**🔄 Name changes:**")
+        for c in name_changed[:5]:
+            interpretation.append(f'   - `{c.code_id}`: "{c.name_a}" → "{c.name_b}"')
+        if len(name_changed) > 5:
+            interpretation.append(f"   ... and {len(name_changed) - 5} more")
+
+    # Generate diagram
+    mermaid_diagram = None
+    if show_diagram and summary.total_changes > 0:
+        mermaid_diagram = _generate_codelist_diff_diagram(node_a, node_b, code_changes)
+
+    return StructureComparisonResult(
+        structure_a=node_a,
+        structure_b=node_b,
+        comparison_type=comparison_type,
+        structure_type="codelist",
+        code_changes=code_changes,
+        summary=summary,
+        mermaid_diff_diagram=mermaid_diagram,
+        interpretation=interpretation,
+        api_calls_made=api_calls,
+        note=None,
+    )
+
+
+@mcp.tool()
+async def compare_structures(
+    structure_type: str,
+    structure_id_a: str,
+    structure_id_b: str | None = None,
+    version_a: str = "latest",
+    version_b: str = "latest",
+    agency_id: str | None = None,
+    show_diagram: bool = True,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> StructureComparisonResult:
+    """
+    Compare two SDMX structures to identify differences.
+
+    Supports comparing different structure types with specialized logic:
+
+    **Codelists** (`structure_type="codelist"`):
+    - Compares actual codes (code IDs and names)
+    - Shows added/removed/renamed codes
+    - Perfect for: "What codes changed between CL_GEO v1.0 and v2.0?"
+
+    **Data Structure Definitions** (`structure_type="datastructure"`):
+    - Compares codelist/concept scheme references
+    - Shows version changes in referenced codelists
+    - Perfect for: "What codelists were updated in DSD v3.0?"
+
+    **Dataflows** (`structure_type="dataflow"`):
+    - Compares structural references (DSD, constraints)
+    - Perfect for: "What structures do these dataflows share?"
+
+    Args:
+        structure_type: Type of structure to compare:
+            - "codelist": Compare codes within codelists
+            - "datastructure" or "dsd": Compare DSD references
+            - "dataflow": Compare dataflow references
+            - "conceptscheme": Compare concept schemes
+        structure_id_a: First structure identifier
+        structure_id_b: Second structure identifier (defaults to same as A for version comparison)
+        version_a: Version of first structure (default "latest")
+        version_b: Version of second structure (default "latest")
+        agency_id: Agency ID (uses current endpoint's default if not specified)
+        show_diagram: Generate a Mermaid diff diagram (default True)
+
+    Returns:
+        StructureComparisonResult with type-specific changes:
+            - code_changes: For codelist comparisons
+            - reference_changes: For DSD/dataflow comparisons
+            - summary: Counts of added/removed/modified/unchanged
+            - mermaid_diff_diagram: Visual diff diagram
+            - interpretation: Human-readable explanation
+
+    Examples:
+        # Compare two versions of a codelist - see what codes changed
+        >>> compare_structures("codelist", "CL_GEO", version_a="1.0", version_b="2.0")
+
+        # Compare two different codelists - find intersection/differences
+        >>> compare_structures("codelist", "CL_FREQ", "CL_TIME_FREQ")
+
+        # Compare DSD versions - see what codelist references changed
+        >>> compare_structures("datastructure", "DSD_SDG", version_a="2.0", version_b="3.0")
+
+        # Compare two different DSDs
+        >>> compare_structures("datastructure", "DSD_SDG", "DSD_EDUCATION")
+    """
+    client = get_session_client(ctx)
+    agency = agency_id or client.agency_id
+
+    # If structure_id_b is not provided, compare versions of the same structure
+    if structure_id_b is None:
+        structure_id_b = structure_id_a
+        comparison_type = "version_comparison"
+    else:
+        comparison_type = "cross_structure"
+
+    if ctx:
+        if comparison_type == "version_comparison":
+            ctx.info(f"Comparing {structure_type}/{structure_id_a} v{version_a} vs v{version_b}...")
+        else:
+            ctx.info(f"Comparing {structure_type}/{structure_id_a} vs {structure_id_b}...")
+
+    # Dispatch to specialized comparison based on structure type
+    if structure_type.lower() == "codelist":
+        return await _compare_codelists(
+            client=client,
+            codelist_id_a=structure_id_a,
+            codelist_id_b=structure_id_b,
+            version_a=version_a,
+            version_b=version_b,
+            agency=agency,
+            show_diagram=show_diagram,
+            ctx=ctx,
+        )
+
+    # For other structure types, use reference-based comparison (existing logic)
+
+    api_calls = 0
+
+    # Fetch structure A with children
+    result_a = await client.get_structure_references(
+        structure_type=structure_type,
+        structure_id=structure_id_a,
+        agency_id=agency,
+        version=version_a,
+        direction="children",
+        ctx=ctx,
+    )
+    api_calls += 1
+
+    if "error" in result_a:
+        error_node = StructureNode(
+            node_id="error_a",
+            structure_type=structure_type,
+            id=structure_id_a,
+            agency=agency,
+            version=version_a,
+            name=f"Error: {result_a['error']}",
+            is_target=True,
+        )
+        return StructureComparisonResult(
+            structure_a=error_node,
+            structure_b=error_node,
+            comparison_type=comparison_type,
+            changes=[],
+            summary=ComparisonSummary(),
+            mermaid_diff_diagram=None,
+            interpretation=[f"Error fetching structure A: {result_a['error']}"],
+            api_calls_made=api_calls,
+            note="Comparison failed due to error fetching first structure",
+        )
+
+    # Fetch structure B with children
+    result_b = await client.get_structure_references(
+        structure_type=structure_type,
+        structure_id=structure_id_b,
+        agency_id=agency,
+        version=version_b,
+        direction="children",
+        ctx=ctx,
+    )
+    api_calls += 1
+
+    if "error" in result_b:
+        target_a = result_a.get("target", {})
+        node_a = StructureNode(
+            node_id=f"{structure_type}_{structure_id_a}".replace("-", "_").replace(".", "_"),
+            structure_type=target_a.get("type", structure_type),
+            id=target_a.get("id", structure_id_a),
+            agency=target_a.get("agency", agency),
+            version=target_a.get("version", version_a),
+            name=target_a.get("name", structure_id_a),
+            is_target=True,
+        )
+        error_node = StructureNode(
+            node_id="error_b",
+            structure_type=structure_type,
+            id=structure_id_b,
+            agency=agency,
+            version=version_b,
+            name=f"Error: {result_b['error']}",
+            is_target=False,
+        )
+        return StructureComparisonResult(
+            structure_a=node_a,
+            structure_b=error_node,
+            comparison_type=comparison_type,
+            changes=[],
+            summary=ComparisonSummary(),
+            mermaid_diff_diagram=None,
+            interpretation=[f"Error fetching structure B: {result_b['error']}"],
+            api_calls_made=api_calls,
+            note="Comparison failed due to error fetching second structure",
+        )
+
+    # Build structure nodes
+    target_a = result_a.get("target", {})
+    target_b = result_b.get("target", {})
+
+    node_a = StructureNode(
+        node_id=f"{structure_type}_{structure_id_a}_a".replace("-", "_").replace(".", "_"),
+        structure_type=target_a.get("type", structure_type),
+        id=target_a.get("id", structure_id_a),
+        agency=target_a.get("agency", agency),
+        version=target_a.get("version", version_a),
+        name=target_a.get("name", structure_id_a),
+        is_target=True,
+    )
+
+    node_b = StructureNode(
+        node_id=f"{structure_type}_{structure_id_b}_b".replace("-", "_").replace(".", "_"),
+        structure_type=target_b.get("type", structure_type),
+        id=target_b.get("id", structure_id_b),
+        agency=target_b.get("agency", agency),
+        version=target_b.get("version", version_b),
+        name=target_b.get("name", structure_id_b),
+        is_target=False,
+    )
+
+    # Build reference maps: {(type, id): version}
+    children_a = result_a.get("children", [])
+    children_b = result_b.get("children", [])
+
+    refs_a: dict[tuple[str, str], dict] = {}
+    for child in children_a:
+        key = (child["type"], child["id"])
+        refs_a[key] = child
+
+    refs_b: dict[tuple[str, str], dict] = {}
+    for child in children_b:
+        key = (child["type"], child["id"])
+        refs_b[key] = child
+
+    # Compare references
+    changes: list[ReferenceChange] = []
+    all_keys = set(refs_a.keys()) | set(refs_b.keys())
+
+    for key in sorted(all_keys):
+        struct_type, struct_id = key
+        in_a = key in refs_a
+        in_b = key in refs_b
+
+        if in_a and in_b:
+            # Both have it - check if version changed
+            ver_a = refs_a[key].get("version", "1.0")
+            ver_b = refs_b[key].get("version", "1.0")
+            name = refs_b[key].get("name", struct_id)
+
+            if ver_a != ver_b:
+                changes.append(
+                    ReferenceChange(
+                        structure_type=struct_type,
+                        id=struct_id,
+                        name=name,
+                        version_a=ver_a,
+                        version_b=ver_b,
+                        change_type="version_changed",
+                    )
+                )
+            else:
+                changes.append(
+                    ReferenceChange(
+                        structure_type=struct_type,
+                        id=struct_id,
+                        name=name,
+                        version_a=ver_a,
+                        version_b=ver_b,
+                        change_type="unchanged",
+                    )
+                )
+        elif in_a and not in_b:
+            # Removed in B
+            ver_a = refs_a[key].get("version", "1.0")
+            name = refs_a[key].get("name", struct_id)
+            changes.append(
+                ReferenceChange(
+                    structure_type=struct_type,
+                    id=struct_id,
+                    name=name,
+                    version_a=ver_a,
+                    version_b=None,
+                    change_type="removed",
+                )
+            )
+        else:
+            # Added in B
+            ver_b = refs_b[key].get("version", "1.0")
+            name = refs_b[key].get("name", struct_id)
+            changes.append(
+                ReferenceChange(
+                    structure_type=struct_type,
+                    id=struct_id,
+                    name=name,
+                    version_a=None,
+                    version_b=ver_b,
+                    change_type="added",
+                )
+            )
+
+    # Build summary
+    summary = ComparisonSummary(
+        added=sum(1 for c in changes if c.change_type == "added"),
+        removed=sum(1 for c in changes if c.change_type == "removed"),
+        modified=sum(1 for c in changes if c.change_type == "version_changed"),
+        unchanged=sum(1 for c in changes if c.change_type == "unchanged"),
+    )
+    summary.total_changes = summary.added + summary.removed + summary.modified
+
+    # Build interpretation
+    interpretation: list[str] = []
+
+    if comparison_type == "version_comparison":
+        interpretation.append(
+            f"**Comparing {structure_type} {structure_id_a}**: v{node_a.version} → v{node_b.version}"
+        )
+    else:
+        interpretation.append(
+            f"**Comparing**: {structure_id_a} v{node_a.version} vs {structure_id_b} v{node_b.version}"
+        )
+
+    interpretation.append("")
+
+    if summary.total_changes == 0:
+        interpretation.append("✅ **No changes detected** - structures have identical references.")
+    else:
+        interpretation.append(f"📊 **Summary**: {summary.total_changes} change(s) detected")
+        interpretation.append(f"   - ➕ Added: {summary.added}")
+        interpretation.append(f"   - ➖ Removed: {summary.removed}")
+        interpretation.append(f"   - 🔄 Version changed: {summary.modified}")
+        interpretation.append(f"   - ✓ Unchanged: {summary.unchanged}")
+
+    # Detail the changes
+    if summary.added > 0:
+        interpretation.append("")
+        interpretation.append("**➕ Added references:**")
+        for c in changes:
+            if c.change_type == "added":
+                interpretation.append(f"   - {c.structure_type}: **{c.id}** v{c.version_b}")
+
+    if summary.removed > 0:
+        interpretation.append("")
+        interpretation.append("**➖ Removed references:**")
+        for c in changes:
+            if c.change_type == "removed":
+                interpretation.append(f"   - {c.structure_type}: **{c.id}** v{c.version_a}")
+
+    if summary.version_changed > 0:
+        interpretation.append("")
+        interpretation.append("**🔄 Version changes:**")
+        for c in changes:
+            if c.change_type == "version_changed":
+                interpretation.append(
+                    f"   - {c.structure_type}: **{c.id}** v{c.version_a} → v{c.version_b}"
+                )
+
+    # Generate diff diagram
+    mermaid_diff_diagram = None
+    if show_diagram and summary.total_changes > 0:
+        mermaid_diff_diagram = _generate_diff_diagram(node_a, node_b, changes)
+
+    return StructureComparisonResult(
+        structure_a=node_a,
+        structure_b=node_b,
+        comparison_type=comparison_type,
+        structure_type=structure_type,
+        reference_changes=changes,
+        summary=summary,
+        mermaid_diff_diagram=mermaid_diff_diagram,
+        interpretation=interpretation,
+        api_calls_made=api_calls,
         note=None,
     )
 

@@ -283,6 +283,200 @@ class DataUrlResult(BaseModel):
 
 
 # =============================================================================
+# Structure Diagram Schemas
+# =============================================================================
+
+
+class StructureNode(BaseModel):
+    """A node representing an SDMX structural artifact in the relationship graph."""
+
+    node_id: str = Field(description="Unique node identifier for graph rendering")
+    structure_type: str = Field(
+        description="Type of structure: 'dataflow', 'datastructure', 'codelist', 'conceptscheme', 'categoryscheme', 'constraint'"
+    )
+    id: str = Field(description="SDMX artifact identifier")
+    agency: str = Field(description="Maintaining agency")
+    version: str = Field(description="Version number")
+    name: str = Field(description="Human-readable name")
+    is_target: bool = Field(
+        default=False, description="Whether this is the queried target structure"
+    )
+
+
+class StructureEdge(BaseModel):
+    """An edge representing a relationship between two SDMX structures."""
+
+    source: str = Field(description="Source node_id")
+    target: str = Field(description="Target node_id")
+    relationship: str = Field(
+        description="Relationship type: 'defines', 'uses', 'references', 'constrains', 'categorizes'"
+    )
+    label: Optional[str] = Field(
+        default=None, description="Optional label for the edge (e.g., dimension name)"
+    )
+
+
+class StructureDiagramResult(BaseModel):
+    """Result from get_structure_diagram() tool with Mermaid visualization."""
+
+    discovery_level: str = Field(
+        default="structure_relationships", description="Discovery workflow level"
+    )
+    target: StructureNode = Field(description="The queried target structure")
+    direction: str = Field(description="Direction queried: 'parents', 'children', or 'both'")
+    depth: int = Field(description="Traversal depth used")
+    nodes: list[StructureNode] = Field(description="All nodes in the relationship graph")
+    edges: list[StructureEdge] = Field(description="All edges (relationships) in the graph")
+    mermaid_diagram: str = Field(
+        description="Ready-to-render Mermaid diagram code showing structure relationships"
+    )
+    interpretation: list[str] = Field(description="Human-readable explanation of the relationships")
+    api_calls_made: int = Field(description="Number of SDMX API calls made")
+    note: Optional[str] = Field(default=None, description="Additional notes or warnings")
+
+
+# =============================================================================
+# Structure Comparison Schemas
+# =============================================================================
+
+
+class ReferenceChange(BaseModel):
+    """A change in a structural reference between two versions/structures."""
+
+    structure_type: str = Field(
+        description="Type of referenced structure: 'codelist', 'conceptscheme', etc."
+    )
+    id: str = Field(description="Structure identifier")
+    name: Optional[str] = Field(default=None, description="Human-readable name")
+    version_a: Optional[str] = Field(
+        default=None, description="Version in structure A (None if added in B)"
+    )
+    version_b: Optional[str] = Field(
+        default=None, description="Version in structure B (None if removed)"
+    )
+    change_type: str = Field(
+        description="Type of change: 'added', 'removed', 'version_changed', 'unchanged'"
+    )
+
+
+class CodeChange(BaseModel):
+    """A change in a code within a codelist comparison."""
+
+    code_id: str = Field(description="Code identifier")
+    name_a: Optional[str] = Field(default=None, description="Name in codelist A")
+    name_b: Optional[str] = Field(default=None, description="Name in codelist B")
+    change_type: str = Field(
+        description="Type of change: 'added', 'removed', 'name_changed', 'unchanged'"
+    )
+
+
+class DimensionChange(BaseModel):
+    """A change in a dimension within a DSD comparison."""
+
+    dimension_id: str = Field(description="Dimension identifier")
+    position_a: Optional[int] = Field(default=None, description="Position in DSD A")
+    position_b: Optional[int] = Field(default=None, description="Position in DSD B")
+    codelist_a: Optional[str] = Field(default=None, description="Codelist ID in DSD A")
+    codelist_b: Optional[str] = Field(default=None, description="Codelist ID in DSD B")
+    codelist_version_a: Optional[str] = Field(default=None, description="Codelist version in DSD A")
+    codelist_version_b: Optional[str] = Field(default=None, description="Codelist version in DSD B")
+    change_type: str = Field(
+        description="Type of change: 'added', 'removed', 'codelist_changed', 'position_changed', 'unchanged'"
+    )
+
+
+class ConceptChange(BaseModel):
+    """A change in a concept within a concept scheme comparison."""
+
+    concept_id: str = Field(description="Concept identifier")
+    name_a: Optional[str] = Field(default=None, description="Name in concept scheme A")
+    name_b: Optional[str] = Field(default=None, description="Name in concept scheme B")
+    representation_a: Optional[str] = Field(
+        default=None, description="Core representation (codelist) in A"
+    )
+    representation_b: Optional[str] = Field(
+        default=None, description="Core representation (codelist) in B"
+    )
+    change_type: str = Field(
+        description="Type of change: 'added', 'removed', 'representation_changed', 'unchanged'"
+    )
+
+
+class ComparisonSummary(BaseModel):
+    """Summary counts of changes between two structures."""
+
+    added: int = Field(default=0, description="Number of items added in B")
+    removed: int = Field(default=0, description="Number of items removed from A")
+    modified: int = Field(
+        default=0,
+        description="Number of items modified (version_changed, codelist_changed, name_changed, etc.)",
+    )
+    unchanged: int = Field(default=0, description="Number of unchanged items")
+    total_changes: int = Field(
+        default=0, description="Total number of changes (added + removed + modified)"
+    )
+
+    # Legacy alias for backward compatibility
+    @property
+    def version_changed(self) -> int:
+        """Alias for modified count (backward compatibility)."""
+        return self.modified
+
+
+class StructureComparisonResult(BaseModel):
+    """Result from compare_structures() tool showing differences between two structures."""
+
+    discovery_level: str = Field(
+        default="structure_comparison", description="Discovery workflow level"
+    )
+    structure_a: StructureNode = Field(description="First structure being compared")
+    structure_b: StructureNode = Field(description="Second structure being compared")
+    comparison_type: str = Field(
+        description="Type of comparison: 'version_comparison' or 'cross_structure'"
+    )
+    structure_type: str = Field(
+        default="generic",
+        description="Type of structures being compared: 'codelist', 'conceptscheme', 'datastructure', 'dataflow'",
+    )
+
+    # Generic reference changes (for dataflow comparisons or fallback)
+    reference_changes: list[ReferenceChange] = Field(
+        default_factory=list,
+        description="Changes in structural references (codelists, concept schemes referenced)",
+    )
+
+    # Codelist-specific: code changes
+    code_changes: list[CodeChange] = Field(
+        default_factory=list, description="Changes in codes (for codelist comparisons)"
+    )
+
+    # DSD-specific: dimension changes
+    dimension_changes: list[DimensionChange] = Field(
+        default_factory=list, description="Changes in dimensions (for DSD comparisons)"
+    )
+
+    # Concept scheme-specific: concept changes
+    concept_changes: list[ConceptChange] = Field(
+        default_factory=list, description="Changes in concepts (for concept scheme comparisons)"
+    )
+
+    summary: ComparisonSummary = Field(description="Summary counts of changes")
+    mermaid_diff_diagram: Optional[str] = Field(
+        default=None,
+        description="Mermaid diagram highlighting differences (green=added, red=removed, yellow=changed)",
+    )
+    interpretation: list[str] = Field(description="Human-readable explanation of the differences")
+    api_calls_made: int = Field(description="Number of SDMX API calls made")
+    note: Optional[str] = Field(default=None, description="Additional notes or warnings")
+
+    # Legacy alias for backward compatibility
+    @property
+    def changes(self) -> list[ReferenceChange]:
+        """Alias for reference_changes (backward compatibility)."""
+        return self.reference_changes
+
+
+# =============================================================================
 # Endpoint Management Schemas
 # =============================================================================
 

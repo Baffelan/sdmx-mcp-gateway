@@ -68,16 +68,18 @@ sdmx-mcp-gateway/
 
 ### Discovery Tools
 
-| Tool                     | Description                   | Output Schema             |
-| ------------------------ | ----------------------------- | ------------------------- |
-| `list_dataflows`         | Find dataflows by keyword     | `DataflowListResult`      |
-| `get_dataflow_structure` | Get dimensions and structure  | `DataflowStructureResult` |
-| `get_dimension_codes`    | Explore codes for a dimension | `DimensionCodesResult`    |
-| `get_data_availability`  | Check what data exists        | `DataAvailabilityResult`  |
-| `validate_query`         | Validate query parameters     | `ValidationResult`        |
-| `build_key`              | Construct SDMX key            | `KeyBuildResult`          |
-| `build_data_url`         | Generate data retrieval URL   | `DataUrlResult`           |
-| `get_codelist`           | Browse specific codelist      | `dict`                    |
+| Tool                     | Description                               | Output Schema               |
+| ------------------------ | ----------------------------------------- | --------------------------- |
+| `list_dataflows`         | Find dataflows by keyword                 | `DataflowListResult`        |
+| `get_dataflow_structure` | Get dimensions and structure              | `DataflowStructureResult`   |
+| `get_dimension_codes`    | Explore codes for a dimension             | `DimensionCodesResult`      |
+| `get_data_availability`  | Check what data exists                    | `DataAvailabilityResult`    |
+| `get_structure_diagram`  | Generate Mermaid diagram of relationships | `StructureDiagramResult`    |
+| `compare_structures`     | Compare two structures for differences    | `StructureComparisonResult` |
+| `validate_query`         | Validate query parameters                 | `ValidationResult`          |
+| `build_key`              | Construct SDMX key                        | `KeyBuildResult`            |
+| `build_data_url`         | Generate data retrieval URL               | `DataUrlResult`             |
+| `get_codelist`           | Browse specific codelist                  | `dict`                      |
 
 ### Endpoint Management
 
@@ -272,6 +274,163 @@ get_data_availability("DF_DIGITAL_DEVELOPMENT", dimension_values={"GEO_PICT": "T
 # Step 5: Build query
 build_data_url("DF_DIGITAL_DEVELOPMENT", key="A..TO.", format_type="csv")
 # → Returns: DataUrlResult with ready-to-use URL
+```
+
+### Structure Relationship Visualization
+
+Understand how SDMX structures relate to each other with Mermaid diagrams:
+
+```python
+# See what a DSD references (codelists, concept schemes)
+get_structure_diagram("datastructure", "DSD_DF_POP", direction="children")
+# → Returns: StructureDiagramResult with mermaid_diagram field
+
+# See what uses a codelist (impact analysis)
+get_structure_diagram("codelist", "CL_FREQ", direction="parents")
+# → Shows which DSDs and concept schemes use this codelist
+
+# Get full relationship graph
+get_structure_diagram("dataflow", "DF_POP", direction="both")
+# → Shows both parent and child relationships
+
+# Show version numbers on all nodes (important for impact analysis!)
+get_structure_diagram("datastructure", "DSD_SDG", direction="children", show_versions=True)
+# → Displays version numbers like "CL_FREQ v1.0", "CL_GEO v2.0"
+# This is critical because different versions are independent -
+# a dataflow using CL_FREQ v1.0 won't be affected by changes to v2.0
+```
+
+The `mermaid_diagram` field contains ready-to-render Mermaid code.
+
+**Without versions** (default):
+
+```mermaid
+graph TD
+    subgraph dataflow["Dataflows ⭐"]
+        dataflow_DF_POP["📊 <b>DF_POP</b><br/>Population Statistics"]
+    end
+    subgraph datastructure["Data Structures"]
+        datastructure_DSD_POP["🏗️ DSD_POP<br/>Population DSD"]
+    end
+    subgraph codelist["Codelists"]
+        codelist_CL_FREQ["📋 CL_FREQ<br/>Frequency"]
+        codelist_CL_GEO["📋 CL_GEO<br/>Geography"]
+    end
+    dataflow_DF_POP -->|"defines structure"| datastructure_DSD_POP
+    datastructure_DSD_POP -->|"uses codelist"| codelist_CL_FREQ
+    datastructure_DSD_POP -->|"uses codelist"| codelist_CL_GEO
+```
+
+**With `show_versions=True`** (shows exact version dependencies):
+
+```mermaid
+graph TD
+    subgraph datastructure["Data Structures ⭐"]
+        datastructure_DSD_SDG["🏗️ <b>DSD_SDG</b> v3.0<br/>DSD for SDG"]
+    end
+    subgraph codelist["Codelists"]
+        codelist_CL_FREQ["📋 CL_FREQ v1.0<br/>Frequency"]
+        codelist_CL_GEO["📋 CL_GEO v2.0<br/>Geography"]
+    end
+    datastructure_DSD_SDG -->|"uses codelist"| codelist_CL_FREQ
+    datastructure_DSD_SDG -->|"uses codelist"| codelist_CL_GEO
+```
+
+### Comparing Structures
+
+Identify differences between two structures (useful for version upgrades and cross-structure analysis).
+
+**Comparing Codelists** (compares actual codes):
+
+```python
+# Compare two versions of a codelist - what codes changed?
+compare_structures(
+    structure_type="codelist",
+    structure_id_a="CL_GEO",
+    version_a="1.0",
+    version_b="2.0"
+)
+# → Shows added/removed/renamed codes between versions
+
+# Compare two different codelists - find intersection and differences
+compare_structures(
+    structure_type="codelist",
+    structure_id_a="CL_FREQ",
+    structure_id_b="CL_TIME_FREQ"
+)
+# → Shows which codes are unique to each, and which are shared
+```
+
+**Comparing DSDs** (compares codelist/conceptscheme references):
+
+```python
+# Compare two versions of a DSD - what codelist references changed?
+compare_structures(
+    structure_type="datastructure",
+    structure_id_a="DSD_SDG",
+    version_a="2.0",
+    version_b="3.0"
+)
+# → Shows added/removed/version-changed codelist references
+
+# Compare two different DSDs
+compare_structures(
+    structure_type="datastructure",
+    structure_id_a="DSD_SDG",
+    structure_id_b="DSD_EDUCATION"
+)
+# → Shows which codelists are unique to each, and which are shared
+```
+
+The comparison identifies:
+
+- **➕ Added**: Items that exist in B but not A
+- **➖ Removed**: Items that exist in A but not B
+- **🔄 Modified**: Same ID but changed (version change for DSD refs, name change for codes)
+- **✓ Unchanged**: Identical items in both
+
+Example codelist comparison output:
+
+```
+Comparing codelist CL_GEO: v1.0 → v2.0
+Total codes: A has 25, B has 28
+
+Summary: 5 change(s) detected
+   - ➕ Added codes: 3
+   - ➖ Removed codes: 0
+   - 🔄 Name changed: 2
+   - ✓ Unchanged: 23
+
+➕ Added codes:
+   - `PW`: Palau
+   - `MH`: Marshall Islands
+   - `FM`: Federated States of Micronesia
+```
+
+Example DSD comparison with diff diagram:
+
+```mermaid
+graph LR
+    subgraph comparison["Structure Comparison"]
+        A["🏗️ DSD_SDG<br/>v3.0"]
+        B["🏗️ DSD_EDUCATION<br/>v1.0"]
+    end
+    subgraph added_group["➕ Added"]
+        add_CL_EDUCATION["📋 CL_EDUCATION_INDICATORS<br/>v1.0"]
+    end
+    subgraph removed_group["➖ Removed"]
+        rem_CL_SDG["📋 CL_SDG_INDICATORS<br/>v3.0"]
+    end
+    subgraph changed_group["🔄 Version Changed"]
+        chg_CL_GEO["📋 CL_GEO<br/>v1.0 → v2.0"]
+    end
+    A -.->|removed| rem_CL_SDG
+    B -->|added| add_CL_EDUCATION
+    A -.->|was| chg_CL_GEO
+    B -->|now| chg_CL_GEO
+    style add_CL_EDUCATION fill:#c8e6c9,stroke:#388e3c
+    style rem_CL_SDG fill:#ffcdd2,stroke:#d32f2f
+    style chg_CL_GEO fill:#fff9c4,stroke:#fbc02d
 ```
 
 ### Interactive Endpoint Switching

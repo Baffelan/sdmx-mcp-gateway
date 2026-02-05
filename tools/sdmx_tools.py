@@ -204,12 +204,23 @@ async def get_dataflow_structure(
 
         for dim in dims:
             dim_dict = _extract_dict(dim)
+            # Extract codelist reference if available
+            codelist_ref = dim_dict.get("codelist_ref")
+            codelist_str = None
+            if codelist_ref:
+                cl_id = codelist_ref.get("id", "")
+                cl_agency = codelist_ref.get("agency", agency_id)
+                cl_version = codelist_ref.get("version", "1.0")
+                codelist_str = f"{cl_agency}:{cl_id}({cl_version})"
+
             dimensions_summary.append(
                 {
                     "id": dim_dict.get("id", ""),
                     "name": dim_dict.get("concept", dim_dict.get("id", "")),
                     "position": dim_dict.get("position", 0),
-                    "code_count": 0,  # Not available in summary
+                    "type": dim_dict.get("type", "Dimension"),
+                    "codelist": codelist_str,
+                    "codelist_ref": codelist_ref,
                 }
             )
 
@@ -226,15 +237,35 @@ async def get_dataflow_structure(
         except Exception:
             pass
 
+        # Extract attributes
+        attributes = structure_dict.get("attributes", [])
+
+        # Build key template and example
+        key_family = structure_dict.get("key_family", [])
+        key_template = ".".join([f"{{{dim}}}" for dim in key_family if dim != "TIME_PERIOD"])
+        key_example = ".".join(["*" for dim in key_family if dim != "TIME_PERIOD"])
+
         return {
             "discovery_level": "structure",
             "dataflow_id": dataflow_id,
             "agency_id": agency_id,
             "dataflow_name": dataflow_name,
             "total_dimensions": len(dimensions_summary),
-            "dimensions": dimensions_summary,
-            "time_dimension": None,
-            "next_step": "Use get_dimension_codes() to see all codes for a specific dimension",
+            "structure": {
+                "id": structure_dict.get("id", ""),
+                "agency": structure_dict.get("agency", agency_id),
+                "version": structure_dict.get("version", "latest"),
+                "key_template": key_template,
+                "key_example": key_example,
+                "dimensions": dimensions_summary,
+                "attributes": attributes,
+                "measure": structure_dict.get("primary_measure"),
+            },
+            "next_steps": [
+                "Use get_dimension_codes(dataflow_id, dimension_id) to see codes for a specific dimension",
+                "Use get_data_availability(dataflow_id) to check what data exists",
+                "Use build_data_url(dataflow_id, filters) to construct a data query URL",
+            ],
         }
 
     except Exception as e:

@@ -86,6 +86,49 @@ class DataflowListResult(BaseModel):
 # =============================================================================
 
 
+class ConceptRef(BaseModel):
+    """Reference to a concept within a concept scheme."""
+
+    id: str = Field(description="Concept identifier")
+    scheme_id: str = Field(description="Parent ConceptScheme identifier")
+    scheme_agency: str = Field(default="", description="ConceptScheme agency")
+    scheme_version: str = Field(default="1.0", description="ConceptScheme version")
+
+
+class RepresentationInfo(BaseModel):
+    """Representation of a component (enumerated via codelist or non-enumerated)."""
+
+    is_enumerated: bool = Field(description="True if represented by a codelist")
+    codelist_id: Optional[str] = Field(default=None, description="Codelist ID if enumerated")
+    codelist_agency: Optional[str] = Field(default=None, description="Codelist agency")
+    codelist_version: Optional[str] = Field(default=None, description="Codelist version")
+    text_format: Optional[str] = Field(
+        default=None,
+        description="Text format type if non-enumerated (e.g., 'String', 'ObservationalTimePeriod')",
+    )
+
+
+class ComponentInfo(BaseModel):
+    """
+    Full SDMX component information (dimension, attribute, or measure).
+
+    Follows the SDMX information model where each component:
+    - Has a ConceptIdentity (semantic meaning from a ConceptScheme)
+    - Has a Representation (either enumerated via Codelist or non-enumerated)
+    """
+
+    id: str = Field(description="Component identifier")
+    component_type: str = Field(
+        description="Type: 'Dimension', 'TimeDimension', 'Attribute', 'PrimaryMeasure'"
+    )
+    position: Optional[int] = Field(default=None, description="Position in key (for dimensions)")
+    assignment_status: Optional[str] = Field(
+        default=None, description="For attributes: 'Mandatory' or 'Conditional'"
+    )
+    concept: ConceptRef = Field(description="Concept identity reference")
+    representation: RepresentationInfo = Field(description="Local representation")
+
+
 class DimensionInfo(BaseModel):
     """Information about a dataflow dimension."""
 
@@ -333,6 +376,45 @@ class StructureDiagramResult(BaseModel):
     interpretation: list[str] = Field(description="Human-readable explanation of the relationships")
     api_calls_made: int = Field(description="Number of SDMX API calls made")
     note: Optional[str] = Field(default=None, description="Additional notes or warnings")
+
+
+class DataflowDiagramResult(BaseModel):
+    """
+    Result from get_dataflow_diagram() tool with SDMX-aware Mermaid visualization.
+
+    Shows the proper SDMX information model hierarchy:
+    - Dataflow → DSD
+    - DSD → Components (Dimensions, Attributes, Measures)
+    - Components → Concepts (from ConceptSchemes)
+    - Components → Representations (Codelists or free text)
+    """
+
+    discovery_level: str = Field(default="dataflow_diagram", description="Discovery workflow level")
+    dataflow_id: str = Field(description="The dataflow identifier")
+    dataflow_name: str = Field(description="Human-readable dataflow name")
+    dsd_id: str = Field(description="Data Structure Definition identifier")
+    dsd_version: str = Field(description="DSD version")
+    agency: str = Field(description="Maintaining agency")
+
+    # Components organized by type
+    dimensions: list[ComponentInfo] = Field(description="Dimension components")
+    attributes: list[ComponentInfo] = Field(description="Attribute components")
+    measure: Optional[ComponentInfo] = Field(default=None, description="Primary measure")
+
+    # Referenced structures (deduplicated)
+    concept_schemes: list[dict[str, str]] = Field(
+        description="ConceptSchemes referenced (id, agency, version, name)"
+    )
+    codelists: list[dict[str, str]] = Field(
+        description="Codelists referenced (id, agency, version, name)"
+    )
+
+    # Diagram output
+    mermaid_diagram: str = Field(
+        description="Ready-to-render Mermaid diagram showing SDMX structure hierarchy"
+    )
+    interpretation: list[str] = Field(description="Human-readable explanation of the structure")
+    api_calls_made: int = Field(description="Number of SDMX API calls made")
 
 
 # =============================================================================

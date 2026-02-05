@@ -26,6 +26,7 @@ import sys
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
+from pydantic import BaseModel, Field
 
 # Import lifespan and context
 from app_context import AppContext, app_lifespan
@@ -429,6 +430,449 @@ async def get_dimension_codes(
         usage=result.get("usage", result.get("next_step", "")),
         example_keys=result.get("example_keys", []),
     )
+
+
+# =============================================================================
+# Code Usage Discovery Tools
+# =============================================================================
+
+
+class CodeUsageInfo(BaseModel):
+    """Information about a single code's usage."""
+
+    code: str = Field(description="The code being checked")
+    is_used: bool = Field(description="Whether this code has actual data")
+    dimension_id: str | None = Field(default=None, description="Dimension where code is used")
+
+
+class CodeUsageResult(BaseModel):
+    """Result from get_code_usage() tool."""
+
+    discovery_level: str = Field(default="code_usage", description="Discovery workflow level")
+    dataflow_id: str = Field(description="Dataflow checked")
+    dimension_id: str | None = Field(default=None, description="Dimension checked (if specific)")
+    constraint_id: str | None = Field(default=None, description="Actual constraint used")
+    codes_checked: list[CodeUsageInfo] = Field(description="Usage status for each code")
+    summary: dict[str, int] = Field(description="Summary counts: total_checked, used, unused")
+    all_used_codes: dict[str, list[str]] | None = Field(
+        default=None,
+        description="All codes with actual data per dimension (if no specific codes requested)",
+    )
+    interpretation: list[str] = Field(description="Human-readable explanation")
+    api_calls_made: int = Field(default=1, description="Number of API calls made")
+
+
+class CrossDataflowUsageInfo(BaseModel):
+    """Information about code usage across dataflows."""
+
+    dataflow_id: str = Field(description="Dataflow ID")
+    dataflow_version: str | None = Field(
+        default=None, description="Dataflow version from ConstraintAttachment"
+    )
+    dataflow_name: str | None = Field(default=None, description="Dataflow name (if available)")
+    dimension_id: str = Field(description="Dimension where code is used")
+    is_used: bool = Field(description="Whether code has actual data in this dataflow")
+
+
+class CrossDataflowCodeUsageResult(BaseModel):
+    """Result from find_code_usage_across_dataflows() tool."""
+
+    discovery_level: str = Field(default="cross_dataflow_usage", description="Discovery level")
+    codelist_id: str = Field(description="Codelist checked")
+    code: str = Field(description="Code checked")
+    total_dsds_using_codelist: int = Field(description="DSDs that reference this codelist")
+    total_dataflows_checked: int = Field(description="Dataflows checked for actual usage")
+    dataflows_with_data: list[CrossDataflowUsageInfo] = Field(
+        description="Dataflows where code has actual data"
+    )
+    dataflows_without_data: list[str] = Field(
+        description="Dataflow IDs where code is allowed but has no data"
+    )
+    summary: dict[str, int] = Field(
+        description="Summary: dsds, dataflows_checked, with_data, without_data"
+    )
+    interpretation: list[str] = Field(description="Human-readable explanation")
+    api_calls_made: int = Field(description="Number of API calls made")
+
+
+@mcp.tool()
+async def get_code_usage(
+    dataflow_id: str,
+    codes: list[str] | None = None,
+    dimension_id: str | None = None,
+    agency_id: str = "SPC",
+    ctx: Context[Any, Any, Any] | None = None,
+) -> CodeUsageResult:
+    """
+    Efficiently check if specific codes are actually used in a dataflow's data.
+
+    This uses the Actual ContentConstraint (if available) to determine which
+    codes have real data, WITHOUT iterating through data queries. This is
+    much faster than trial-and-error data requests.
+
+    Use cases:
+    - "Is country code 'FJ' actually used in DF_SDG?"
+    - "Which indicator codes have data?" (leave codes empty)
+    - "Are these 5 codes I want to use valid AND have data?"
+
+    Args:
+        dataflow_id: The dataflow to check
+        codes: Optional list of specific codes to check. If empty, returns all used codes.
+        dimension_id: Optional dimension to check. If empty, checks all dimensions.
+        agency_id: The agency (default: "SPC")
+
+    Returns:
+        CodeUsageResult with:
+            - codes_checked: List of codes with their usage status
+            - all_used_codes: All codes that have data (by dimension)
+            - summary: Counts of used/unused codes
+
+    Examples:
+        >>> get_code_usage("DF_SDG", codes=["FJ", "WS", "XX"], dimension_id="GEO_PICT")
+        # Checks if Fiji, Samoa, and "XX" have SDG data
+
+        >>> get_code_usage("DF_SDG", dimension_id="INDICATOR")
+        # Returns all indicator codes that actually have data
+    """
+    import xml.etree.ElementTree as ET
+
+    from utils import SDMX_NAMESPACES
+
+    client = get_session_client(ctx)
+    agency = agency_id or client.agency_id
+    ns = SDMX_NAMESPACES
+    api_calls = 0
+
+    if ctx:
+        await ctx.info(f"Checking code usage for {dataflow_id}...")
+
+    url = f"{client.base_url}/dataflow/{agency}/{dataflow_id}/latest?references=all&detail=full"
+    headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
+
+    try:
+        session = await client._get_session()
+        resp = await session.get(url, headers=headers)
+        resp.raise_for_status()
+        api_calls += 1
+
+        root = ET.fromstring(resp.content)
+
+        # Find the Actual ContentConstraint
+        actual_constraint = None
+        for constraint in root.findall(".//str:ContentConstraint", ns):
+            if constraint.get("type") == "Actual":
+                actual_constraint = constraint
+                break
+
+        if actual_constraint is None:
+            return CodeUsageResult(
+                dataflow_id=dataflow_id,
+                dimension_id=dimension_id,
+                constraint_id=None,
+                codes_checked=[],
+                summary={"total_checked": 0, "used": 0, "unused": 0},
+                all_used_codes=None,
+                interpretation=[
+                    f"No Actual ContentConstraint found for {dataflow_id}.",
+                    "Cannot efficiently determine code usage.",
+                ],
+                api_calls_made=api_calls,
+            )
+
+        constraint_id = actual_constraint.get("id", "")
+
+        # Parse CubeRegion to get all codes with actual data
+        all_used_codes: dict[str, list[str]] = {}
+
+        for cube_region in actual_constraint.findall(".//str:CubeRegion", ns):
+            include = cube_region.get("include", "true") == "true"
+            if not include:
+                continue
+
+            for key_value in cube_region.findall(".//com:KeyValue", ns):
+                dim_id = key_value.get("id", "")
+                values: list[str] = []
+                for value in key_value.findall("./com:Value", ns):
+                    if value.text:
+                        values.append(value.text)
+
+                if dim_id not in all_used_codes:
+                    all_used_codes[dim_id] = []
+                all_used_codes[dim_id].extend(values)
+
+        # Deduplicate
+        for dim_id in all_used_codes:
+            all_used_codes[dim_id] = sorted(set(all_used_codes[dim_id]))
+
+        # Check specific codes if provided
+        codes_checked: list[CodeUsageInfo] = []
+
+        if codes:
+            if dimension_id:
+                used_in_dim = set(all_used_codes.get(dimension_id, []))
+                for code in codes:
+                    codes_checked.append(
+                        CodeUsageInfo(
+                            code=code, is_used=code in used_in_dim, dimension_id=dimension_id
+                        )
+                    )
+            else:
+                for code in codes:
+                    found_in = None
+                    for dim_id, dim_codes in all_used_codes.items():
+                        if code in dim_codes:
+                            found_in = dim_id
+                            break
+                    codes_checked.append(
+                        CodeUsageInfo(
+                            code=code, is_used=found_in is not None, dimension_id=found_in
+                        )
+                    )
+
+        used_count = sum(1 for c in codes_checked if c.is_used)
+        summary = {
+            "total_checked": len(codes_checked),
+            "used": used_count,
+            "unused": len(codes_checked) - used_count,
+        }
+
+        interpretation = [
+            f"**Dataflow:** {dataflow_id}",
+            f"**Constraint:** {constraint_id} (Actual)",
+        ]
+        if codes:
+            interpretation.append(
+                f"**Codes checked:** {len(codes)} - {used_count} used, {len(codes) - used_count} unused"
+            )
+        else:
+            interpretation.append("**Codes with data by dimension:**")
+            for dim_id, dim_codes in sorted(all_used_codes.items()):
+                interpretation.append(f"  - {dim_id}: {len(dim_codes)} codes")
+
+        return CodeUsageResult(
+            dataflow_id=dataflow_id,
+            dimension_id=dimension_id,
+            constraint_id=constraint_id,
+            codes_checked=codes_checked,
+            summary=summary,
+            all_used_codes=all_used_codes if not codes else None,
+            interpretation=interpretation,
+            api_calls_made=api_calls,
+        )
+
+    except Exception as e:
+        logger.exception("Failed to check code usage")
+        return CodeUsageResult(
+            dataflow_id=dataflow_id,
+            dimension_id=dimension_id,
+            constraint_id=None,
+            codes_checked=[],
+            summary={"total_checked": 0, "used": 0, "unused": 0},
+            all_used_codes=None,
+            interpretation=[f"Error: {str(e)}"],
+            api_calls_made=api_calls,
+        )
+
+
+@mcp.tool()
+async def find_code_usage_across_dataflows(
+    codelist_id: str,
+    code: str,
+    agency_id: str = "SPC",
+    ctx: Context[Any, Any, Any] | None = None,
+) -> CrossDataflowCodeUsageResult:
+    """
+    Find if a specific code from a codelist is actually used in ANY dataflow.
+
+    This is a SMART search that fetches ALL Actual constraints in a single API call
+    and searches through them, instead of iterating through dataflows one by one.
+    This makes it O(1) API calls instead of O(N).
+
+    Use cases:
+    - "Is code 'FJ' from CL_COM_GEO_PICT used anywhere?"
+    - "If I remove indicator 'AG_LND_FRST', what dataflows will break?"
+    - "Which dataflows actually have data for this code?"
+
+    Args:
+        codelist_id: The codelist ID (e.g., "CL_COM_GEO_PICT") - used for context only
+        code: The specific code to check (e.g., "FJ")
+        agency_id: The agency (default: "SPC")
+
+    Returns:
+        CrossDataflowCodeUsageResult with:
+            - dataflows_with_data: Dataflows where code is actually used
+            - summary: Counts of usage
+
+    Example:
+        >>> find_code_usage_across_dataflows("CL_COM_GEO_PICT", "FJ")
+        # Finds all dataflows where Fiji (FJ) has actual data (1 API call!)
+    """
+    import xml.etree.ElementTree as ET
+
+    from utils import SDMX_NAMESPACES
+
+    client = get_session_client(ctx)
+    agency = agency_id or client.agency_id
+    ns = SDMX_NAMESPACES
+    api_calls = 0
+
+    if ctx:
+        await ctx.info(f"Fetching ALL Actual constraints to find usage of code '{code}'...")
+
+    headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
+
+    try:
+        session = await client._get_session()
+
+        # SMART: Get ALL constraints in ONE API call
+        constraints_url = f"{client.base_url}/contentconstraint/{agency}/all/latest?detail=full"
+        resp = await session.get(constraints_url, headers=headers, timeout=120)
+        resp.raise_for_status()
+        api_calls += 1
+
+        root = ET.fromstring(resp.content)
+
+        # Find all Actual constraints that contain this code
+        dataflows_with_data: list[CrossDataflowUsageInfo] = []
+        constraints_checked = 0
+        actual_constraints = 0
+
+        for constraint in root.findall(".//str:ContentConstraint", ns):
+            if constraint.get("type") != "Actual":
+                continue
+
+            actual_constraints += 1
+            constraint_id = constraint.get("id", "")
+
+            # Extract dataflow reference from ConstraintAttachment (the proper SDMX way)
+            # The Ref element contains: id, version, agencyID, package, class
+            dataflow_id = None
+            dataflow_version = None
+            dataflow_name = None
+
+            # Primary method: Get dataflow from ConstraintAttachment/Dataflow/Ref
+            # The Ref element may be namespace-less, so we also iterate children
+            for df_elem in constraint.findall(".//str:ConstraintAttachment/str:Dataflow", ns):
+                # Try XPath first (works when Ref has no namespace)
+                for df_ref in df_elem.findall("./Ref", ns):
+                    dataflow_id = df_ref.get("id")
+                    dataflow_version = df_ref.get("version")
+                    break
+                # Fallback: iterate children to find Ref element
+                if not dataflow_id:
+                    for child in df_elem:
+                        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                        if tag == "Ref":
+                            dataflow_id = child.get("id")
+                            dataflow_version = child.get("version")
+                            break
+                if dataflow_id:
+                    break
+
+            # Fallback: extract from constraint ID pattern (CON_XXX or CR_A_XXX)
+            if not dataflow_id:
+                if constraint_id.startswith("CR_A_"):
+                    dataflow_id = constraint_id[5:]  # CR_A_DF_SDG -> DF_SDG
+                elif constraint_id.startswith("CON_"):
+                    dataflow_id = "DF_" + constraint_id[4:]  # CON_BOP -> DF_BOP
+
+            if not dataflow_id:
+                continue
+
+            # Search CubeRegions for the code
+            found_in_dim = None
+            for cube_region in constraint.findall(".//str:CubeRegion", ns):
+                if cube_region.get("include", "true") != "true":
+                    continue
+
+                for key_value in cube_region.findall(".//com:KeyValue", ns):
+                    dim_id = key_value.get("id", "")
+                    for value in key_value.findall("./com:Value", ns):
+                        if value.text == code:
+                            found_in_dim = dim_id
+                            break
+                    if found_in_dim:
+                        break
+                if found_in_dim:
+                    break
+
+            if found_in_dim:
+                # Get constraint name as proxy for dataflow name (if not already set)
+                if not dataflow_name:
+                    name_elem = constraint.find("./com:Name", ns)
+                    if name_elem is not None and name_elem.text:
+                        dataflow_name = name_elem.text
+
+                dataflows_with_data.append(
+                    CrossDataflowUsageInfo(
+                        dataflow_id=dataflow_id,
+                        dataflow_version=dataflow_version,
+                        dataflow_name=dataflow_name,
+                        dimension_id=found_in_dim,
+                        is_used=True,
+                    )
+                )
+
+            constraints_checked += 1
+
+        summary = {
+            "dsds_using_codelist": 0,  # Not checked in this approach
+            "dataflows_checked": actual_constraints,
+            "with_data": len(dataflows_with_data),
+            "without_data": actual_constraints - len(dataflows_with_data),
+        }
+
+        interpretation = [
+            f"**Codelist:** {codelist_id}",
+            f"**Code:** {code}",
+            "",
+            f"**Search method:** Single API call for all {actual_constraints} Actual constraints",
+            f"**API calls made:** {api_calls} (efficient!)",
+            "",
+        ]
+
+        if dataflows_with_data:
+            interpretation.append(f"**✓ Code HAS DATA in {len(dataflows_with_data)} dataflow(s):**")
+            for df in dataflows_with_data[:15]:
+                version_str = f" v{df.dataflow_version}" if df.dataflow_version else ""
+                interpretation.append(f"  - {df.dataflow_id}{version_str} (dim: {df.dimension_id})")
+            if len(dataflows_with_data) > 15:
+                interpretation.append(f"  ... and {len(dataflows_with_data) - 15} more")
+        else:
+            interpretation.append(
+                f"**✗ Code '{code}' has NO DATA in any of the {actual_constraints} dataflows**"
+            )
+
+        return CrossDataflowCodeUsageResult(
+            codelist_id=codelist_id,
+            code=code,
+            total_dsds_using_codelist=0,
+            total_dataflows_checked=actual_constraints,
+            dataflows_with_data=dataflows_with_data,
+            dataflows_without_data=[],  # Not tracked in efficient approach
+            summary=summary,
+            interpretation=interpretation,
+            api_calls_made=api_calls,
+        )
+
+    except Exception as e:
+        logger.exception("Failed to find code usage across dataflows")
+        return CrossDataflowCodeUsageResult(
+            codelist_id=codelist_id,
+            code=code,
+            total_dsds_using_codelist=0,
+            total_dataflows_checked=0,
+            dataflows_with_data=[],
+            dataflows_without_data=[],
+            summary={
+                "dsds_using_codelist": 0,
+                "dataflows_checked": 0,
+                "with_data": 0,
+                "without_data": 0,
+            },
+            interpretation=[f"Error: {str(e)}"],
+            api_calls_made=api_calls,
+        )
 
 
 @mcp.tool()

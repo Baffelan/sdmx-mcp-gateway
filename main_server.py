@@ -478,18 +478,16 @@ class CrossDataflowCodeUsageResult(BaseModel):
     """Result from find_code_usage_across_dataflows() tool."""
 
     discovery_level: str = Field(default="cross_dataflow_usage", description="Discovery level")
-    codelist_id: str = Field(description="Codelist checked")
+    dimension_id: str | None = Field(
+        default=None, description="Dimension filter (None = searched all dimensions)"
+    )
     code: str = Field(description="Code checked")
-    total_dsds_using_codelist: int = Field(description="DSDs that reference this codelist")
     total_dataflows_checked: int = Field(description="Dataflows checked for actual usage")
     dataflows_with_data: list[CrossDataflowUsageInfo] = Field(
         description="Dataflows where code has actual data"
     )
-    dataflows_without_data: list[str] = Field(
-        description="Dataflow IDs where code is allowed but has no data"
-    )
     summary: dict[str, int] = Field(
-        description="Summary: dsds, dataflows_checked, with_data, without_data"
+        description="Summary: dataflows_checked, with_data, without_data"
     )
     interpretation: list[str] = Field(description="Human-readable explanation")
     api_calls_made: int = Field(description="Number of API calls made")
@@ -674,38 +672,305 @@ async def get_code_usage(
         )
 
 
+class TimeAvailabilityResult(BaseModel):
+    """Result from check_time_availability() tool."""
+
+    discovery_level: str = Field(default="time_availability")
+    dataflow_id: str = Field(description="Dataflow checked")
+    query_period: str = Field(description="Period that was queried")
+    implied_frequency: str = Field(description="Implied frequency: A, S, Q, M, W, or D")
+    query_start: str = Field(description="Start of query period (ISO date)")
+    query_end: str = Field(description="End of query period (ISO date)")
+    availability: str = Field(
+        description="'no' (ruled out), 'plausible' (worth querying), "
+        "or 'plausible_different_frequency' (data exists but at different granularity)"
+    )
+    available_frequencies: list[str] = Field(description="FREQ codes from the constraint")
+    constraint_time_start: str | None = Field(
+        default=None, description="Earliest date in constraint TimeRange"
+    )
+    constraint_time_end: str | None = Field(
+        default=None, description="Latest date in constraint TimeRange"
+    )
+    overlap: str = Field(description="Time overlap: 'full', 'partial', or 'none'")
+    interpretation: list[str] = Field(description="Step-by-step reasoning")
+    recommendation: str = Field(description="Suggested next action")
+    api_calls_made: int = Field(default=1, description="Number of API calls made")
+
+
+@mcp.tool()
+async def check_time_availability(
+    dataflow_id: str,
+    query_period: str,
+    agency_id: str = "SPC",
+    ctx: Context[Any, Any, Any] | None = None,
+) -> TimeAvailabilityResult:
+    """
+    Check whether a specific time period is likely to have data in a dataflow.
+
+    Uses the Actual ContentConstraint (FREQ values + TimeRange) to quickly
+    rule out periods that definitely have no data, without querying the data
+    itself. The constraint only tells us what CAN'T exist — a "plausible"
+    result means "worth querying", not "guaranteed to have data".
+
+    Use after identifying a dataflow and before building a data URL.
+    For confirmed availability, query the data directly via build_data_url().
+
+    Three-valued result:
+    - "no": constraint rules this out — don't bother querying
+    - "plausible": period within range and frequency matches — worth trying
+    - "plausible_different_frequency": data exists in this time window but
+      at different granularity (e.g. querying monthly but only annual exists)
+
+    Args:
+        dataflow_id: The dataflow to check
+        query_period: The period to check (e.g. "2010", "2010-Q1", "2010-01", "2010-W05")
+        agency_id: The agency (default: "SPC")
+
+    Returns:
+        TimeAvailabilityResult with availability classification and reasoning
+    """
+    import xml.etree.ElementTree as ET
+    from datetime import date as date_type
+
+    from utils import SDMX_NAMESPACES, classify_time_overlap, parse_query_period
+
+    client = get_session_client(ctx)
+    agency = agency_id or client.agency_id
+    ns = SDMX_NAMESPACES
+    api_calls = 0
+
+    if ctx:
+        await ctx.info("Checking time availability for " + dataflow_id + " period " + query_period + "...")
+
+    # Parse the query period
+    try:
+        q_start, q_end, implied_freq = parse_query_period(query_period)
+    except ValueError as exc:
+        return TimeAvailabilityResult(
+            dataflow_id=dataflow_id,
+            query_period=query_period,
+            implied_frequency="?",
+            query_start="",
+            query_end="",
+            availability="no",
+            available_frequencies=[],
+            overlap="none",
+            interpretation=["Invalid period format: " + str(exc)],
+            recommendation="Fix the period format and try again. "
+            "Valid examples: 2010, 2010-Q1, 2010-01, 2010-M01, 2010-W01, 2010-01-15",
+        )
+
+    # Fetch the constraint (same URL pattern as get_code_usage)
+    url = (
+        client.base_url + "/dataflow/" + agency + "/" + dataflow_id
+        + "/latest?references=all&detail=full"
+    )
+    headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
+
+    try:
+        session = await client._get_session()
+        resp = await session.get(url, headers=headers)
+        resp.raise_for_status()
+        api_calls += 1
+
+        root = ET.fromstring(resp.content)
+
+        # Find the Actual ContentConstraint
+        actual_constraint = None
+        for constraint in root.findall(".//str:ContentConstraint", ns):
+            if constraint.get("type") == "Actual":
+                actual_constraint = constraint
+                break
+
+        if actual_constraint is None:
+            return TimeAvailabilityResult(
+                dataflow_id=dataflow_id,
+                query_period=query_period,
+                implied_frequency=implied_freq,
+                query_start=q_start.isoformat(),
+                query_end=q_end.isoformat(),
+                availability="no",
+                available_frequencies=[],
+                overlap="none",
+                interpretation=[
+                    "No Actual ContentConstraint found for " + dataflow_id + ".",
+                    "Cannot determine time availability from metadata alone.",
+                ],
+                recommendation="No constraint available. Use get_data_availability() or query the data directly.",
+                api_calls_made=api_calls,
+            )
+
+        # Extract FREQ values from included CubeRegion(s)
+        available_freqs: list[str] = []
+        for cube_region in actual_constraint.findall(".//str:CubeRegion", ns):
+            if cube_region.get("include", "true") != "true":
+                continue
+            for key_value in cube_region.findall(".//com:KeyValue", ns):
+                if key_value.get("id") == "FREQ":
+                    for value in key_value.findall("./com:Value", ns):
+                        if value.text and value.text not in available_freqs:
+                            available_freqs.append(value.text)
+
+        # Extract TimeRange (earliest start / latest end across all CubeRegions)
+        time_start: date_type | None = None
+        time_end: date_type | None = None
+
+        for cube_region in actual_constraint.findall(".//str:CubeRegion", ns):
+            if cube_region.get("include", "true") != "true":
+                continue
+            for time_range in cube_region.findall(".//com:TimeRange", ns):
+                for start_el in time_range.findall("com:StartPeriod", ns):
+                    try:
+                        val = date_type.fromisoformat(start_el.text[:10])
+                        if time_start is None or val < time_start:
+                            time_start = val
+                    except (ValueError, TypeError):
+                        pass
+                for end_el in time_range.findall("com:EndPeriod", ns):
+                    try:
+                        val = date_type.fromisoformat(end_el.text[:10])
+                        if time_end is None or val > time_end:
+                            time_end = val
+                    except (ValueError, TypeError):
+                        pass
+
+        # Determine overlap
+        if time_start is not None and time_end is not None:
+            overlap = classify_time_overlap(q_start, q_end, time_start, time_end)
+        else:
+            # No time range in constraint — can't rule out on time
+            overlap = "full"
+
+        # Determine frequency match
+        freq_match = len(available_freqs) == 0 or implied_freq in available_freqs
+
+        # Build interpretation
+        interpretation: list[str] = [
+            "**Dataflow:** " + dataflow_id,
+            "**Query period:** " + query_period + " → " + q_start.isoformat() + " to " + q_end.isoformat() + " (implied freq: " + implied_freq + ")",
+        ]
+
+        if time_start and time_end:
+            interpretation.append(
+                "**Constraint time range:** " + time_start.isoformat() + " to " + time_end.isoformat()
+            )
+        else:
+            interpretation.append("**Constraint time range:** not specified")
+
+        if available_freqs:
+            interpretation.append("**Available frequencies:** " + ", ".join(available_freqs))
+        else:
+            interpretation.append("**Available frequencies:** unconstrained (FREQ not in constraint)")
+
+        interpretation.append("**Time overlap:** " + overlap)
+        interpretation.append("**Frequency match:** " + ("yes" if freq_match else "no"))
+
+        # Decision logic
+        if overlap == "none":
+            availability = "no"
+            if time_start and time_end:
+                recommendation = (
+                    "No data for " + query_period + ". "
+                    "Available range: " + time_start.isoformat() + " to " + time_end.isoformat() + "."
+                )
+            else:
+                recommendation = "Period outside available range."
+        elif freq_match:
+            availability = "plausible"
+            freq_label = implied_freq + " data" if available_freqs else "Data"
+            if overlap == "partial":
+                recommendation = (
+                    query_period + " partially overlaps the constraint range"
+                    + (" (" + time_start.isoformat() + " to " + time_end.isoformat() + ")" if time_start and time_end else "")
+                    + ". Data might exist for the covered portion. Query to confirm."
+                )
+            else:
+                recommendation = (
+                    freq_label + " exists in range"
+                    + (" " + time_start.isoformat() + " to " + time_end.isoformat() if time_start and time_end else "")
+                    + "; " + query_period + " falls within. Query to confirm."
+                )
+        else:
+            availability = "plausible_different_frequency"
+            recommendation = (
+                "No " + implied_freq + " data exists. "
+                "Available frequencies: " + ", ".join(available_freqs) + ". "
+                "Data spans this time window but at different granularity. Try a different frequency."
+            )
+
+        return TimeAvailabilityResult(
+            dataflow_id=dataflow_id,
+            query_period=query_period,
+            implied_frequency=implied_freq,
+            query_start=q_start.isoformat(),
+            query_end=q_end.isoformat(),
+            availability=availability,
+            available_frequencies=available_freqs,
+            constraint_time_start=time_start.isoformat() if time_start else None,
+            constraint_time_end=time_end.isoformat() if time_end else None,
+            overlap=overlap,
+            interpretation=interpretation,
+            recommendation=recommendation,
+            api_calls_made=api_calls,
+        )
+
+    except Exception as e:
+        logger.exception("Failed to check time availability")
+        return TimeAvailabilityResult(
+            dataflow_id=dataflow_id,
+            query_period=query_period,
+            implied_frequency=implied_freq,
+            query_start=q_start.isoformat(),
+            query_end=q_end.isoformat(),
+            availability="no",
+            available_frequencies=[],
+            overlap="none",
+            interpretation=["Error: " + str(e)],
+            recommendation="Error checking time availability. Try get_data_availability() instead.",
+            api_calls_made=api_calls,
+        )
+
+
 @mcp.tool()
 async def find_code_usage_across_dataflows(
-    codelist_id: str,
     code: str,
+    dimension_id: str | None = None,
     agency_id: str = "SPC",
     ctx: Context[Any, Any, Any] | None = None,
 ) -> CrossDataflowCodeUsageResult:
     """
-    Find if a specific code from a codelist is actually used in ANY dataflow.
+    Find if a specific code is actually used in ANY dataflow.
 
-    This is a SMART search that fetches ALL Actual constraints in a single API call
-    and searches through them, instead of iterating through dataflows one by one.
-    This makes it O(1) API calls instead of O(N).
+    Fetches ALL Actual ContentConstraints in a single API call and searches
+    through them. This is O(1) API calls instead of O(N).
 
-    Use cases:
-    - "Is code 'FJ' from CL_COM_GEO_PICT used anywhere?"
-    - "If I remove indicator 'AG_LND_FRST', what dataflows will break?"
-    - "Which dataflows actually have data for this code?"
+    ContentConstraints contain dimension/value pairs but NOT codelist references.
+    Use dimension_id to restrict the search to a specific dimension.
+
+    **Workflow A — search by dimension (direct):**
+        find_code_usage_across_dataflows("FJ", dimension_id="GEO_PICT")
+        Returns only matches where "FJ" appears in the GEO_PICT dimension.
+
+    **Workflow B — search by codelist (two steps):**
+        If you know a code belongs to a codelist (e.g., CL_COM_GEO_PICT) but
+        not which dimensions use it:
+        1. Call this tool WITHOUT dimension_id to get all dataflows/dimensions
+           where the code appears.
+        2. For each matched dataflow, call get_dataflow_structure() to inspect
+           the DSD and verify which codelist each matched dimension uses.
 
     Args:
-        codelist_id: The codelist ID (e.g., "CL_COM_GEO_PICT") - used for context only
         code: The specific code to check (e.g., "FJ")
+        dimension_id: Optional dimension to restrict search (e.g., "GEO_PICT").
+            If provided, only matches in this dimension are returned.
+            If omitted, all dimensions are searched.
         agency_id: The agency (default: "SPC")
 
     Returns:
         CrossDataflowCodeUsageResult with:
             - dataflows_with_data: Dataflows where code is actually used
             - summary: Counts of usage
-
-    Example:
-        >>> find_code_usage_across_dataflows("CL_COM_GEO_PICT", "FJ")
-        # Finds all dataflows where Fiji (FJ) has actual data (1 API call!)
     """
     import xml.etree.ElementTree as ET
 
@@ -787,6 +1052,8 @@ async def find_code_usage_across_dataflows(
 
                 for key_value in cube_region.findall(".//com:KeyValue", ns):
                     dim_id = key_value.get("id", "")
+                    if dimension_id and dim_id != dimension_id:
+                        continue
                     for value in key_value.findall("./com:Value", ns):
                         if value.text == code:
                             found_in_dim = dim_id
@@ -816,40 +1083,58 @@ async def find_code_usage_across_dataflows(
             constraints_checked += 1
 
         summary = {
-            "dsds_using_codelist": 0,  # Not checked in this approach
             "dataflows_checked": actual_constraints,
             "with_data": len(dataflows_with_data),
             "without_data": actual_constraints - len(dataflows_with_data),
         }
 
-        interpretation = [
-            f"**Codelist:** {codelist_id}",
-            f"**Code:** {code}",
+        interpretation = []
+        if dimension_id:
+            interpretation.append("**Dimension filter:** " + dimension_id)
+        else:
+            interpretation.append("**Searched all dimensions (no filter)**")
+        interpretation.extend([
+            "**Code:** " + code,
             "",
-            f"**Search method:** Single API call for all {actual_constraints} Actual constraints",
-            f"**API calls made:** {api_calls} (efficient!)",
+            "**Search method:** Single API call for all "
+            + str(actual_constraints)
+            + " Actual constraints",
+            "**API calls made:** " + str(api_calls) + " (efficient!)",
             "",
-        ]
+        ])
 
         if dataflows_with_data:
-            interpretation.append(f"**✓ Code HAS DATA in {len(dataflows_with_data)} dataflow(s):**")
-            for df in dataflows_with_data[:15]:
-                version_str = f" v{df.dataflow_version}" if df.dataflow_version else ""
-                interpretation.append(f"  - {df.dataflow_id}{version_str} (dim: {df.dimension_id})")
-            if len(dataflows_with_data) > 15:
-                interpretation.append(f"  ... and {len(dataflows_with_data) - 15} more")
-        else:
             interpretation.append(
-                f"**✗ Code '{code}' has NO DATA in any of the {actual_constraints} dataflows**"
+                "**Code HAS DATA in " + str(len(dataflows_with_data)) + " dataflow(s):**"
             )
+            for df in dataflows_with_data[:15]:
+                version_str = " v" + df.dataflow_version if df.dataflow_version else ""
+                interpretation.append(
+                    "  - " + df.dataflow_id + version_str + " (dim: " + df.dimension_id + ")"
+                )
+            if len(dataflows_with_data) > 15:
+                interpretation.append(
+                    "  ... and " + str(len(dataflows_with_data) - 15) + " more"
+                )
+            if not dimension_id:
+                interpretation.extend([
+                    "",
+                    "**Note:** To verify which codelist each dimension uses, call "
+                    "get_dataflow_structure() for the matched dataflows.",
+                ])
+        else:
+            no_data_msg = "**Code '" + code + "' has NO DATA in any of the "
+            no_data_msg += str(actual_constraints) + " dataflows"
+            if dimension_id:
+                no_data_msg += " (dimension: " + dimension_id + ")"
+            no_data_msg += "**"
+            interpretation.append(no_data_msg)
 
         return CrossDataflowCodeUsageResult(
-            codelist_id=codelist_id,
+            dimension_id=dimension_id,
             code=code,
-            total_dsds_using_codelist=0,
             total_dataflows_checked=actual_constraints,
             dataflows_with_data=dataflows_with_data,
-            dataflows_without_data=[],  # Not tracked in efficient approach
             summary=summary,
             interpretation=interpretation,
             api_calls_made=api_calls,
@@ -858,19 +1143,16 @@ async def find_code_usage_across_dataflows(
     except Exception as e:
         logger.exception("Failed to find code usage across dataflows")
         return CrossDataflowCodeUsageResult(
-            codelist_id=codelist_id,
+            dimension_id=dimension_id,
             code=code,
-            total_dsds_using_codelist=0,
             total_dataflows_checked=0,
             dataflows_with_data=[],
-            dataflows_without_data=[],
             summary={
-                "dsds_using_codelist": 0,
                 "dataflows_checked": 0,
                 "with_data": 0,
                 "without_data": 0,
             },
-            interpretation=[f"Error: {str(e)}"],
+            interpretation=["Error: " + str(e)],
             api_calls_made=api_calls,
         )
 

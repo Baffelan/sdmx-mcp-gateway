@@ -2,7 +2,9 @@
 Shared utilities and constants for SDMX MCP Gateway.
 """
 
+import calendar
 import re
+from datetime import date
 from typing import Any, Dict
 
 # SDMX 2.1 XML namespaces
@@ -137,6 +139,100 @@ def validate_period(period: str) -> bool:
     # SDMX reporting periods
     sdmx_pattern = r"^\d{4}-(A1|S[12]|Q[1-4]|T[1-3]|M(0[1-9]|1[0-2])|W(0[1-9]|[1-4]\d|5[0-3])|D(00[1-9]|0[1-9]\d|[12]\d{2}|3[0-5]\d|36[0-6]))$"
     return bool(re.match(sdmx_pattern, period))
+
+
+def parse_query_period(period: str) -> tuple[date, date, str]:
+    """Parse an SDMX period string into a date range and implied frequency.
+
+    Returns:
+        (start_date, end_date, implied_frequency) where implied_frequency is
+        one of: A, S, Q, M, W, D.
+
+    Raises:
+        ValueError: If the period format is not recognized.
+    """
+    # Year only: 2010
+    m = re.match(r"^(\d{4})$", period)
+    if m:
+        year = int(m.group(1))
+        return date(year, 1, 1), date(year, 12, 31), "A"
+
+    # Annual reporting period: 2010-A1
+    m = re.match(r"^(\d{4})-A1$", period)
+    if m:
+        year = int(m.group(1))
+        return date(year, 1, 1), date(year, 12, 31), "A"
+
+    # Semester: 2010-S1, 2010-S2
+    m = re.match(r"^(\d{4})-S([12])$", period)
+    if m:
+        year = int(m.group(1))
+        sem = int(m.group(2))
+        if sem == 1:
+            return date(year, 1, 1), date(year, 6, 30), "S"
+        return date(year, 7, 1), date(year, 12, 31), "S"
+
+    # Quarter: 2010-Q1 .. 2010-Q4
+    m = re.match(r"^(\d{4})-Q([1-4])$", period)
+    if m:
+        year = int(m.group(1))
+        q = int(m.group(2))
+        start_month = (q - 1) * 3 + 1
+        end_month = start_month + 2
+        last_day = calendar.monthrange(year, end_month)[1]
+        return date(year, start_month, 1), date(year, end_month, last_day), "Q"
+
+    # SDMX monthly: 2010-M01 .. 2010-M12
+    m = re.match(r"^(\d{4})-M(0[1-9]|1[0-2])$", period)
+    if m:
+        year = int(m.group(1))
+        month = int(m.group(2))
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, 1), date(year, month, last_day), "M"
+
+    # ISO month: 2010-01 .. 2010-12
+    m = re.match(r"^(\d{4})-(0[1-9]|1[0-2])$", period)
+    if m:
+        year = int(m.group(1))
+        month = int(m.group(2))
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, 1), date(year, month, last_day), "M"
+
+    # Weekly: 2010-W01 .. 2010-W53
+    m = re.match(r"^(\d{4})-W(0[1-9]|[1-4]\d|5[0-3])$", period)
+    if m:
+        year = int(m.group(1))
+        week = int(m.group(2))
+        monday = date.fromisocalendar(year, week, 1)
+        sunday = date.fromisocalendar(year, week, 7)
+        return monday, sunday, "W"
+
+    # Daily: 2010-01-15
+    m = re.match(r"^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$", period)
+    if m:
+        d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        return d, d, "D"
+
+    raise ValueError("Unrecognized period format: " + period)
+
+
+def classify_time_overlap(
+    query_start: date,
+    query_end: date,
+    constraint_start: date,
+    constraint_end: date,
+) -> str:
+    """Classify the overlap between a query period and a constraint time range.
+
+    Returns:
+        "full" if the query period is entirely within the constraint range,
+        "partial" if it partially overlaps, or "none" if there is no overlap.
+    """
+    if query_end < constraint_start or query_start > constraint_end:
+        return "none"
+    if query_start >= constraint_start and query_end <= constraint_end:
+        return "full"
+    return "partial"
 
 
 def filter_dataflows_by_keywords(dataflows: list, keywords: list) -> list:

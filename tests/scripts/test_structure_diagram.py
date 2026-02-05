@@ -236,8 +236,8 @@ async def test_full_diagram_generation():
         StructureEdge(
             source="dataflow_DF_TEST",
             target="datastructure_DSD_TEST",
-            relationship="defines",
-            label="defines structure",
+            relationship="based on",
+            label="based on",
         ),
         StructureEdge(
             source="datastructure_DSD_TEST",

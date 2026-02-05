@@ -55,13 +55,13 @@ class TestStructureEdgeSchema:
         edge = StructureEdge(
             source="dataflow_DF_POP",
             target="datastructure_DSD_POP",
-            relationship="defines",
-            label="defines structure",
+            relationship="based on",
+            label="based on",
         )
         assert edge.source == "dataflow_DF_POP"
         assert edge.target == "datastructure_DSD_POP"
-        assert edge.relationship == "defines"
-        assert edge.label == "defines structure"
+        assert edge.relationship == "based on"
+        assert edge.label == "based on"
 
     def test_structure_edge_optional_label(self):
         """Test StructureEdge with no label."""
@@ -143,8 +143,8 @@ class TestMermaidDiagramGeneration:
             StructureEdge(
                 source="dataflow_DF_POP",
                 target="datastructure_DSD_POP",
-                relationship="defines",
-                label="defines structure",
+                relationship="based on",
+                label="based on",
             )
         ]
 
@@ -153,7 +153,7 @@ class TestMermaidDiagramGeneration:
         assert "graph TD" in diagram
         assert "dataflow_DF_POP" in diagram
         assert "datastructure_DSD_POP" in diagram
-        assert "defines structure" in diagram
+        assert "based on" in diagram
         assert "📊" in diagram  # dataflow icon
         assert "🏗️" in diagram  # datastructure icon
 
@@ -375,7 +375,7 @@ class TestSDMXClientStructureReferences:
     def test_get_relationship_label_dataflow_dsd(self, mock_client):
         """Test relationship label generation."""
         label = mock_client._get_relationship_label("dataflow", "datastructure")
-        assert label == "defines structure"
+        assert label == "based on"
 
     def test_get_relationship_label_dsd_codelist(self, mock_client):
         """Test relationship label for DSD -> codelist."""
@@ -509,7 +509,7 @@ class TestGetStructureDiagramTool:
                         "agency": "SPC",
                         "version": "1.0",
                         "name": "Population DSD",
-                        "relationship": "defines structure",
+                        "relationship": "based on",
                     }
                 ],
             }

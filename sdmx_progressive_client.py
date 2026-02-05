@@ -1161,8 +1161,8 @@ class SDMXProgressiveClient:
         to_t = to_type.lower()
 
         labels = {
-            ("dataflow", "datastructure"): "defines structure",
-            ("dataflow", "dsd"): "defines structure",
+            ("dataflow", "datastructure"): "based on",
+            ("dataflow", "dsd"): "based on",
             ("datastructure", "codelist"): "uses codelist",
             ("dsd", "codelist"): "uses codelist",
             ("datastructure", "conceptscheme"): "uses concepts",

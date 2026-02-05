@@ -185,6 +185,46 @@ uv run python main_server.py --transport http --port 8000 --stateless --json-res
 
 ## MCP Client Configuration
 
+### Prerequisites
+
+Before configuring any MCP client, ensure you have:
+
+1. **Install uv** (recommended Python package manager):
+
+    ```bash
+    # macOS/Linux
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    # Windows
+    powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+    # Or via pip
+    pip install uv
+    ```
+
+2. **Clone and set up the project**:
+
+    ```bash
+    git clone <repository-url>
+    cd sdmx-mcp-gateway
+    uv sync  # Installs all dependencies
+    ```
+
+3. **Verify installation**:
+    ```bash
+    uv run python main_server.py --help
+    ```
+
+> **Alternative without uv**: If you prefer not to use `uv`, you can install dependencies with pip in a virtual environment:
+>
+> ```bash
+> python -m venv .venv
+> source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+> pip install -e .
+> ```
+>
+> Then replace `"command": "uv"` with the full path to your venv's python, and adjust args accordingly.
+
 ### Claude Desktop
 
 **Linux** (`~/.config/Claude/claude_desktop_config.json`):
@@ -249,6 +289,79 @@ uv run python main_server.py --transport http --port 8000 --stateless --json-res
 1. Go to **Cursor Settings > MCP**
 2. Add new global MCP server
 3. Use the configuration above
+
+### Zed
+
+Zed uses "Context Servers" for MCP integration. Add the following to your Zed settings:
+
+**Location**:
+
+- Linux: `~/.config/zed/settings.json`
+- macOS: `~/Library/Application Support/Zed/settings.json`
+- Project-specific: `.zed/settings.json` in your project root
+
+Add the `context_servers` key at the **top level** of your settings.json (alongside other settings like `theme`, `ui_font_size`, etc.):
+
+```json
+{
+    "theme": "One Dark",
+    "ui_font_size": 16,
+
+    "context_servers": {
+        "sdmx-gateway": {
+            "command": {
+                "path": "uv",
+                "args": [
+                    "run",
+                    "--directory",
+                    "/path/to/sdmx-mcp-gateway",
+                    "python",
+                    "main_server.py"
+                ]
+            }
+        }
+    }
+}
+```
+
+If you already have a `context_servers` section, just add the `"sdmx-gateway": {...}` entry inside it.
+
+### OpenCode
+
+Add to your OpenCode configuration file (`~/.config/opencode/config.json`):
+
+```json
+{
+    "mcpServers": {
+        "sdmx-gateway": {
+            "command": "uv",
+            "args": [
+                "run",
+                "--directory",
+                "/path/to/sdmx-mcp-gateway",
+                "python",
+                "main_server.py"
+            ]
+        }
+    }
+}
+```
+
+Or use environment variable configuration:
+
+```bash
+export OPENCODE_MCP_SERVERS='{"sdmx-gateway":{"command":"uv","args":["run","--directory","/path/to/sdmx-mcp-gateway","python","main_server.py"]}}'
+```
+
+### Generic MCP Client (Streamable HTTP)
+
+For any MCP client that supports Streamable HTTP transport, start the server in HTTP mode:
+
+```bash
+uv run python main_server.py --transport http --port 8000 --stateless --json-response
+```
+
+Then configure your client to connect to `http://localhost:8000/mcp`.
 
 ## Usage Examples
 

@@ -779,18 +779,30 @@ async def get_structure_diagram(
     ctx: Context[Any, Any, Any] | None = None,
 ) -> StructureDiagramResult:
     """
-    Generate a Mermaid diagram showing structure relationships.
+    Generate an SDMX-aware Mermaid diagram for any structural artifact.
 
-    Visualizes how SDMX structural artifacts relate to each other:
-    - Parents: Structures that USE this artifact (e.g., what dataflows use this DSD?)
-    - Children: Structures this artifact REFERENCES (e.g., what codelists does this DSD use?)
+    The visualization adapts based on the artifact type to show the most
+    relevant information following the SDMX information model:
 
-    This is invaluable for understanding the SDMX metadata ecosystem and
-    impact analysis (what breaks if I change this codelist?).
+    **Dataflow**: Shows full SDMX hierarchy (entry point view)
+        - Dataflow → DSD → Components (Dimensions, Attributes, Measure)
+        - Components → Concepts (semantic meaning from ConceptSchemes)
+        - Components → Representations (Codelists or free text)
+
+    **DSD/DataStructure**: Shows component structure + relationships
+        - Parent dataflows that use this DSD
+        - Child codelists and concept schemes referenced
+
+    **Codelist**: Shows impact/usage view (building block)
+        - Parent DSDs/dimensions that reference this codelist
+        - Useful for impact analysis (what breaks if I change this?)
+
+    **ConceptScheme**: Shows usage across structures
+        - Parent DSDs/components that use these concepts
 
     Args:
         structure_type: Type of structure - one of:
-            - "dataflow": Statistical data publication
+            - "dataflow": Statistical data publication (shows full hierarchy)
             - "datastructure" or "dsd": Data Structure Definition
             - "codelist": Code list (enumeration of valid values)
             - "conceptscheme": Concept scheme (definitions)
@@ -798,36 +810,52 @@ async def get_structure_diagram(
         structure_id: The structure identifier
         agency_id: Agency ID (uses current endpoint's default if not specified)
         version: Version string (default "latest") - query a specific version
-        direction: Relationship direction to explore:
+        direction: Relationship direction to explore (ignored for dataflow):
             - "parents": Show structures that USE this one
             - "children": Show structures this one REFERENCES
             - "both": Show both directions (default)
-        show_versions: If True, display version numbers on each node in the diagram.
-            This is important for understanding exact dependencies since different
-            versions of the same artifact are independent (e.g., a dataflow using
-            codelist v1.0 won't be affected by changes to v2.0).
+        show_versions: If True, display version numbers on each node
 
     Returns:
         StructureDiagramResult with:
             - mermaid_diagram: Ready-to-render Mermaid code
-            - nodes: All structures in the relationship graph (includes version info)
+            - nodes: All structures in the relationship graph
             - edges: Relationships between structures
             - interpretation: Human-readable explanation
 
-    Example:
-        >>> get_structure_diagram("datastructure", "DSD_DF_POP", direction="children")
-        # Shows all codelists and concept schemes used by DSD_DF_POP
+    Examples:
+        >>> get_structure_diagram("dataflow", "DF_SDG")
+        # Shows complete SDG dataflow structure with SDMX hierarchy
 
-        >>> get_structure_diagram("codelist", "CL_FREQ", version="1.0", show_versions=True)
-        # Shows what uses CL_FREQ v1.0 specifically, with versions displayed
+        >>> get_structure_diagram("codelist", "CL_FREQ", show_versions=True)
+        # Shows what structures use CL_FREQ (impact analysis)
+
+        >>> get_structure_diagram("dsd", "DSD_POP", direction="children")
+        # Shows codelists and concept schemes used by DSD_POP
     """
+    import xml.etree.ElementTree as ET
+
+    import httpx
+
+    from utils import SDMX_NAMESPACES
+
     client = get_session_client(ctx)
-
-    # Use client's agency if not specified
     agency = agency_id or client.agency_id
+    ns = SDMX_NAMESPACES
 
+    # ==========================================================================
+    # DATAFLOW: Generate full SDMX hierarchy diagram
+    # ==========================================================================
+    if structure_type.lower() == "dataflow":
+        return await _generate_dataflow_hierarchy_diagram(
+            client, structure_id, agency, show_versions, ctx
+        )
+
+    # ==========================================================================
+    # OTHER ARTIFACTS: Generate relationship diagram
+    # ==========================================================================
     if ctx:
-        ctx.info(f"Fetching {direction} references for {structure_type}/{structure_id}...")
+        await ctx.info(f"Fetching {direction} references for {structure_type}/{structure_id}...")
 
     # Fetch structure references from client
     result = await client.get_structure_references(
@@ -970,6 +998,404 @@ async def get_structure_diagram(
         api_calls_made=result.get("api_calls", 1),
         note=None,
     )
+
+
+async def _generate_dataflow_hierarchy_diagram(
+    client: SDMXProgressiveClient,
+    dataflow_id: str,
+    agency: str,
+    show_versions: bool,
+    ctx: Context[Any, Any, Any] | None,
+) -> StructureDiagramResult:
+    """
+    Generate full SDMX hierarchy diagram for a dataflow.
+
+    Shows: Dataflow → DSD → Components → Concepts/Codelists
+    """
+    import xml.etree.ElementTree as ET
+
+    from utils import SDMX_NAMESPACES
+
+    ns = SDMX_NAMESPACES
+    api_calls = 0
+
+    if ctx:
+        await ctx.info(f"Fetching SDMX hierarchy for dataflow {dataflow_id}...")
+
+    # Step 1: Get dataflow to find DSD reference
+    dataflow_url = f"{client.base_url}/dataflow/{agency}/{dataflow_id}/latest"
+    headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
+
+    try:
+        session = await client._get_session()
+        resp = await session.get(dataflow_url, headers=headers)
+        resp.raise_for_status()
+        api_calls += 1
+
+        root = ET.fromstring(resp.content)
+
+        # Extract dataflow info
+        df_elem = root.find(".//str:Dataflow", ns)
+        if df_elem is None:
+            error_node = StructureNode(
+                node_id="error",
+                structure_type="dataflow",
+                id=dataflow_id,
+                agency=agency,
+                version="latest",
+                name=f"Dataflow {dataflow_id} not found",
+                is_target=True,
+            )
+            return StructureDiagramResult(
+                discovery_level="dataflow_hierarchy",
+                target=error_node,
+                direction="children",
+                depth=3,
+                nodes=[error_node],
+                edges=[],
+                mermaid_diagram=f'graph TD\n    error["❌ Dataflow {dataflow_id} not found"]',
+                interpretation=[f"Error: Dataflow {dataflow_id} not found"],
+                api_calls_made=api_calls,
+            )
+
+        df_name_elem = df_elem.find("./com:Name", ns)
+        df_name = (
+            df_name_elem.text if df_name_elem is not None and df_name_elem.text else dataflow_id
+        )
+        df_version = df_elem.get("version") or "1.0"
+
+        # Get DSD reference
+        struct_ref = df_elem.find(".//str:Structure/com:Ref", ns)
+        if struct_ref is None:
+            struct_ref = df_elem.find(".//str:Structure/Ref", ns)
+
+        dsd_id = struct_ref.get("id", "") if struct_ref is not None else ""
+        dsd_agency = struct_ref.get("agencyID") or agency if struct_ref is not None else agency
+        dsd_version = struct_ref.get("version") or "1.0" if struct_ref is not None else "1.0"
+
+        if ctx:
+            await ctx.info(f"Found DSD: {dsd_id} v{dsd_version}")
+
+        # Step 2: Get DSD with full details and children
+        dsd_url = f"{client.base_url}/datastructure/{dsd_agency}/{dsd_id}/{dsd_version}?references=children&detail=full"
+        resp = await session.get(dsd_url, headers=headers)
+        resp.raise_for_status()
+        api_calls += 1
+
+        root = ET.fromstring(resp.content)
+        dsd_elem = root.find(".//str:DataStructure", ns)
+
+        if dsd_elem is None:
+            error_node = StructureNode(
+                node_id="error",
+                structure_type="dataflow",
+                id=dataflow_id,
+                agency=agency,
+                version=df_version,
+                name=df_name,
+                is_target=True,
+            )
+            return StructureDiagramResult(
+                discovery_level="dataflow_hierarchy",
+                target=error_node,
+                direction="children",
+                depth=3,
+                nodes=[error_node],
+                edges=[],
+                mermaid_diagram=f'graph TD\n    error["❌ DSD {dsd_id} not found"]',
+                interpretation=[f"Error: DSD {dsd_id} not found"],
+                api_calls_made=api_calls,
+            )
+
+        # Collect referenced structures
+        concept_schemes_map: dict[str, dict[str, str]] = {}
+        codelists_map: dict[str, dict[str, str]] = {}
+
+        # Parse ConceptSchemes from response
+        for cs_elem in root.findall(".//str:ConceptScheme", ns):
+            cs_id = cs_elem.get("id", "")
+            cs_agency = cs_elem.get("agencyID", agency)
+            cs_version = cs_elem.get("version", "1.0")
+            cs_name_elem = cs_elem.find("./com:Name", ns)
+            cs_name = cs_name_elem.text if cs_name_elem is not None and cs_name_elem.text else cs_id
+            concept_schemes_map[cs_id] = {
+                "id": cs_id,
+                "agency": cs_agency or agency,
+                "version": cs_version or "1.0",
+                "name": cs_name,
+            }
+
+        # Parse Codelists from response
+        for cl_elem in root.findall(".//str:Codelist", ns):
+            cl_id = cl_elem.get("id", "")
+            cl_agency = cl_elem.get("agencyID", agency)
+            cl_version = cl_elem.get("version", "1.0")
+            cl_name_elem = cl_elem.find("./com:Name", ns)
+            cl_name = cl_name_elem.text if cl_name_elem is not None and cl_name_elem.text else cl_id
+            codelists_map[cl_id] = {
+                "id": cl_id,
+                "agency": cl_agency or agency,
+                "version": cl_version or "1.0",
+                "name": cl_name,
+            }
+
+        # Helper to extract concept reference
+        def get_concept_ref(elem: ET.Element) -> ConceptRef:
+            concept_ref = elem.find(".//str:ConceptIdentity/Ref", ns)
+            if concept_ref is None:
+                concept_ref = elem.find(".//str:ConceptIdentity/com:Ref", ns)
+            if concept_ref is not None:
+                scheme_id = concept_ref.get("maintainableParentID") or "CS_COMMON"
+                if scheme_id not in concept_schemes_map:
+                    concept_schemes_map[scheme_id] = {
+                        "id": scheme_id,
+                        "agency": concept_ref.get("agencyID") or agency,
+                        "version": concept_ref.get("maintainableParentVersion") or "1.0",
+                        "name": scheme_id,
+                    }
+                return ConceptRef(
+                    id=concept_ref.get("id") or "",
+                    scheme_id=scheme_id,
+                    scheme_agency=concept_ref.get("agencyID") or agency,
+                    scheme_version=concept_ref.get("maintainableParentVersion") or "1.0",
+                )
+            return ConceptRef(id="UNKNOWN", scheme_id="CS_UNKNOWN")
+
+        # Helper to extract representation
+        def get_representation(elem: ET.Element) -> RepresentationInfo:
+            cl_ref = elem.find(".//str:LocalRepresentation/str:Enumeration/Ref", ns)
+            if cl_ref is None:
+                cl_ref = elem.find(".//str:LocalRepresentation/str:Enumeration/com:Ref", ns)
+
+            if cl_ref is not None:
+                cl_id = cl_ref.get("id") or ""
+                cl_agency = cl_ref.get("agencyID") or agency
+                cl_version = cl_ref.get("version") or "1.0"
+                if cl_id not in codelists_map:
+                    codelists_map[cl_id] = {
+                        "id": cl_id,
+                        "agency": cl_agency,
+                        "version": cl_version,
+                        "name": cl_id,
+                    }
+                return RepresentationInfo(
+                    is_enumerated=True,
+                    codelist_id=cl_id,
+                    codelist_agency=cl_agency,
+                    codelist_version=cl_version,
+                )
+            else:
+                text_format = elem.find(".//str:LocalRepresentation/str:TextFormat", ns)
+                format_type = text_format.get("textType") if text_format is not None else "String"
+                return RepresentationInfo(is_enumerated=False, text_format=format_type)
+
+        # Parse dimensions
+        dimensions: list[ComponentInfo] = []
+        dim_list = dsd_elem.find(".//str:DimensionList", ns)
+        if dim_list is not None:
+            for dim in dim_list.findall(".//str:Dimension", ns):
+                dimensions.append(
+                    ComponentInfo(
+                        id=dim.get("id") or "",
+                        component_type="Dimension",
+                        position=int(dim.get("position") or 0),
+                        concept=get_concept_ref(dim),
+                        representation=get_representation(dim),
+                    )
+                )
+
+            time_dim = dim_list.find(".//str:TimeDimension", ns)
+            if time_dim is not None:
+                dimensions.append(
+                    ComponentInfo(
+                        id=time_dim.get("id") or "TIME_PERIOD",
+                        component_type="TimeDimension",
+                        position=int(time_dim.get("position") or 999),
+                        concept=get_concept_ref(time_dim),
+                        representation=RepresentationInfo(
+                            is_enumerated=False, text_format="ObservationalTimePeriod"
+                        ),
+                    )
+                )
+
+        dimensions.sort(key=lambda d: d.position or 0)
+
+        # Parse attributes
+        attributes: list[ComponentInfo] = []
+        attr_list = dsd_elem.find(".//str:AttributeList", ns)
+        if attr_list is not None:
+            for attr in attr_list.findall(".//str:Attribute", ns):
+                attributes.append(
+                    ComponentInfo(
+                        id=attr.get("id") or "",
+                        component_type="Attribute",
+                        assignment_status=attr.get("assignmentStatus") or None,
+                        concept=get_concept_ref(attr),
+                        representation=get_representation(attr),
+                    )
+                )
+
+        # Parse measure
+        measure: ComponentInfo | None = None
+        measure_list = dsd_elem.find(".//str:MeasureList", ns)
+        if measure_list is not None:
+            primary = measure_list.find(".//str:PrimaryMeasure", ns)
+            if primary is not None:
+                measure = ComponentInfo(
+                    id=primary.get("id") or "OBS_VALUE",
+                    component_type="PrimaryMeasure",
+                    concept=get_concept_ref(primary),
+                    representation=RepresentationInfo(is_enumerated=False, text_format="Numeric"),
+                )
+
+        # Build nodes and edges for StructureDiagramResult
+        nodes: list[StructureNode] = []
+        edges: list[StructureEdge] = []
+
+        # Target node (dataflow)
+        target_node = StructureNode(
+            node_id=f"df_{dataflow_id}".replace("-", "_"),
+            structure_type="dataflow",
+            id=dataflow_id,
+            agency=agency,
+            version=df_version,
+            name=df_name,
+            is_target=True,
+        )
+        nodes.append(target_node)
+
+        # DSD node
+        dsd_node = StructureNode(
+            node_id=f"dsd_{dsd_id}".replace("-", "_"),
+            structure_type="datastructure",
+            id=dsd_id,
+            agency=dsd_agency,
+            version=dsd_version,
+            name="Data Structure Definition",
+            is_target=False,
+        )
+        nodes.append(dsd_node)
+        edges.append(
+            StructureEdge(
+                source=target_node.node_id,
+                target=dsd_node.node_id,
+                relationship="defines structure",
+                label="defines structure",
+            )
+        )
+
+        # Concept scheme nodes
+        for cs_id, cs_info in concept_schemes_map.items():
+            cs_node = StructureNode(
+                node_id=f"cs_{cs_id}".replace("-", "_"),
+                structure_type="conceptscheme",
+                id=cs_id,
+                agency=cs_info["agency"],
+                version=cs_info["version"],
+                name=cs_info["name"],
+                is_target=False,
+            )
+            nodes.append(cs_node)
+
+        # Codelist nodes
+        for cl_id, cl_info in codelists_map.items():
+            cl_node = StructureNode(
+                node_id=f"cl_{cl_id}".replace("-", "_"),
+                structure_type="codelist",
+                id=cl_id,
+                agency=cl_info["agency"],
+                version=cl_info["version"],
+                name=cl_info["name"],
+                is_target=False,
+            )
+            nodes.append(cl_node)
+
+        # Generate interpretation
+        interpretation = [
+            f"**Dataflow:** {dataflow_id} - {df_name}",
+            f"**DSD:** {dsd_id} v{dsd_version}",
+            "",
+            f"**Dimensions ({len(dimensions)}):** Define the key structure",
+        ]
+        for dim in dimensions:
+            rep = (
+                f"→ {dim.representation.codelist_id}"
+                if dim.representation.is_enumerated
+                else f"→ [{dim.representation.text_format}]"
+            )
+            interpretation.append(f"  {dim.position}. {dim.id} (concept: {dim.concept.id}) {rep}")
+
+        interpretation.append("")
+        interpretation.append(f"**Attributes ({len(attributes)}):** Metadata about observations")
+        for attr in attributes:
+            status = f"[{attr.assignment_status}]" if attr.assignment_status else ""
+            rep = (
+                f"→ {attr.representation.codelist_id}"
+                if attr.representation.is_enumerated
+                else "→ [Free text]"
+            )
+            interpretation.append(f"  - {attr.id} {status} (concept: {attr.concept.id}) {rep}")
+
+        if measure:
+            interpretation.append("")
+            interpretation.append(f"**Measure:** {measure.id} (concept: {measure.concept.id})")
+
+        interpretation.append("")
+        interpretation.append(
+            f"**Concept Schemes ({len(concept_schemes_map)}):** {', '.join(concept_schemes_map.keys())}"
+        )
+        interpretation.append(
+            f"**Codelists ({len(codelists_map)}):** {', '.join(codelists_map.keys())}"
+        )
+
+        # Generate Mermaid diagram
+        mermaid_diagram = _generate_sdmx_dataflow_diagram(
+            dataflow_id=dataflow_id,
+            dataflow_name=df_name,
+            dsd_id=dsd_id,
+            dsd_version=dsd_version,
+            dimensions=dimensions,
+            attributes=attributes,
+            measure=measure,
+            concept_schemes=list(concept_schemes_map.values()),
+            codelists=list(codelists_map.values()),
+            show_versions=show_versions,
+        )
+
+        return StructureDiagramResult(
+            discovery_level="dataflow_hierarchy",
+            target=target_node,
+            direction="children",
+            depth=3,
+            nodes=nodes,
+            edges=edges,
+            mermaid_diagram=mermaid_diagram,
+            interpretation=interpretation,
+            api_calls_made=api_calls,
+        )
+
+    except Exception as e:
+        logger.exception("Failed to generate dataflow hierarchy diagram")
+        error_node = StructureNode(
+            node_id="error",
+            structure_type="dataflow",
+            id=dataflow_id,
+            agency=agency,
+            version="latest",
+            name=f"Error: {str(e)}",
+            is_target=True,
+        )
+        return StructureDiagramResult(
+            discovery_level="dataflow_hierarchy",
+            target=error_node,
+            direction="children",
+            depth=1,
+            nodes=[error_node],
+            edges=[],
+            mermaid_diagram=f'graph TD\n    error["❌ Error: {str(e)}"]',
+            interpretation=[f"Error: {str(e)}"],
+            api_calls_made=api_calls,
+        )
 
 
 def _generate_sdmx_dataflow_diagram(
@@ -1120,378 +1546,6 @@ def _generate_sdmx_dataflow_diagram(
         lines.append(f"    {meas_node} -.->|concept| {cs_node}")
 
     return "\n".join(lines)
-
-
-@mcp.tool()
-async def get_dataflow_diagram(
-    dataflow_id: str,
-    agency_id: str = "SPC",
-    show_versions: bool = False,
-    ctx: Context[Any, Any, Any] | None = None,
-) -> DataflowDiagramResult:
-    """
-    Generate an SDMX-aware Mermaid diagram showing the complete dataflow structure.
-
-    This follows the SDMX information model hierarchy:
-    - Dataflow: Defines what data is published
-    - DSD (Data Structure Definition): Defines how data is organized
-    - Components: Dimensions, Attributes, and Measures
-    - Concepts: Semantic meaning of each component (from ConceptSchemes)
-    - Representations: How values are expressed (Codelists or free text)
-
-    This provides a much richer view than the flat structure diagram, showing
-    how all SDMX artifacts relate to form a complete data definition.
-
-    Args:
-        dataflow_id: The dataflow identifier (e.g., "DF_SDG")
-        agency_id: The agency (default: "SPC")
-        show_versions: If True, display version numbers on structures
-
-    Returns:
-        DataflowDiagramResult with:
-            - Full component breakdown (dimensions, attributes, measure)
-            - Referenced ConceptSchemes and Codelists
-            - Mermaid diagram showing SDMX hierarchy
-            - Human-readable interpretation
-
-    Example:
-        >>> get_dataflow_diagram("DF_SDG", show_versions=True)
-        # Shows complete SDG dataflow structure with all relationships
-    """
-    import xml.etree.ElementTree as ET
-
-    import httpx
-
-    from utils import SDMX_NAMESPACES
-
-    client = get_session_client(ctx)
-    agency = agency_id or client.agency_id
-    api_calls = 0
-
-    if ctx:
-        await ctx.info(f"Fetching SDMX structure for {dataflow_id}...")
-
-    # Step 1: Get dataflow to find DSD reference
-    dataflow_url = f"{client.base_url}/dataflow/{agency}/{dataflow_id}/latest"
-    headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
-
-    try:
-        session = await client._get_session()
-        resp = await session.get(dataflow_url, headers=headers)
-        resp.raise_for_status()
-        api_calls += 1
-
-        root = ET.fromstring(resp.content)
-        ns = SDMX_NAMESPACES
-
-        # Extract dataflow info
-        df_elem = root.find(".//str:Dataflow", ns)
-        if df_elem is None:
-            return DataflowDiagramResult(
-                dataflow_id=dataflow_id,
-                dataflow_name="Not found",
-                dsd_id="",
-                dsd_version="",
-                agency=agency,
-                dimensions=[],
-                attributes=[],
-                measure=None,
-                concept_schemes=[],
-                codelists=[],
-                mermaid_diagram=f'graph TD\n    error["❌ Dataflow {dataflow_id} not found"]',
-                interpretation=[f"Error: Dataflow {dataflow_id} not found"],
-                api_calls_made=api_calls,
-            )
-
-        df_name_elem = df_elem.find("./com:Name", ns)
-        df_name = (
-            df_name_elem.text if df_name_elem is not None and df_name_elem.text else dataflow_id
-        )
-
-        # Get DSD reference
-        struct_ref = df_elem.find(".//str:Structure/com:Ref", ns)
-        if struct_ref is None:
-            struct_ref = df_elem.find(".//str:Structure/Ref", ns)
-
-        dsd_id = struct_ref.get("id", "") if struct_ref is not None else ""
-        dsd_agency = struct_ref.get("agencyID") or agency if struct_ref is not None else agency
-        dsd_version = struct_ref.get("version") or "1.0" if struct_ref is not None else "1.0"
-
-        if ctx:
-            await ctx.info(f"Found DSD: {dsd_id} v{dsd_version}")
-
-        # Step 2: Get DSD with full details and children
-        dsd_url = f"{client.base_url}/datastructure/{dsd_agency}/{dsd_id}/{dsd_version}?references=children&detail=full"
-        resp = await session.get(dsd_url, headers=headers)
-        resp.raise_for_status()
-        api_calls += 1
-
-        root = ET.fromstring(resp.content)
-        dsd_elem = root.find(".//str:DataStructure", ns)
-
-        if dsd_elem is None:
-            return DataflowDiagramResult(
-                dataflow_id=dataflow_id,
-                dataflow_name=df_name,
-                dsd_id=dsd_id,
-                dsd_version=dsd_version,
-                agency=agency,
-                dimensions=[],
-                attributes=[],
-                measure=None,
-                concept_schemes=[],
-                codelists=[],
-                mermaid_diagram=f'graph TD\n    error["❌ DSD {dsd_id} not found"]',
-                interpretation=[f"Error: DSD {dsd_id} not found"],
-                api_calls_made=api_calls,
-            )
-
-        # Collect referenced structures
-        concept_schemes_map: dict[str, dict[str, str]] = {}
-        codelists_map: dict[str, dict[str, str]] = {}
-
-        # Parse ConceptSchemes from response
-        for cs_elem in root.findall(".//str:ConceptScheme", ns):
-            cs_id = cs_elem.get("id", "")
-            cs_agency = cs_elem.get("agencyID", agency)
-            cs_version = cs_elem.get("version", "1.0")
-            cs_name_elem = cs_elem.find("./com:Name", ns)
-            cs_name = cs_name_elem.text if cs_name_elem is not None and cs_name_elem.text else cs_id
-            concept_schemes_map[cs_id] = {
-                "id": cs_id,
-                "agency": cs_agency or agency,
-                "version": cs_version or "1.0",
-                "name": cs_name,
-            }
-
-        # Parse Codelists from response
-        for cl_elem in root.findall(".//str:Codelist", ns):
-            cl_id = cl_elem.get("id", "")
-            cl_agency = cl_elem.get("agencyID", agency)
-            cl_version = cl_elem.get("version", "1.0")
-            cl_name_elem = cl_elem.find("./com:Name", ns)
-            cl_name = cl_name_elem.text if cl_name_elem is not None and cl_name_elem.text else cl_id
-            codelists_map[cl_id] = {
-                "id": cl_id,
-                "agency": cl_agency or agency,
-                "version": cl_version or "1.0",
-                "name": cl_name,
-            }
-
-        # Helper to extract concept reference
-        def get_concept_ref(elem: ET.Element) -> ConceptRef:
-            concept_ref = elem.find(".//str:ConceptIdentity/Ref", ns)
-            if concept_ref is None:
-                concept_ref = elem.find(".//str:ConceptIdentity/com:Ref", ns)
-            if concept_ref is not None:
-                scheme_id = concept_ref.get("maintainableParentID") or "CS_COMMON"
-                # Track concept scheme
-                if scheme_id not in concept_schemes_map:
-                    concept_schemes_map[scheme_id] = {
-                        "id": scheme_id,
-                        "agency": concept_ref.get("agencyID") or agency,
-                        "version": concept_ref.get("maintainableParentVersion") or "1.0",
-                        "name": scheme_id,
-                    }
-                return ConceptRef(
-                    id=concept_ref.get("id") or "",
-                    scheme_id=scheme_id,
-                    scheme_agency=concept_ref.get("agencyID") or agency,
-                    scheme_version=concept_ref.get("maintainableParentVersion") or "1.0",
-                )
-            return ConceptRef(id="UNKNOWN", scheme_id="CS_UNKNOWN")
-
-        # Helper to extract representation
-        def get_representation(elem: ET.Element) -> RepresentationInfo:
-            cl_ref = elem.find(".//str:LocalRepresentation/str:Enumeration/Ref", ns)
-            if cl_ref is None:
-                cl_ref = elem.find(".//str:LocalRepresentation/str:Enumeration/com:Ref", ns)
-
-            if cl_ref is not None:
-                cl_id = cl_ref.get("id") or ""
-                cl_agency = cl_ref.get("agencyID") or agency
-                cl_version = cl_ref.get("version") or "1.0"
-                # Track codelist
-                if cl_id not in codelists_map:
-                    codelists_map[cl_id] = {
-                        "id": cl_id,
-                        "agency": cl_agency,
-                        "version": cl_version,
-                        "name": cl_id,
-                    }
-                return RepresentationInfo(
-                    is_enumerated=True,
-                    codelist_id=cl_id,
-                    codelist_agency=cl_agency,
-                    codelist_version=cl_version,
-                )
-            else:
-                # Check for text format
-                text_format = elem.find(".//str:LocalRepresentation/str:TextFormat", ns)
-                format_type = text_format.get("textType") if text_format is not None else "String"
-                return RepresentationInfo(is_enumerated=False, text_format=format_type)
-
-        # Parse dimensions
-        dimensions: list[ComponentInfo] = []
-        dim_list = dsd_elem.find(".//str:DimensionList", ns)
-        if dim_list is not None:
-            for dim in dim_list.findall(".//str:Dimension", ns):
-                dimensions.append(
-                    ComponentInfo(
-                        id=dim.get("id") or "",
-                        component_type="Dimension",
-                        position=int(dim.get("position") or 0),
-                        concept=get_concept_ref(dim),
-                        representation=get_representation(dim),
-                    )
-                )
-
-            # Time dimension
-            time_dim = dim_list.find(".//str:TimeDimension", ns)
-            if time_dim is not None:
-                dimensions.append(
-                    ComponentInfo(
-                        id=time_dim.get("id") or "TIME_PERIOD",
-                        component_type="TimeDimension",
-                        position=int(time_dim.get("position") or 999),
-                        concept=get_concept_ref(time_dim),
-                        representation=RepresentationInfo(
-                            is_enumerated=False, text_format="ObservationalTimePeriod"
-                        ),
-                    )
-                )
-
-        dimensions.sort(key=lambda d: d.position or 0)
-
-        # Parse attributes
-        attributes: list[ComponentInfo] = []
-        attr_list = dsd_elem.find(".//str:AttributeList", ns)
-        if attr_list is not None:
-            for attr in attr_list.findall(".//str:Attribute", ns):
-                attributes.append(
-                    ComponentInfo(
-                        id=attr.get("id") or "",
-                        component_type="Attribute",
-                        assignment_status=attr.get("assignmentStatus") or None,
-                        concept=get_concept_ref(attr),
-                        representation=get_representation(attr),
-                    )
-                )
-
-        # Parse measure
-        measure: ComponentInfo | None = None
-        measure_list = dsd_elem.find(".//str:MeasureList", ns)
-        if measure_list is not None:
-            primary = measure_list.find(".//str:PrimaryMeasure", ns)
-            if primary is not None:
-                measure = ComponentInfo(
-                    id=primary.get("id") or "OBS_VALUE",
-                    component_type="PrimaryMeasure",
-                    concept=get_concept_ref(primary),
-                    representation=RepresentationInfo(is_enumerated=False, text_format="Numeric"),
-                )
-
-        # Generate interpretation
-        interpretation = [
-            f"**Dataflow:** {dataflow_id} - {df_name}",
-            f"**DSD:** {dsd_id} v{dsd_version}",
-            "",
-            f"**Dimensions ({len(dimensions)}):** Define the key structure",
-        ]
-        for dim in dimensions:
-            rep = (
-                f"→ {dim.representation.codelist_id}"
-                if dim.representation.is_enumerated
-                else f"→ [{dim.representation.text_format}]"
-            )
-            interpretation.append(f"  {dim.position}. {dim.id} (concept: {dim.concept.id}) {rep}")
-
-        interpretation.append("")
-        interpretation.append(f"**Attributes ({len(attributes)}):** Metadata about observations")
-        for attr in attributes:
-            status = f"[{attr.assignment_status}]" if attr.assignment_status else ""
-            rep = (
-                f"→ {attr.representation.codelist_id}"
-                if attr.representation.is_enumerated
-                else "→ [Free text]"
-            )
-            interpretation.append(f"  - {attr.id} {status} (concept: {attr.concept.id}) {rep}")
-
-        if measure:
-            interpretation.append("")
-            interpretation.append(f"**Measure:** {measure.id} (concept: {measure.concept.id})")
-
-        interpretation.append("")
-        interpretation.append(
-            f"**Concept Schemes ({len(concept_schemes_map)}):** {', '.join(concept_schemes_map.keys())}"
-        )
-        interpretation.append(
-            f"**Codelists ({len(codelists_map)}):** {', '.join(codelists_map.keys())}"
-        )
-
-        # Generate Mermaid diagram
-        mermaid_diagram = _generate_sdmx_dataflow_diagram(
-            dataflow_id=dataflow_id,
-            dataflow_name=df_name,
-            dsd_id=dsd_id,
-            dsd_version=dsd_version,
-            dimensions=dimensions,
-            attributes=attributes,
-            measure=measure,
-            concept_schemes=list(concept_schemes_map.values()),
-            codelists=list(codelists_map.values()),
-            show_versions=show_versions,
-        )
-
-        return DataflowDiagramResult(
-            dataflow_id=dataflow_id,
-            dataflow_name=df_name,
-            dsd_id=dsd_id,
-            dsd_version=dsd_version,
-            agency=agency,
-            dimensions=dimensions,
-            attributes=attributes,
-            measure=measure,
-            concept_schemes=list(concept_schemes_map.values()),
-            codelists=list(codelists_map.values()),
-            mermaid_diagram=mermaid_diagram,
-            interpretation=interpretation,
-            api_calls_made=api_calls,
-        )
-
-    except httpx.HTTPStatusError as e:
-        return DataflowDiagramResult(
-            dataflow_id=dataflow_id,
-            dataflow_name="Error",
-            dsd_id="",
-            dsd_version="",
-            agency=agency,
-            dimensions=[],
-            attributes=[],
-            measure=None,
-            concept_schemes=[],
-            codelists=[],
-            mermaid_diagram=f'graph TD\n    error["❌ HTTP Error: {e.response.status_code}"]',
-            interpretation=[f"HTTP Error {e.response.status_code}: {str(e)}"],
-            api_calls_made=api_calls,
-        )
-    except Exception as e:
-        logger.exception("Failed to generate dataflow diagram")
-        return DataflowDiagramResult(
-            dataflow_id=dataflow_id,
-            dataflow_name="Error",
-            dsd_id="",
-            dsd_version="",
-            agency=agency,
-            dimensions=[],
-            attributes=[],
-            measure=None,
-            concept_schemes=[],
-            codelists=[],
-            mermaid_diagram=f'graph TD\n    error["❌ Error: {str(e)}"]',
-            interpretation=[f"Error: {str(e)}"],
-            api_calls_made=api_calls,
-        )
 
 
 def _generate_diff_diagram(

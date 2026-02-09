@@ -524,25 +524,38 @@ class TestCompareDataflowDimensions:
         )
 
     @pytest.fixture
-    def mock_used_codes_a(self):
-        """Used codes from ContentConstraint for DF_A."""
-        return {
+    def mock_constraint_a(self):
+        """Constraint info for DF_A: used codes + time range 2000-2020."""
+        from main_server import _ConstraintInfo
+
+        info = _ConstraintInfo()
+        info.used_codes = {
             "FREQ": {"A", "Q"},
             "GEO": {"FJ", "WS", "TO", "VU"},
             "INDICATOR": {"GDP", "POP"},
         }
+        info.time_start = "2000-01-01"
+        info.time_end = "2020-12-31"
+        return info
 
     @pytest.fixture
-    def mock_used_codes_b(self):
-        """Used codes from ContentConstraint for DF_B.
+    def mock_constraint_b(self):
+        """Constraint info for DF_B: used codes + time range 2010-2024.
 
         GEO overlaps with A on FJ, WS, TO but has PG instead of VU.
+        Time overlap with A: 2010-2020.
         """
-        return {
+        from main_server import _ConstraintInfo
+
+        info = _ConstraintInfo()
+        info.used_codes = {
             "FREQ": {"A", "Q"},
             "GEO": {"FJ", "WS", "TO", "PG"},
             "SECTOR": {"AGR", "IND"},
         }
+        info.time_start = "2010-01-01"
+        info.time_end = "2024-12-31"
+        return info
 
     @pytest.fixture
     def mock_session_client(self, mock_structure_a, mock_structure_b,
@@ -578,28 +591,28 @@ class TestCompareDataflowDimensions:
         app_ctx.get_client.return_value = mock_session_client
         return app_ctx
 
-    def _patch_fetch_used_codes(self, mock_used_codes_a, mock_used_codes_b):
-        """Return a patch for _fetch_used_codes that returns per-dataflow used codes."""
+    def _patch_fetch_constraint_info(self, mock_constraint_a, mock_constraint_b):
+        """Return a patch for _fetch_constraint_info returning per-dataflow info."""
         async def side_effect(client, dataflow_id, agency):
             if dataflow_id == "DF_A":
-                return mock_used_codes_a, 1
-            return mock_used_codes_b, 1
+                return mock_constraint_a, 1
+            return mock_constraint_b, 1
 
-        return patch("main_server._fetch_used_codes", side_effect=side_effect)
+        return patch("main_server._fetch_constraint_info", side_effect=side_effect)
 
     @pytest.mark.asyncio
     @patch("main_server.get_app_context")
     @patch("main_server.get_session_client")
     async def test_shared_same_version(self, mock_get_client, mock_get_app,
                                        mock_session_client, mock_app_context,
-                                       mock_used_codes_a, mock_used_codes_b):
+                                       mock_constraint_a, mock_constraint_b):
         """FREQ has same codelist+version → shared, with used-code overlap."""
         from main_server import compare_dataflow_dimensions
 
         mock_get_client.return_value = mock_session_client
         mock_get_app.return_value = mock_app_context
 
-        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+        with self._patch_fetch_constraint_info(mock_constraint_a, mock_constraint_b):
             result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
 
         freq_dim = next(d for d in result.dimensions if d.dimension_id == "FREQ")
@@ -615,14 +628,14 @@ class TestCompareDataflowDimensions:
     @patch("main_server.get_session_client")
     async def test_shared_different_version(self, mock_get_client, mock_get_app,
                                             mock_session_client, mock_app_context,
-                                            mock_used_codes_a, mock_used_codes_b):
+                                            mock_constraint_a, mock_constraint_b):
         """GEO has same codelist ID, different version → shared with used-code overlap."""
         from main_server import compare_dataflow_dimensions
 
         mock_get_client.return_value = mock_session_client
         mock_get_app.return_value = mock_app_context
 
-        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+        with self._patch_fetch_constraint_info(mock_constraint_a, mock_constraint_b):
             result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
 
         geo_dim = next(d for d in result.dimensions if d.dimension_id == "GEO")
@@ -640,14 +653,14 @@ class TestCompareDataflowDimensions:
     @patch("main_server.get_session_client")
     async def test_unique_dimensions(self, mock_get_client, mock_get_app,
                                      mock_session_client, mock_app_context,
-                                     mock_used_codes_a, mock_used_codes_b):
+                                     mock_constraint_a, mock_constraint_b):
         """INDICATOR unique to A, SECTOR unique to B."""
         from main_server import compare_dataflow_dimensions
 
         mock_get_client.return_value = mock_session_client
         mock_get_app.return_value = mock_app_context
 
-        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+        with self._patch_fetch_constraint_info(mock_constraint_a, mock_constraint_b):
             result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
 
         ind_dim = next(d for d in result.dimensions if d.dimension_id == "INDICATOR")
@@ -665,14 +678,14 @@ class TestCompareDataflowDimensions:
     @patch("main_server.get_session_client")
     async def test_excludes_time_period(self, mock_get_client, mock_get_app,
                                         mock_session_client, mock_app_context,
-                                        mock_used_codes_a, mock_used_codes_b):
+                                        mock_constraint_a, mock_constraint_b):
         """TIME_PERIOD should not appear in comparison results."""
         from main_server import compare_dataflow_dimensions
 
         mock_get_client.return_value = mock_session_client
         mock_get_app.return_value = mock_app_context
 
-        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+        with self._patch_fetch_constraint_info(mock_constraint_a, mock_constraint_b):
             result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
 
         dim_ids = [d.dimension_id for d in result.dimensions]
@@ -683,40 +696,67 @@ class TestCompareDataflowDimensions:
     @patch("main_server.get_session_client")
     async def test_join_columns(self, mock_get_client, mock_get_app,
                                 mock_session_client, mock_app_context,
-                                mock_used_codes_a, mock_used_codes_b):
+                                mock_constraint_a, mock_constraint_b):
         """Shared dims with identical codelist or high overlap → join columns."""
         from main_server import compare_dataflow_dimensions
 
         mock_get_client.return_value = mock_session_client
         mock_get_app.return_value = mock_app_context
 
-        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+        with self._patch_fetch_constraint_info(mock_constraint_a, mock_constraint_b):
             result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
 
         # FREQ: identical codelist version → join column
         assert "FREQ" in result.join_columns
         # GEO: 75% used-code overlap (>= 50) → join column
         assert "GEO" in result.join_columns
+        # TIME_PERIOD: shared TimeDimension → always a join column
+        assert "TIME_PERIOD" in result.join_columns
         # INDICATOR/SECTOR: unique → not join columns
         assert "INDICATOR" not in result.join_columns
         assert "SECTOR" not in result.join_columns
 
     @pytest.mark.asyncio
-    @patch("main_server._fetch_used_codes", new_callable=AsyncMock,
-           return_value=({}, 1))
-    @patch("main_server._get_client_for_endpoint")
     @patch("main_server.get_app_context")
     @patch("main_server.get_session_client")
-    async def test_cross_provider(self, mock_get_client, mock_get_app,
-                                  mock_get_endpoint_client, mock_fetch_codes,
-                                  mock_session_client,
-                                  mock_app_context, mock_structure_a, mock_structure_b,
-                                  mock_overview_a, mock_overview_b):
-        """Cross-provider: endpoint_a='SPC', endpoint_b='IMF' creates temp client."""
+    async def test_time_overlap(self, mock_get_client, mock_get_app,
+                                mock_session_client, mock_app_context,
+                                mock_constraint_a, mock_constraint_b):
+        """Time ranges 2000-2020 vs 2010-2024 → overlap 2010-2020."""
         from main_server import compare_dataflow_dimensions
 
         mock_get_client.return_value = mock_session_client
         mock_get_app.return_value = mock_app_context
+
+        with self._patch_fetch_constraint_info(mock_constraint_a, mock_constraint_b):
+            result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
+
+        assert result.time_overlap is not None
+        assert result.time_overlap.has_overlap is True
+        assert result.time_overlap.range_a.start == "2000-01-01"
+        assert result.time_overlap.range_a.end == "2020-12-31"
+        assert result.time_overlap.range_b.start == "2010-01-01"
+        assert result.time_overlap.range_b.end == "2024-12-31"
+        assert result.time_overlap.overlap_start == "2010-01-01"
+        assert result.time_overlap.overlap_end == "2020-12-31"
+        assert result.time_overlap.overlap_years == 11.0
+
+    @pytest.mark.asyncio
+    @patch("main_server._fetch_constraint_info")
+    @patch("main_server._get_client_for_endpoint")
+    @patch("main_server.get_app_context")
+    @patch("main_server.get_session_client")
+    async def test_cross_provider(self, mock_get_client, mock_get_app,
+                                  mock_get_endpoint_client, mock_fetch_info,
+                                  mock_session_client,
+                                  mock_app_context, mock_structure_a, mock_structure_b,
+                                  mock_overview_a, mock_overview_b):
+        """Cross-provider: endpoint_a='SPC', endpoint_b='IMF' creates temp client."""
+        from main_server import _ConstraintInfo, compare_dataflow_dimensions
+
+        mock_get_client.return_value = mock_session_client
+        mock_get_app.return_value = mock_app_context
+        mock_fetch_info.return_value = (_ConstraintInfo(), 1)
 
         # Create a second mock client for IMF
         imf_client = MagicMock(spec=SDMXProgressiveClient)
@@ -746,19 +786,20 @@ class TestCompareDataflowDimensions:
     @patch("main_server.get_session_client")
     async def test_no_constraint_graceful(self, mock_get_client, mock_get_app,
                                           mock_session_client, mock_app_context):
-        """When no constraint is available, code_overlap is None but status still computed."""
-        from main_server import compare_dataflow_dimensions
+        """When no constraint is available, code_overlap and time_overlap are None."""
+        from main_server import _ConstraintInfo, compare_dataflow_dimensions
 
         mock_get_client.return_value = mock_session_client
         mock_get_app.return_value = mock_app_context
 
-        # Return empty used codes (no constraint found)
-        with patch("main_server._fetch_used_codes", new_callable=AsyncMock,
-                   return_value=({}, 1)):
+        empty_info = _ConstraintInfo()
+        with patch("main_server._fetch_constraint_info", new_callable=AsyncMock,
+                   return_value=(empty_info, 1)):
             result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
 
         freq_dim = next(d for d in result.dimensions if d.dimension_id == "FREQ")
         assert freq_dim.status == "shared"
         assert freq_dim.code_overlap is None  # No constraint data
+        assert result.time_overlap is None  # No time range data
         # Still a join column because identical codelist version
         assert "FREQ" in result.join_columns

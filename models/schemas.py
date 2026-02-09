@@ -621,6 +621,26 @@ class DimensionComparison(BaseModel):
     )
 
 
+class TimeOverlap(BaseModel):
+    """Time period overlap analysis between two dataflows.
+
+    Ranges are sourced from the Actual ContentConstraint TimeRange.
+    """
+
+    range_a: TimeRange = Field(description="Time range for dataflow A")
+    range_b: TimeRange = Field(description="Time range for dataflow B")
+    overlap_start: str | None = Field(
+        default=None, description="Start of overlapping period (None if no overlap)"
+    )
+    overlap_end: str | None = Field(
+        default=None, description="End of overlapping period (None if no overlap)"
+    )
+    has_overlap: bool = Field(description="Whether the time ranges overlap at all")
+    overlap_years: float = Field(
+        default=0.0, description="Approximate years of overlap (0 if no overlap)"
+    )
+
+
 class DataflowDimensionComparisonResult(BaseModel):
     """Result from compare_dataflow_dimensions()."""
 
@@ -643,6 +663,11 @@ class DataflowDimensionComparisonResult(BaseModel):
     join_columns: list[str] = Field(
         default_factory=list,
         description="Recommended join keys",
+    )
+    time_overlap: TimeOverlap | None = Field(
+        default=None,
+        description="Time period overlap between the two dataflows. "
+        "None when constraint time ranges are unavailable.",
     )
     interpretation: list[str] = Field(default_factory=list)
     api_calls_made: int = 0

@@ -66,6 +66,7 @@ from models.schemas import (
     StructureEdge,
     StructureInfo,
     StructureNode,
+    TimeOverlap,
     TimeRange,
     ValidationResult,
 )
@@ -1197,68 +1198,158 @@ def _get_client_for_endpoint(
     return client, endpoint_key, True
 
 
-async def _fetch_used_codes(
+class _ConstraintInfo:
+    """Parsed constraint data: used codes and time range."""
+
+    __slots__ = ("used_codes", "time_start", "time_end", "constraint_type")
+
+    def __init__(self) -> None:
+        self.used_codes: dict[str, set[str]] = {}
+        self.time_start: str | None = None
+        self.time_end: str | None = None
+        self.constraint_type: str | None = None  # "Actual" or "Allowed"
+
+
+def _parse_constraint_xml(
+    root: Any,
+    ns: dict[str, str],
+    info: _ConstraintInfo,
+) -> bool:
+    """
+    Parse ContentConstraint from an XML root into a _ConstraintInfo.
+
+    Prefers Actual constraints, falls back to Allowed.
+    Populates info.used_codes, info.time_start, info.time_end, info.constraint_type.
+
+    Returns True if a constraint was found, False otherwise.
+    """
+    from datetime import date as date_type
+
+    # Find constraint: prefer Actual, fall back to Allowed
+    chosen_constraint = None
+    allowed_fallback = None
+    for constraint in root.findall(".//str:ContentConstraint", ns):
+        ctype = constraint.get("type", "")
+        if ctype == "Actual":
+            chosen_constraint = constraint
+            break
+        if ctype == "Allowed" and allowed_fallback is None:
+            allowed_fallback = constraint
+
+    if chosen_constraint is None:
+        chosen_constraint = allowed_fallback
+
+    if chosen_constraint is None:
+        return False
+
+    info.constraint_type = chosen_constraint.get("type", "")
+
+    # Extract used codes per dimension
+    for cube_region in chosen_constraint.findall(".//str:CubeRegion", ns):
+        if cube_region.get("include", "true") != "true":
+            continue
+        for key_value in cube_region.findall(".//com:KeyValue", ns):
+            dim_id = key_value.get("id", "")
+            for value in key_value.findall("./com:Value", ns):
+                if value.text:
+                    if dim_id not in info.used_codes:
+                        info.used_codes[dim_id] = set()
+                    info.used_codes[dim_id].add(value.text)
+
+    # Extract time range (earliest start / latest end across CubeRegions)
+    time_start: date_type | None = None
+    time_end: date_type | None = None
+
+    for cube_region in chosen_constraint.findall(".//str:CubeRegion", ns):
+        if cube_region.get("include", "true") != "true":
+            continue
+        for time_range in cube_region.findall(".//com:TimeRange", ns):
+            for start_el in time_range.findall("com:StartPeriod", ns):
+                try:
+                    val = date_type.fromisoformat(start_el.text[:10])
+                    if time_start is None or val < time_start:
+                        time_start = val
+                except (ValueError, TypeError):
+                    pass
+            for end_el in time_range.findall("com:EndPeriod", ns):
+                try:
+                    val = date_type.fromisoformat(end_el.text[:10])
+                    if time_end is None or val > time_end:
+                        time_end = val
+                except (ValueError, TypeError):
+                    pass
+
+    if time_start is not None:
+        info.time_start = time_start.isoformat()
+    if time_end is not None:
+        info.time_end = time_end.isoformat()
+
+    return True
+
+
+async def _fetch_constraint_info(
     client: SDMXProgressiveClient,
     dataflow_id: str,
     agency: str,
-) -> tuple[dict[str, set[str]], int]:
+) -> tuple[_ConstraintInfo, int]:
     """
-    Fetch actually-used codes per dimension from the Actual ContentConstraint.
+    Fetch used codes and time range from constraints.
 
-    Uses the same approach as get_code_usage(): fetch the dataflow with
-    ?references=all&detail=full and parse CubeRegions from the Actual
-    ContentConstraint.
+    Tries two sources in order:
+    1. /availableconstraint/{flow}/all/all/all — dynamic, returns Actual
+       constraint with all dimensions (supported by SPC, UNICEF, IMF)
+    2. /dataflow/{agency}/{flow}/latest?references=contentconstraint —
+       static constraints attached to the dataflow (prefers Actual,
+       falls back to Allowed; works for ECB)
 
-    Returns ({dim_id: {used_codes}}, api_calls_made).
-    Returns ({}, 1) when no constraint is found or on error.
+    Returns (_ConstraintInfo, api_calls_made).
+    Returns (empty info, api_calls) when no constraint is found or on error.
     """
     import xml.etree.ElementTree as ET
 
     from utils import SDMX_NAMESPACES
 
     ns = SDMX_NAMESPACES
-    url = (
-        client.base_url + "/dataflow/" + agency + "/"
-        + dataflow_id + "/latest?references=all&detail=full"
-    )
+    info = _ConstraintInfo()
+    api_calls = 0
     headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
 
     try:
         session = await client._get_session()
-        resp = await session.get(url, headers=headers, timeout=120)
-        resp.raise_for_status()
 
-        root = ET.fromstring(resp.content)
+        # Strategy 1: /availableconstraint/ (dynamic, all dimensions)
+        avail_url = (
+            client.base_url + "/availableconstraint/"
+            + dataflow_id + "/all/all/all"
+        )
+        try:
+            resp = await session.get(avail_url, headers=headers, timeout=120)
+            api_calls += 1
+            if resp.status_code == 200 and len(resp.content) > 0:
+                root = ET.fromstring(resp.content)
+                if _parse_constraint_xml(root, ns, info):
+                    return info, api_calls
+        except Exception:
+            api_calls += 1  # count the failed attempt
 
-        # Find the Actual ContentConstraint
-        actual_constraint = None
-        for constraint in root.findall(".//str:ContentConstraint", ns):
-            if constraint.get("type") == "Actual":
-                actual_constraint = constraint
-                break
+        # Strategy 2: ?references=contentconstraint (static, fallback)
+        ref_url = (
+            client.base_url + "/dataflow/" + agency + "/"
+            + dataflow_id + "/latest?references=contentconstraint"
+        )
+        resp = await session.get(ref_url, headers=headers, timeout=120)
+        api_calls += 1
+        if resp.status_code == 200 and len(resp.content) > 0:
+            root = ET.fromstring(resp.content)
+            _parse_constraint_xml(root, ns, info)
 
-        if actual_constraint is None:
-            return {}, 1
-
-        used_codes: dict[str, set[str]] = {}
-        for cube_region in actual_constraint.findall(".//str:CubeRegion", ns):
-            if cube_region.get("include", "true") != "true":
-                continue
-            for key_value in cube_region.findall(".//com:KeyValue", ns):
-                dim_id = key_value.get("id", "")
-                for value in key_value.findall("./com:Value", ns):
-                    if value.text:
-                        if dim_id not in used_codes:
-                            used_codes[dim_id] = set()
-                        used_codes[dim_id].add(value.text)
-
-        return used_codes, 1
+        return info, api_calls
 
     except Exception as e:
         logger.warning(
-            "Failed to fetch used codes for %s: %s", dataflow_id, e
+            "Failed to fetch constraint info for %s: %s", dataflow_id, e
         )
-        return {}, 1
+        return info, max(api_calls, 1)
 
 
 @mcp.tool()
@@ -1334,17 +1425,19 @@ async def compare_dataflow_dimensions(
         )
         api_calls += 1
 
-        # Fetch actually-used codes from ContentConstraints (1 API call each)
-        used_codes_a, calls_a = await _fetch_used_codes(
+        # Fetch constraint info (used codes + time ranges) — 1 API call each
+        constraint_a, calls_a = await _fetch_constraint_info(
             client_a, dataflow_id_a, agency_a
         )
         api_calls += calls_a
 
-        used_codes_b, calls_b = await _fetch_used_codes(
+        constraint_b, calls_b = await _fetch_constraint_info(
             client_b, dataflow_id_b, agency_b
         )
         api_calls += calls_b
 
+        used_codes_a = constraint_a.used_codes
+        used_codes_b = constraint_b.used_codes
         has_constraints = bool(used_codes_a) or bool(used_codes_b)
 
         # Try to get dataflow names (non-fatal)
@@ -1487,6 +1580,14 @@ async def compare_dataflow_dimensions(
                     codelist_version_b=cl_ref_b.get("version") if cl_ref_b else None,
                 ))
 
+        # Check for shared TimeDimension — always a join key for time series
+        time_dims_a = {d.id for d in structure_a.dimensions if d.type == "TimeDimension"}
+        time_dims_b = {d.id for d in structure_b.dimensions if d.type == "TimeDimension"}
+        shared_time_dims = time_dims_a & time_dims_b
+        if shared_time_dims:
+            for td in sorted(shared_time_dims):
+                join_columns.append(td)
+
         # Build interpretation
         interpretation: list[str] = []
         interpretation.append(
@@ -1519,11 +1620,28 @@ async def compare_dataflow_dimensions(
         if unique_b:
             interpretation.append("**Only in B:** " + ", ".join(unique_b))
 
+        # Note constraint types used
+        ct_a = constraint_a.constraint_type
+        ct_b = constraint_b.constraint_type
         if not has_constraints:
             interpretation.append(
-                "**Note:** No Actual ContentConstraint found for one or both dataflows. "
-                "Used-code overlap could not be computed."
+                "**Note:** No ContentConstraint found for either dataflow. "
+                "Code overlap could not be computed."
             )
+        else:
+            constraint_notes: list[str] = []
+            if ct_a == "Allowed":
+                constraint_notes.append("A uses Allowed constraint (permitted codes, not confirmed)")
+            if ct_b == "Allowed":
+                constraint_notes.append("B uses Allowed constraint (permitted codes, not confirmed)")
+            if not ct_a and used_codes_b:
+                constraint_notes.append("A has no constraint (code overlap is one-sided)")
+            if not ct_b and used_codes_a:
+                constraint_notes.append("B has no constraint (code overlap is one-sided)")
+            if constraint_notes:
+                interpretation.append(
+                    "**Constraint info:** " + "; ".join(constraint_notes)
+                )
 
         # Report overlap details for shared/compatible dims
         for dim in dimensions:
@@ -1536,6 +1654,58 @@ async def compare_dataflow_dimensions(
                     + " (" + str(ol.overlap_pct) + "%)"
                 )
 
+        # Compute time overlap
+        time_overlap = None
+        if constraint_a.time_start and constraint_a.time_end and \
+                constraint_b.time_start and constraint_b.time_end:
+            from datetime import date as date_type
+
+            t_start_a = date_type.fromisoformat(constraint_a.time_start)
+            t_end_a = date_type.fromisoformat(constraint_a.time_end)
+            t_start_b = date_type.fromisoformat(constraint_b.time_start)
+            t_end_b = date_type.fromisoformat(constraint_b.time_end)
+
+            ol_start = max(t_start_a, t_start_b)
+            ol_end = min(t_end_a, t_end_b)
+            has_time_overlap = ol_start <= ol_end
+
+            overlap_years = 0.0
+            if has_time_overlap:
+                overlap_years = round((ol_end - ol_start).days / 365.25, 1)
+
+            time_overlap = TimeOverlap(
+                range_a=TimeRange(
+                    start=constraint_a.time_start,
+                    end=constraint_a.time_end,
+                ),
+                range_b=TimeRange(
+                    start=constraint_b.time_start,
+                    end=constraint_b.time_end,
+                ),
+                overlap_start=ol_start.isoformat() if has_time_overlap else None,
+                overlap_end=ol_end.isoformat() if has_time_overlap else None,
+                has_overlap=has_time_overlap,
+                overlap_years=overlap_years,
+            )
+
+            interpretation.append("")
+            interpretation.append(
+                "**Time range A:** " + constraint_a.time_start
+                + " to " + constraint_a.time_end
+            )
+            interpretation.append(
+                "**Time range B:** " + constraint_b.time_start
+                + " to " + constraint_b.time_end
+            )
+            if has_time_overlap:
+                interpretation.append(
+                    "**Time overlap:** " + ol_start.isoformat()
+                    + " to " + ol_end.isoformat()
+                    + " (~" + str(overlap_years) + " years)"
+                )
+            else:
+                interpretation.append("**Time overlap:** none")
+
         if join_columns:
             interpretation.append("")
             interpretation.append("**Recommended join columns:** " + ", ".join(join_columns))
@@ -1545,6 +1715,12 @@ async def compare_dataflow_dimensions(
         if join_columns:
             next_steps.append(
                 "Use " + ", ".join(join_columns) + " as join keys when combining data"
+            )
+        if time_overlap is not None and time_overlap.has_overlap:
+            next_steps.append(
+                "Filter both queries to the overlapping period: "
+                + (time_overlap.overlap_start or "") + " to "
+                + (time_overlap.overlap_end or "")
             )
         if compatible_dims:
             next_steps.append(
@@ -1569,6 +1745,7 @@ async def compare_dataflow_dimensions(
             shared_dimensions=shared_dims,
             compatible_dimensions=compatible_dims,
             join_columns=join_columns,
+            time_overlap=time_overlap,
             interpretation=interpretation,
             api_calls_made=api_calls,
             next_steps=next_steps,

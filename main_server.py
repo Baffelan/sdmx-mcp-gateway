@@ -35,12 +35,14 @@ from app_context import AppContext, app_lifespan
 from models.schemas import (
     CodeChange,
     CodeInfo,
+    CodeOverlap,
     ComparisonSummary,
     ComponentInfo,
     ConceptChange,
     ConceptRef,
     DataAvailabilityResult,
     DataflowDiagramResult,
+    DataflowDimensionComparisonResult,
     DataflowInfo,
     DataflowListResult,
     DataflowStructureResult,
@@ -48,6 +50,7 @@ from models.schemas import (
     DataUrlResult,
     DimensionChange,
     DimensionCodesResult,
+    DimensionComparison,
     DimensionInfo,
     EndpointInfo,
     EndpointListResult,
@@ -1155,6 +1158,451 @@ async def find_code_usage_across_dataflows(
             interpretation=["Error: " + str(e)],
             api_calls_made=api_calls,
         )
+
+
+# =============================================================================
+# Cross-Dataflow Dimension Comparison
+# =============================================================================
+
+
+def _get_client_for_endpoint(
+    endpoint_key: str | None,
+    session_client: SDMXProgressiveClient,
+    session_endpoint_key: str,
+) -> tuple[SDMXProgressiveClient, str, bool]:
+    """
+    Get an SDMX client for the given endpoint key.
+
+    Returns (client, endpoint_key, is_temporary).
+    If endpoint_key is None, returns the session client.
+    If endpoint_key matches the session, returns the session client.
+    Otherwise creates a temporary client that must be closed by the caller.
+    """
+    from config import SDMX_ENDPOINTS
+
+    if endpoint_key is None or endpoint_key == session_endpoint_key:
+        return session_client, session_endpoint_key, False
+
+    if endpoint_key not in SDMX_ENDPOINTS:
+        available = ", ".join(SDMX_ENDPOINTS.keys())
+        raise ValueError(
+            "Unknown endpoint: " + endpoint_key + ". Available: " + available
+        )
+
+    config = SDMX_ENDPOINTS[endpoint_key]
+    client = SDMXProgressiveClient(
+        base_url=config["base_url"],
+        agency_id=config["agency_id"],
+    )
+    return client, endpoint_key, True
+
+
+async def _fetch_used_codes(
+    client: SDMXProgressiveClient,
+    dataflow_id: str,
+    agency: str,
+) -> tuple[dict[str, set[str]], int]:
+    """
+    Fetch actually-used codes per dimension from the Actual ContentConstraint.
+
+    Uses the same approach as get_code_usage(): fetch the dataflow with
+    ?references=all&detail=full and parse CubeRegions from the Actual
+    ContentConstraint.
+
+    Returns ({dim_id: {used_codes}}, api_calls_made).
+    Returns ({}, 1) when no constraint is found or on error.
+    """
+    import xml.etree.ElementTree as ET
+
+    from utils import SDMX_NAMESPACES
+
+    ns = SDMX_NAMESPACES
+    url = (
+        client.base_url + "/dataflow/" + agency + "/"
+        + dataflow_id + "/latest?references=all&detail=full"
+    )
+    headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
+
+    try:
+        session = await client._get_session()
+        resp = await session.get(url, headers=headers, timeout=120)
+        resp.raise_for_status()
+
+        root = ET.fromstring(resp.content)
+
+        # Find the Actual ContentConstraint
+        actual_constraint = None
+        for constraint in root.findall(".//str:ContentConstraint", ns):
+            if constraint.get("type") == "Actual":
+                actual_constraint = constraint
+                break
+
+        if actual_constraint is None:
+            return {}, 1
+
+        used_codes: dict[str, set[str]] = {}
+        for cube_region in actual_constraint.findall(".//str:CubeRegion", ns):
+            if cube_region.get("include", "true") != "true":
+                continue
+            for key_value in cube_region.findall(".//com:KeyValue", ns):
+                dim_id = key_value.get("id", "")
+                for value in key_value.findall("./com:Value", ns):
+                    if value.text:
+                        if dim_id not in used_codes:
+                            used_codes[dim_id] = set()
+                        used_codes[dim_id].add(value.text)
+
+        return used_codes, 1
+
+    except Exception as e:
+        logger.warning(
+            "Failed to fetch used codes for %s: %s", dataflow_id, e
+        )
+        return {}, 1
+
+
+@mcp.tool()
+async def compare_dataflow_dimensions(
+    dataflow_id_a: str,
+    dataflow_id_b: str,
+    endpoint_a: str | None = None,
+    endpoint_b: str | None = None,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> DataflowDimensionComparisonResult:
+    """
+    Compare dimension structures across two dataflows, potentially from different providers.
+
+    This is the "pre-flight check" before joining data: which dimensions are shared,
+    are the codelists compatible, what's the code overlap?
+
+    Supports cross-provider comparison (e.g., SPC vs IMF) by specifying endpoint_a/b.
+    When endpoints are omitted, uses the current session endpoint.
+
+    Args:
+        dataflow_id_a: First dataflow identifier
+        dataflow_id_b: Second dataflow identifier
+        endpoint_a: Optional endpoint key for dataflow A (e.g., "SPC", "IMF", "ECB")
+        endpoint_b: Optional endpoint key for dataflow B
+        ctx: MCP context
+
+    Returns:
+        DataflowDimensionComparisonResult with dimension comparison, overlap stats,
+        and join column recommendations
+    """
+    session_client = get_session_client(ctx)
+    api_calls = 0
+
+    # Determine current session endpoint key
+    app_ctx = get_app_context(ctx)
+    if app_ctx is not None:
+        session = app_ctx.get_session(ctx)
+        session_endpoint_key = session.endpoint_key
+    else:
+        session_endpoint_key = "SPC"
+
+    # Resolve clients
+    temp_clients: list[SDMXProgressiveClient] = []
+    try:
+        client_a, ep_key_a, is_temp_a = _get_client_for_endpoint(
+            endpoint_a, session_client, session_endpoint_key
+        )
+        if is_temp_a:
+            temp_clients.append(client_a)
+
+        client_b, ep_key_b, is_temp_b = _get_client_for_endpoint(
+            endpoint_b, session_client, session_endpoint_key
+        )
+        if is_temp_b:
+            temp_clients.append(client_b)
+
+        agency_a = client_a.agency_id
+        agency_b = client_b.agency_id
+
+        if ctx:
+            msg = "Comparing " + dataflow_id_a + " (" + ep_key_a + ")"
+            msg += " vs " + dataflow_id_b + " (" + ep_key_b + ")..."
+            await ctx.info(msg)
+
+        # Fetch structures (get_structure_summary calls get_dataflow_overview + DSD fetch)
+        structure_a = await client_a.get_structure_summary(
+            dataflow_id_a, agency_id=agency_a, ctx=ctx
+        )
+        api_calls += 1
+
+        structure_b = await client_b.get_structure_summary(
+            dataflow_id_b, agency_id=agency_b, ctx=ctx
+        )
+        api_calls += 1
+
+        # Fetch actually-used codes from ContentConstraints (1 API call each)
+        used_codes_a, calls_a = await _fetch_used_codes(
+            client_a, dataflow_id_a, agency_a
+        )
+        api_calls += calls_a
+
+        used_codes_b, calls_b = await _fetch_used_codes(
+            client_b, dataflow_id_b, agency_b
+        )
+        api_calls += calls_b
+
+        has_constraints = bool(used_codes_a) or bool(used_codes_b)
+
+        # Try to get dataflow names (non-fatal)
+        name_a = ""
+        name_b = ""
+        try:
+            overview_a = await client_a.get_dataflow_overview(
+                dataflow_id_a, agency_id=agency_a, ctx=ctx
+            )
+            name_a = overview_a.name
+        except Exception:
+            pass
+        try:
+            overview_b = await client_b.get_dataflow_overview(
+                dataflow_id_b, agency_id=agency_b, ctx=ctx
+            )
+            name_b = overview_b.name
+        except Exception:
+            pass
+
+        # Build dimension maps (exclude TimeDimension)
+        dims_a = {
+            d.id: d for d in structure_a.dimensions if d.type != "TimeDimension"
+        }
+        dims_b = {
+            d.id: d for d in structure_b.dimensions if d.type != "TimeDimension"
+        }
+
+        all_dim_ids = sorted(set(dims_a.keys()) | set(dims_b.keys()))
+
+        # Classify dimensions and compute used-code overlap
+        dimensions: list[DimensionComparison] = []
+        shared_dims: list[str] = []
+        compatible_dims: list[str] = []
+        join_columns: list[str] = []
+
+        for dim_id in all_dim_ids:
+            da = dims_a.get(dim_id)
+            db = dims_b.get(dim_id)
+
+            if da is not None and db is not None:
+                # Dimension exists in both — classify by codelist
+                cl_ref_a = da.codelist_ref
+                cl_ref_b = db.codelist_ref
+
+                cl_id_a = cl_ref_a["id"] if cl_ref_a else None
+                cl_id_b = cl_ref_b["id"] if cl_ref_b else None
+                cl_agency_a = cl_ref_a.get("agency", agency_a) if cl_ref_a else agency_a
+                cl_agency_b = cl_ref_b.get("agency", agency_b) if cl_ref_b else agency_b
+                cl_ver_a = cl_ref_a.get("version") if cl_ref_a else None
+                cl_ver_b = cl_ref_b.get("version") if cl_ref_b else None
+
+                same_cl_id = cl_id_a == cl_id_b and cl_agency_a == cl_agency_b
+
+                # Compute overlap from actually-used codes
+                codes_a_set = used_codes_a.get(dim_id, set())
+                codes_b_set = used_codes_b.get(dim_id, set())
+                overlap = None
+
+                if codes_a_set or codes_b_set:
+                    shared_codes = codes_a_set & codes_b_set
+                    only_a_codes = codes_a_set - codes_b_set
+                    only_b_codes = codes_b_set - codes_a_set
+                    max_used = max(len(codes_a_set), len(codes_b_set))
+                    pct = (len(shared_codes) / max_used * 100) if max_used > 0 else 0.0
+
+                    overlap = CodeOverlap(
+                        codelist_a=cl_id_a or "",
+                        codelist_b=cl_id_b or "",
+                        version_a=cl_ver_a,
+                        version_b=cl_ver_b,
+                        same_codelist=same_cl_id,
+                        used_in_a=len(codes_a_set),
+                        used_in_b=len(codes_b_set),
+                        used_in_both=len(shared_codes),
+                        only_in_a=len(only_a_codes),
+                        only_in_b=len(only_b_codes),
+                        overlap_pct=round(pct, 1),
+                        sample_shared_codes=sorted(shared_codes)[:10],
+                        sample_only_in_a=sorted(only_a_codes)[:5],
+                        sample_only_in_b=sorted(only_b_codes)[:5],
+                    )
+
+                if same_cl_id:
+                    # Same codelist ID+agency → "shared"
+                    dimensions.append(DimensionComparison(
+                        dimension_id=dim_id,
+                        status="shared",
+                        position_a=da.position,
+                        position_b=db.position,
+                        codelist_a=cl_id_a,
+                        codelist_b=cl_id_b,
+                        codelist_version_a=cl_ver_a,
+                        codelist_version_b=cl_ver_b,
+                        code_overlap=overlap,
+                    ))
+                    shared_dims.append(dim_id)
+                    # Join column if identical version, or high overlap of used codes
+                    if cl_ver_a == cl_ver_b:
+                        join_columns.append(dim_id)
+                    elif overlap is not None and overlap.overlap_pct >= 50:
+                        join_columns.append(dim_id)
+
+                else:
+                    # Different codelist → "compatible"
+                    dimensions.append(DimensionComparison(
+                        dimension_id=dim_id,
+                        status="compatible",
+                        position_a=da.position,
+                        position_b=db.position,
+                        codelist_a=cl_id_a,
+                        codelist_b=cl_id_b,
+                        codelist_version_a=cl_ver_a,
+                        codelist_version_b=cl_ver_b,
+                        code_overlap=overlap,
+                    ))
+                    compatible_dims.append(dim_id)
+                    if overlap is not None and overlap.overlap_pct >= 50:
+                        join_columns.append(dim_id)
+
+            elif da is not None:
+                # Only in A
+                cl_ref_a = da.codelist_ref
+                dimensions.append(DimensionComparison(
+                    dimension_id=dim_id,
+                    status="unique_to_a",
+                    position_a=da.position,
+                    codelist_a=cl_ref_a["id"] if cl_ref_a else None,
+                    codelist_version_a=cl_ref_a.get("version") if cl_ref_a else None,
+                ))
+
+            else:
+                # Only in B
+                cl_ref_b = db.codelist_ref  # type: ignore[union-attr]
+                dimensions.append(DimensionComparison(
+                    dimension_id=dim_id,
+                    status="unique_to_b",
+                    position_b=db.position,  # type: ignore[union-attr]
+                    codelist_b=cl_ref_b["id"] if cl_ref_b else None,
+                    codelist_version_b=cl_ref_b.get("version") if cl_ref_b else None,
+                ))
+
+        # Build interpretation
+        interpretation: list[str] = []
+        interpretation.append(
+            "**Comparing** " + dataflow_id_a + " (" + ep_key_a + ")"
+            + " vs " + dataflow_id_b + " (" + ep_key_b + ")"
+        )
+        if name_a:
+            interpretation.append("  A: " + name_a)
+        if name_b:
+            interpretation.append("  B: " + name_b)
+        interpretation.append("")
+
+        total = len(dimensions)
+        interpretation.append(
+            "**Dimensions:** " + str(total) + " total, "
+            + str(len(shared_dims)) + " shared, "
+            + str(len(compatible_dims)) + " compatible, "
+            + str(total - len(shared_dims) - len(compatible_dims)) + " unique"
+        )
+
+        if shared_dims:
+            interpretation.append("**Shared:** " + ", ".join(shared_dims))
+        if compatible_dims:
+            interpretation.append("**Compatible:** " + ", ".join(compatible_dims))
+
+        unique_a = [d.dimension_id for d in dimensions if d.status == "unique_to_a"]
+        unique_b = [d.dimension_id for d in dimensions if d.status == "unique_to_b"]
+        if unique_a:
+            interpretation.append("**Only in A:** " + ", ".join(unique_a))
+        if unique_b:
+            interpretation.append("**Only in B:** " + ", ".join(unique_b))
+
+        if not has_constraints:
+            interpretation.append(
+                "**Note:** No Actual ContentConstraint found for one or both dataflows. "
+                "Used-code overlap could not be computed."
+            )
+
+        # Report overlap details for shared/compatible dims
+        for dim in dimensions:
+            if dim.code_overlap is not None:
+                ol = dim.code_overlap
+                interpretation.append(
+                    "**" + dim.dimension_id + " used-code overlap:** "
+                    + str(ol.used_in_both) + "/"
+                    + str(max(ol.used_in_a, ol.used_in_b))
+                    + " (" + str(ol.overlap_pct) + "%)"
+                )
+
+        if join_columns:
+            interpretation.append("")
+            interpretation.append("**Recommended join columns:** " + ", ".join(join_columns))
+
+        # Next steps
+        next_steps: list[str] = []
+        if join_columns:
+            next_steps.append(
+                "Use " + ", ".join(join_columns) + " as join keys when combining data"
+            )
+        if compatible_dims:
+            next_steps.append(
+                "Review compatible dimensions ("
+                + ", ".join(compatible_dims)
+                + ") for code mapping needs"
+            )
+        if unique_a or unique_b:
+            next_steps.append(
+                "Unique dimensions will need to be handled as extra columns or filters"
+            )
+        next_steps.append("Use build_data_url() to fetch data from each dataflow")
+
+        return DataflowDimensionComparisonResult(
+            dataflow_a=dataflow_id_a,
+            dataflow_b=dataflow_id_b,
+            endpoint_a=ep_key_a,
+            endpoint_b=ep_key_b,
+            dataflow_name_a=name_a,
+            dataflow_name_b=name_b,
+            dimensions=dimensions,
+            shared_dimensions=shared_dims,
+            compatible_dimensions=compatible_dims,
+            join_columns=join_columns,
+            interpretation=interpretation,
+            api_calls_made=api_calls,
+            next_steps=next_steps,
+        )
+
+    except ValueError as e:
+        # Invalid endpoint key
+        return DataflowDimensionComparisonResult(
+            dataflow_a=dataflow_id_a,
+            dataflow_b=dataflow_id_b,
+            endpoint_a=endpoint_a or session_endpoint_key,
+            endpoint_b=endpoint_b or session_endpoint_key,
+            dimensions=[],
+            interpretation=["Error: " + str(e)],
+        )
+
+    except Exception as e:
+        logger.exception("Failed to compare dataflow dimensions")
+        return DataflowDimensionComparisonResult(
+            dataflow_a=dataflow_id_a,
+            dataflow_b=dataflow_id_b,
+            endpoint_a=endpoint_a or session_endpoint_key,
+            endpoint_b=endpoint_b or session_endpoint_key,
+            dimensions=[],
+            interpretation=["Error: " + str(e)],
+            api_calls_made=api_calls,
+        )
+
+    finally:
+        for temp_client in temp_clients:
+            try:
+                await temp_client.close()
+            except Exception:
+                pass
 
 
 @mcp.tool()

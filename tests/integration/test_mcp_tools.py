@@ -448,3 +448,317 @@ class TestContextIntegration:
         # Should succeed regardless of context
         assert "dataflows" in result
         assert result["total_found"] == 1
+
+
+class TestCompareDataflowDimensions:
+    """Test compare_dataflow_dimensions tool."""
+
+    @pytest.fixture
+    def mock_structure_a(self):
+        """DSD with FREQ (CL_FREQ v1.0), GEO (CL_GEO v1.0), INDICATOR (CL_IND v1.0)."""
+        return DataStructureSummary(
+            id="DSD_A",
+            agency="SPC",
+            version="1.0",
+            dimensions=[
+                DimensionInfo(
+                    id="FREQ", position=1, type="Dimension",
+                    codelist_ref={"id": "CL_FREQ", "agency": "SPC", "version": "1.0"},
+                ),
+                DimensionInfo(
+                    id="GEO", position=2, type="Dimension",
+                    codelist_ref={"id": "CL_GEO", "agency": "SPC", "version": "1.0"},
+                ),
+                DimensionInfo(
+                    id="INDICATOR", position=3, type="Dimension",
+                    codelist_ref={"id": "CL_IND", "agency": "SPC", "version": "1.0"},
+                ),
+                DimensionInfo(id="TIME_PERIOD", position=4, type="TimeDimension"),
+            ],
+            key_family=["FREQ", "GEO", "INDICATOR"],
+            attributes=[],
+            primary_measure="OBS_VALUE",
+        )
+
+    @pytest.fixture
+    def mock_structure_b(self):
+        """DSD with FREQ (CL_FREQ v1.0), GEO (CL_GEO v2.0), SECTOR (CL_SECTOR v1.0)."""
+        return DataStructureSummary(
+            id="DSD_B",
+            agency="SPC",
+            version="1.0",
+            dimensions=[
+                DimensionInfo(
+                    id="FREQ", position=1, type="Dimension",
+                    codelist_ref={"id": "CL_FREQ", "agency": "SPC", "version": "1.0"},
+                ),
+                DimensionInfo(
+                    id="GEO", position=2, type="Dimension",
+                    codelist_ref={"id": "CL_GEO", "agency": "SPC", "version": "2.0"},
+                ),
+                DimensionInfo(
+                    id="SECTOR", position=3, type="Dimension",
+                    codelist_ref={"id": "CL_SECTOR", "agency": "SPC", "version": "1.0"},
+                ),
+                DimensionInfo(id="TIME_PERIOD", position=4, type="TimeDimension"),
+            ],
+            key_family=["FREQ", "GEO", "SECTOR"],
+            attributes=[],
+            primary_measure="OBS_VALUE",
+        )
+
+    @pytest.fixture
+    def mock_overview_a(self):
+        """Mock overview for dataflow A."""
+        return DataflowOverview(
+            id="DF_A", agency="SPC", version="1.0",
+            name="Dataflow A", description="Test dataflow A",
+        )
+
+    @pytest.fixture
+    def mock_overview_b(self):
+        """Mock overview for dataflow B."""
+        return DataflowOverview(
+            id="DF_B", agency="SPC", version="1.0",
+            name="Dataflow B", description="Test dataflow B",
+        )
+
+    @pytest.fixture
+    def mock_used_codes_a(self):
+        """Used codes from ContentConstraint for DF_A."""
+        return {
+            "FREQ": {"A", "Q"},
+            "GEO": {"FJ", "WS", "TO", "VU"},
+            "INDICATOR": {"GDP", "POP"},
+        }
+
+    @pytest.fixture
+    def mock_used_codes_b(self):
+        """Used codes from ContentConstraint for DF_B.
+
+        GEO overlaps with A on FJ, WS, TO but has PG instead of VU.
+        """
+        return {
+            "FREQ": {"A", "Q"},
+            "GEO": {"FJ", "WS", "TO", "PG"},
+            "SECTOR": {"AGR", "IND"},
+        }
+
+    @pytest.fixture
+    def mock_session_client(self, mock_structure_a, mock_structure_b,
+                            mock_overview_a, mock_overview_b):
+        """Create a mock SDMX client that returns different structures per dataflow."""
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+
+        async def get_structure(dataflow_id, agency_id=None, ctx=None):
+            if dataflow_id == "DF_A":
+                return mock_structure_a
+            return mock_structure_b
+
+        async def get_overview(dataflow_id, agency_id=None, ctx=None):
+            if dataflow_id == "DF_A":
+                return mock_overview_a
+            return mock_overview_b
+
+        client.get_structure_summary = AsyncMock(side_effect=get_structure)
+        client.get_dataflow_overview = AsyncMock(side_effect=get_overview)
+        client.close = AsyncMock()
+        return client
+
+    @pytest.fixture
+    def mock_app_context(self, mock_session_client):
+        """Create a mock AppContext with session state."""
+        session_state = MagicMock()
+        session_state.endpoint_key = "SPC"
+        session_state.client = mock_session_client
+
+        app_ctx = MagicMock()
+        app_ctx.get_session.return_value = session_state
+        app_ctx.get_client.return_value = mock_session_client
+        return app_ctx
+
+    def _patch_fetch_used_codes(self, mock_used_codes_a, mock_used_codes_b):
+        """Return a patch for _fetch_used_codes that returns per-dataflow used codes."""
+        async def side_effect(client, dataflow_id, agency):
+            if dataflow_id == "DF_A":
+                return mock_used_codes_a, 1
+            return mock_used_codes_b, 1
+
+        return patch("main_server._fetch_used_codes", side_effect=side_effect)
+
+    @pytest.mark.asyncio
+    @patch("main_server.get_app_context")
+    @patch("main_server.get_session_client")
+    async def test_shared_same_version(self, mock_get_client, mock_get_app,
+                                       mock_session_client, mock_app_context,
+                                       mock_used_codes_a, mock_used_codes_b):
+        """FREQ has same codelist+version → shared, with used-code overlap."""
+        from main_server import compare_dataflow_dimensions
+
+        mock_get_client.return_value = mock_session_client
+        mock_get_app.return_value = mock_app_context
+
+        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+            result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
+
+        freq_dim = next(d for d in result.dimensions if d.dimension_id == "FREQ")
+        assert freq_dim.status == "shared"
+        # Both use A and Q → 100% overlap of used codes
+        assert freq_dim.code_overlap is not None
+        assert freq_dim.code_overlap.used_in_both == 2
+        assert freq_dim.code_overlap.overlap_pct == 100.0
+        assert "FREQ" in result.shared_dimensions
+
+    @pytest.mark.asyncio
+    @patch("main_server.get_app_context")
+    @patch("main_server.get_session_client")
+    async def test_shared_different_version(self, mock_get_client, mock_get_app,
+                                            mock_session_client, mock_app_context,
+                                            mock_used_codes_a, mock_used_codes_b):
+        """GEO has same codelist ID, different version → shared with used-code overlap."""
+        from main_server import compare_dataflow_dimensions
+
+        mock_get_client.return_value = mock_session_client
+        mock_get_app.return_value = mock_app_context
+
+        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+            result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
+
+        geo_dim = next(d for d in result.dimensions if d.dimension_id == "GEO")
+        assert geo_dim.status == "shared"
+        assert geo_dim.code_overlap is not None
+        assert geo_dim.code_overlap.same_codelist is True
+        assert geo_dim.code_overlap.used_in_both == 3  # FJ, WS, TO
+        assert geo_dim.code_overlap.only_in_a == 1  # VU
+        assert geo_dim.code_overlap.only_in_b == 1  # PG
+        assert geo_dim.code_overlap.overlap_pct == 75.0  # 3/4 * 100
+        assert "GEO" in result.shared_dimensions
+
+    @pytest.mark.asyncio
+    @patch("main_server.get_app_context")
+    @patch("main_server.get_session_client")
+    async def test_unique_dimensions(self, mock_get_client, mock_get_app,
+                                     mock_session_client, mock_app_context,
+                                     mock_used_codes_a, mock_used_codes_b):
+        """INDICATOR unique to A, SECTOR unique to B."""
+        from main_server import compare_dataflow_dimensions
+
+        mock_get_client.return_value = mock_session_client
+        mock_get_app.return_value = mock_app_context
+
+        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+            result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
+
+        ind_dim = next(d for d in result.dimensions if d.dimension_id == "INDICATOR")
+        assert ind_dim.status == "unique_to_a"
+        assert ind_dim.position_a == 3
+        assert ind_dim.position_b is None
+
+        sector_dim = next(d for d in result.dimensions if d.dimension_id == "SECTOR")
+        assert sector_dim.status == "unique_to_b"
+        assert sector_dim.position_a is None
+        assert sector_dim.position_b == 3
+
+    @pytest.mark.asyncio
+    @patch("main_server.get_app_context")
+    @patch("main_server.get_session_client")
+    async def test_excludes_time_period(self, mock_get_client, mock_get_app,
+                                        mock_session_client, mock_app_context,
+                                        mock_used_codes_a, mock_used_codes_b):
+        """TIME_PERIOD should not appear in comparison results."""
+        from main_server import compare_dataflow_dimensions
+
+        mock_get_client.return_value = mock_session_client
+        mock_get_app.return_value = mock_app_context
+
+        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+            result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
+
+        dim_ids = [d.dimension_id for d in result.dimensions]
+        assert "TIME_PERIOD" not in dim_ids
+
+    @pytest.mark.asyncio
+    @patch("main_server.get_app_context")
+    @patch("main_server.get_session_client")
+    async def test_join_columns(self, mock_get_client, mock_get_app,
+                                mock_session_client, mock_app_context,
+                                mock_used_codes_a, mock_used_codes_b):
+        """Shared dims with identical codelist or high overlap → join columns."""
+        from main_server import compare_dataflow_dimensions
+
+        mock_get_client.return_value = mock_session_client
+        mock_get_app.return_value = mock_app_context
+
+        with self._patch_fetch_used_codes(mock_used_codes_a, mock_used_codes_b):
+            result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
+
+        # FREQ: identical codelist version → join column
+        assert "FREQ" in result.join_columns
+        # GEO: 75% used-code overlap (>= 50) → join column
+        assert "GEO" in result.join_columns
+        # INDICATOR/SECTOR: unique → not join columns
+        assert "INDICATOR" not in result.join_columns
+        assert "SECTOR" not in result.join_columns
+
+    @pytest.mark.asyncio
+    @patch("main_server._fetch_used_codes", new_callable=AsyncMock,
+           return_value=({}, 1))
+    @patch("main_server._get_client_for_endpoint")
+    @patch("main_server.get_app_context")
+    @patch("main_server.get_session_client")
+    async def test_cross_provider(self, mock_get_client, mock_get_app,
+                                  mock_get_endpoint_client, mock_fetch_codes,
+                                  mock_session_client,
+                                  mock_app_context, mock_structure_a, mock_structure_b,
+                                  mock_overview_a, mock_overview_b):
+        """Cross-provider: endpoint_a='SPC', endpoint_b='IMF' creates temp client."""
+        from main_server import compare_dataflow_dimensions
+
+        mock_get_client.return_value = mock_session_client
+        mock_get_app.return_value = mock_app_context
+
+        # Create a second mock client for IMF
+        imf_client = MagicMock(spec=SDMXProgressiveClient)
+        imf_client.agency_id = "IMF.STA"
+        imf_client.get_structure_summary = AsyncMock(return_value=mock_structure_b)
+        imf_client.get_dataflow_overview = AsyncMock(return_value=mock_overview_b)
+        imf_client.close = AsyncMock()
+
+        def side_effect(endpoint_key, session_client, session_endpoint_key):
+            if endpoint_key == "IMF":
+                return (imf_client, "IMF", True)
+            return (session_client, session_endpoint_key, False)
+
+        mock_get_endpoint_client.side_effect = side_effect
+
+        result = await compare_dataflow_dimensions(
+            "DF_A", "DF_B", endpoint_a=None, endpoint_b="IMF", ctx=None,
+        )
+
+        assert result.endpoint_a == "SPC"
+        assert result.endpoint_b == "IMF"
+        # Verify temp client was closed
+        imf_client.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("main_server.get_app_context")
+    @patch("main_server.get_session_client")
+    async def test_no_constraint_graceful(self, mock_get_client, mock_get_app,
+                                          mock_session_client, mock_app_context):
+        """When no constraint is available, code_overlap is None but status still computed."""
+        from main_server import compare_dataflow_dimensions
+
+        mock_get_client.return_value = mock_session_client
+        mock_get_app.return_value = mock_app_context
+
+        # Return empty used codes (no constraint found)
+        with patch("main_server._fetch_used_codes", new_callable=AsyncMock,
+                   return_value=({}, 1)):
+            result = await compare_dataflow_dimensions("DF_A", "DF_B", ctx=None)
+
+        freq_dim = next(d for d in result.dimensions if d.dimension_id == "FREQ")
+        assert freq_dim.status == "shared"
+        assert freq_dim.code_overlap is None  # No constraint data
+        # Still a join column because identical codelist version
+        assert "FREQ" in result.join_columns

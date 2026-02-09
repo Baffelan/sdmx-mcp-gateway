@@ -568,6 +568,88 @@ class StructureComparisonResult(BaseModel):
 
 
 # =============================================================================
+# Cross-Dataflow Dimension Comparison Schemas
+# =============================================================================
+
+
+class CodeOverlap(BaseModel):
+    """Overlap analysis of actually-used codes for a dimension across two dataflows.
+
+    Codes are sourced from the Actual ContentConstraint (CubeRegion), so they
+    reflect real data availability, not just the full codelist definition.
+    """
+
+    codelist_a: str = Field(description="Codelist ID for dataflow A (e.g. 'CL_GEO_PICT')")
+    codelist_b: str = Field(description="Codelist ID for dataflow B")
+    version_a: str | None = Field(default=None, description="Version of codelist A")
+    version_b: str | None = Field(default=None, description="Version of codelist B")
+    same_codelist: bool = Field(description="Same codelist ID + agency (versions may differ)")
+    used_in_a: int = Field(description="Codes actually used in dataflow A")
+    used_in_b: int = Field(description="Codes actually used in dataflow B")
+    used_in_both: int = Field(description="Codes actually used in both dataflows")
+    only_in_a: int = Field(description="Codes used only in dataflow A")
+    only_in_b: int = Field(description="Codes used only in dataflow B")
+    overlap_pct: float = Field(
+        description="used_in_both / max(used_in_a, used_in_b) * 100"
+    )
+    sample_shared_codes: list[str] = Field(
+        default_factory=list, description="Up to 10 shared codes"
+    )
+    sample_only_in_a: list[str] = Field(
+        default_factory=list, description="Up to 5 codes only in A"
+    )
+    sample_only_in_b: list[str] = Field(
+        default_factory=list, description="Up to 5 codes only in B"
+    )
+
+
+class DimensionComparison(BaseModel):
+    """Comparison of a single dimension across two dataflows."""
+
+    dimension_id: str
+    status: str = Field(description="One of: shared, compatible, unique_to_a, unique_to_b")
+    position_a: int | None = None
+    position_b: int | None = None
+    codelist_a: str | None = None
+    codelist_b: str | None = None
+    codelist_version_a: str | None = None
+    codelist_version_b: str | None = None
+    code_overlap: CodeOverlap | None = Field(
+        default=None,
+        description="Overlap of actually-used codes (from ContentConstraint). "
+        "None only when constraint data is unavailable.",
+    )
+
+
+class DataflowDimensionComparisonResult(BaseModel):
+    """Result from compare_dataflow_dimensions()."""
+
+    discovery_level: str = "dataflow_dimension_comparison"
+    dataflow_a: str
+    dataflow_b: str
+    endpoint_a: str = Field(description="Endpoint key used for dataflow A (e.g. 'SPC')")
+    endpoint_b: str = Field(description="Endpoint key used for dataflow B (e.g. 'IMF')")
+    dataflow_name_a: str = ""
+    dataflow_name_b: str = ""
+    dimensions: list[DimensionComparison]
+    shared_dimensions: list[str] = Field(
+        default_factory=list,
+        description="Same dim ID, same codelist ID+agency",
+    )
+    compatible_dimensions: list[str] = Field(
+        default_factory=list,
+        description="Same dim ID, different codelist",
+    )
+    join_columns: list[str] = Field(
+        default_factory=list,
+        description="Recommended join keys",
+    )
+    interpretation: list[str] = Field(default_factory=list)
+    api_calls_made: int = 0
+    next_steps: list[str] = Field(default_factory=list)
+
+
+# =============================================================================
 # Endpoint Management Schemas
 # =============================================================================
 

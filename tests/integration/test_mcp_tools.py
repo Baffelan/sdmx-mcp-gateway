@@ -149,7 +149,7 @@ class TestGetDataflowStructure:
                 DimensionInfo(id="INDICATOR", position=3, type="Dimension"),
                 DimensionInfo(id="TIME_PERIOD", position=4, type="TimeDimension"),
             ],
-            key_family=["FREQ", "REF_AREA", "INDICATOR", "TIME_PERIOD"],
+            key_family=["FREQ", "REF_AREA", "INDICATOR"],
             attributes=[{"id": "OBS_STATUS", "assignment_status": "Conditional"}],
             primary_measure="OBS_VALUE",
         )
@@ -170,8 +170,8 @@ class TestGetDataflowStructure:
         assert result["discovery_level"] == "structure"
         assert result["dataflow_id"] == "TRADE_FOOD"
         assert result["total_dimensions"] == 4
-        assert len(result["dimensions"]) == 4
-        assert "next_step" in result
+        assert len(result["structure"]["dimensions"]) == 4
+        assert "next_steps" in result
 
     @pytest.mark.asyncio
     async def test_get_structure_invalid_dataflow_id(self, mock_client):
@@ -278,7 +278,7 @@ class TestValidateQuery:
                 ),
                 DimensionInfo(id="TIME_PERIOD", position=3, type="TimeDimension"),
             ],
-            key_family=["FREQ", "REF_AREA", "TIME_PERIOD"],
+            key_family=["FREQ", "REF_AREA"],
             attributes=[],
             primary_measure="OBS_VALUE",
         )
@@ -323,7 +323,7 @@ class TestBuildDataUrl:
                 DimensionInfo(id="REF_AREA", position=2, type="Dimension"),
                 DimensionInfo(id="TIME_PERIOD", position=3, type="TimeDimension"),
             ],
-            key_family=["FREQ", "REF_AREA", "TIME_PERIOD"],
+            key_family=["FREQ", "REF_AREA"],
             attributes=[],
             primary_measure="OBS_VALUE",
         )

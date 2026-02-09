@@ -242,8 +242,8 @@ async def get_dataflow_structure(
 
         # Build key template and example
         key_family = structure_dict.get("key_family", [])
-        key_template = ".".join([f"{{{dim}}}" for dim in key_family if dim != "TIME_PERIOD"])
-        key_example = ".".join(["*" for dim in key_family if dim != "TIME_PERIOD"])
+        key_template = ".".join([f"{{{dim}}}" for dim in key_family])
+        key_example = ".".join(["*" for dim in key_family])
 
         return {
             "discovery_level": "structure",
@@ -521,6 +521,15 @@ async def validate_query(
         # Validate filters if provided
         if filters:
             for dim_id, _ in filters.items():
+                if dim_id == "TIME_PERIOD":
+                    warnings.append(
+                        {
+                            "field": "filters.TIME_PERIOD",
+                            "message": "TIME_PERIOD should use startPeriod/endPeriod parameters, not filters",
+                            "hint": "Pass start_period/end_period instead",
+                        }
+                    )
+                    continue
                 if dim_id not in dimensions:
                     errors.append(
                         {
@@ -664,6 +673,8 @@ async def build_data_url(
                 key_parts: list[str] = []
                 for dim in dimensions_sorted:
                     dim_id = str(dim.get("id", ""))
+                    if dim.get("type") == "TimeDimension":
+                        continue
                     code = filters.get(dim_id, "") if dim_id else ""
                     key_parts.append(code)
                 data_key = ".".join(key_parts)
@@ -845,6 +856,8 @@ async def build_sdmx_key(
 
         for dim in dimensions_sorted:
             dim_id = str(dim.get("id", ""))
+            if dim.get("type") == "TimeDimension":
+                continue
             code = filters.get(dim_id, "")  # Empty string = all values
             key_parts.append(code)
             dimension_mapping.append(

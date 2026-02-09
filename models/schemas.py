@@ -147,6 +147,15 @@ class DataflowInfo(BaseModel):
     version: str = Field(description="Resolved version number")
 
 
+class AttributeDetail(BaseModel):
+    """Information about a data structure attribute."""
+
+    id: str = Field(description="Attribute identifier")
+    assignment_status: str | None = Field(
+        default=None, description="Assignment status (e.g., 'Mandatory', 'Conditional')"
+    )
+
+
 class StructureInfo(BaseModel):
     """Data structure definition information."""
 
@@ -156,7 +165,7 @@ class StructureInfo(BaseModel):
     )
     key_example: str = Field(description="Example key with placeholders")
     dimensions: list[DimensionInfo] = Field(description="List of dimensions in order")
-    attributes: list[str] = Field(description="List of attribute identifiers")
+    attributes: list[AttributeDetail] = Field(description="List of attribute details")
     measure: Optional[str] = Field(default=None, description="Primary measure identifier")
 
 

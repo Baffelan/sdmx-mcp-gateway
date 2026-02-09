@@ -1,6 +1,6 @@
 # SDMX MCP Gateway
 
-A Model Context Protocol (MCP) server that provides progressive discovery tools for SDMX statistical data. This implementation enables AI agents to explore and access SDMX-compliant statistical data repositories through interactive tools, resources, and prompts.
+A Model Context Protocol (MCP) server that provides progressive discovery tools for SDMX statistical artefacts and data. This implementation enables AI agents to explore and access SDMX-compliant statistical data repositories through interactive tools, resources, and prompts.
 
 **Version 0.2.0** - Now with structured outputs, Streamable HTTP transport, and elicitation support.
 

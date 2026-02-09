@@ -21,6 +21,7 @@ from models.schemas import (
     DataUrlResult,
     DimensionCodesResult,
     # Structure schemas
+    AttributeDetail,
     DimensionInfo,
     DimensionSelectionForm,
     # Guide schemas
@@ -58,6 +59,7 @@ __all__ = [
     "DataflowInfo",
     "DataflowStructureResult",
     # Structure
+    "AttributeDetail",
     "DimensionInfo",
     "StructureInfo",
     # Dimension codes

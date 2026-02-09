@@ -420,9 +420,9 @@ class SDMXProgressiveClient:
 
             # Sort dimensions by position to get correct key order
             dimensions.sort(key=lambda d: d.position)
-            # Include all dimensions in key_family (including TIME_PERIOD) to show complete structure
-            # When building queries, TIME_PERIOD can be handled via startPeriod/endPeriod params
-            key_family = [d.id for d in dimensions]
+            # key_family contains only regular dimensions for key construction;
+            # TIME_PERIOD is filtered via startPeriod/endPeriod query parameters
+            key_family = [d.id for d in dimensions if d.type != "TimeDimension"]
 
             # Parse attributes (lightweight)
             attributes: list[AttributeInfo] = []

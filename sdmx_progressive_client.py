@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-import certifi
+
 import httpx
 from mcp.server.fastmcp import Context
 
@@ -128,11 +128,15 @@ class SDMXProgressiveClient:
     async def _get_session(self) -> httpx.AsyncClient:
         """Get or create HTTP session with proper SSL certificate verification."""
         if self.session is None:
-            # Use certifi's certificate bundle directly
-            # This works better cross-platform (Windows/Linux/macOS)
+            # Use system trust store via ssl.create_default_context().
+            # httpx's verify=True falls back to certifi when installed,
+            # which misses OS-installed CAs (e.g. corporate SSL proxies).
+            import ssl
+
+            ssl_ctx = ssl.create_default_context()
             self.session = httpx.AsyncClient(
                 timeout=30.0,
-                verify=certifi.where(),  # Pass cert file path directly
+                verify=ssl_ctx,
             )
         return self.session
 

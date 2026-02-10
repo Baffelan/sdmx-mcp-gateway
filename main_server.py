@@ -177,6 +177,10 @@ async def list_dataflows(
     This is typically the first step in SDMX data discovery. Returns a list of
     statistical domains (dataflows) available from the specified agency.
 
+    If you already know a country code or indicator code, consider using
+    find_code_usage_across_dataflows() instead — it directly discovers all
+    dataflows with data for that code, across all topics.
+
     Args:
         keywords: Optional list of keywords to filter dataflows
         agency_id: The agency to query (default: "SPC")
@@ -944,13 +948,18 @@ async def find_code_usage_across_dataflows(
     ctx: Context[Any, Any, Any] | None = None,
 ) -> CrossDataflowCodeUsageResult:
     """
-    Find if a specific code is actually used in ANY dataflow.
+    Discover all dataflows that have data for a given code.
 
-    Fetches ALL Actual ContentConstraints in a single API call and searches
-    through them. This is O(1) API calls instead of O(N).
+    Use this as your starting point when exploring what data exists for a
+    country, indicator, or any other code. For example, to find everything
+    available for Fiji: find_code_usage_across_dataflows("FJ", dimension_id="GEO_PICT").
+    Searches all constraints in a single API call.
 
-    ContentConstraints contain dimension/value pairs but NOT codelist references.
-    Use dimension_id to restrict the search to a specific dimension.
+    **When to use this tool:**
+    - "What datasets have data for Vanuatu?" → code="VU", dimension_id="GEO_PICT"
+    - "Which dataflows cover GDP indicators?" → code="GDP", dimension_id="INDICATOR"
+    - "What data exists for this country across all topics?" → start here, then use
+      compare_dataflow_dimensions() to check how the discovered dataflows relate.
 
     **Workflow A — search by dimension (direct):**
         find_code_usage_across_dataflows("FJ", dimension_id="GEO_PICT")
@@ -1125,6 +1134,13 @@ async def find_code_usage_across_dataflows(
                     "",
                     "**Note:** To verify which codelist each dimension uses, call "
                     "get_dataflow_structure() for the matched dataflows.",
+                ])
+            if len(dataflows_with_data) >= 2:
+                interpretation.extend([
+                    "",
+                    "**Tip:** To check how these dataflows can be joined, use "
+                    "compare_dataflow_dimensions(df_a, df_b) — it shows shared "
+                    "dimensions, code overlap, and recommended join columns.",
                 ])
         else:
             no_data_msg = "**Code '" + code + "' has NO DATA in any of the "
@@ -1361,10 +1377,18 @@ async def compare_dataflow_dimensions(
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataflowDimensionComparisonResult:
     """
-    Compare dimension structures across two dataflows, potentially from different providers.
+    Compare dimension structures across two dataflows to understand how they relate.
 
-    This is the "pre-flight check" before joining data: which dimensions are shared,
-    are the codelists compatible, what's the code overlap?
+    Use this whenever you want to combine or contrast data from two dataflows.
+    Returns which dimensions are shared, whether their codes overlap, time period
+    coverage, and recommended join columns. Works across providers too — e.g.
+    compare SPC population data with UNICEF child health indicators.
+
+    **When to use this tool:**
+    - After discovering dataflows with find_code_usage_across_dataflows(), compare
+      them to understand how they can be joined.
+    - When a user asks about combining datasets from different topics or providers.
+    - To check geographic, temporal, and dimensional overlap before writing queries.
 
     Supports cross-provider comparison (e.g., SPC vs IMF) by specifying endpoint_a/b.
     When endpoints are omitted, uses the current session endpoint.
@@ -4364,6 +4388,10 @@ async def list_available_endpoints(ctx: Context[Any, Any, Any] | None = None) ->
 
     Shows all configured statistical data providers (e.g., SPC, ECB, UNICEF)
     and indicates which one is currently active for your session.
+
+    You don't need to switch endpoints to compare data across providers.
+    Use compare_dataflow_dimensions(df_a, df_b, endpoint_a="SPC", endpoint_b="ECB")
+    to directly compare dataflows from different providers.
 
     In multi-user deployments, the current endpoint is session-specific.
 

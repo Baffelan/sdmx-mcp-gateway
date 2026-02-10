@@ -129,12 +129,17 @@ async def list_dataflows(
         # Add navigation hints
         if has_more:
             result["next_step"] = (
-                f"To see more dataflows, call list_dataflows with offset={next_offset}, "
-                "or use get_dataflow_structure() to explore a specific dataflow's dimensions"
+                "To see more dataflows, call list_dataflows with offset="
+                + str(next_offset) + ". "
+                "Or explore a dataflow with get_dataflow_structure(). "
+                "To discover all dataflows for a country or code, use "
+                "find_code_usage_across_dataflows(code, dimension_id)."
             )
         else:
             result["next_step"] = (
-                "Use get_dataflow_structure() to explore a specific dataflow's dimensions"
+                "Use get_dataflow_structure() to explore a specific dataflow's dimensions. "
+                "To discover all dataflows for a country or code, use "
+                "find_code_usage_across_dataflows(code, dimension_id)."
             )
 
         return result
@@ -264,6 +269,7 @@ async def get_dataflow_structure(
             "next_steps": [
                 "Use get_dimension_codes(dataflow_id, dimension_id) to see codes for a specific dimension",
                 "Use get_data_availability(dataflow_id) to check what data exists",
+                "Use compare_dataflow_dimensions(df_a, df_b) to check how this dataflow relates to another (shared dimensions, code overlap, join columns)",
                 "Use build_data_url(dataflow_id, filters) to construct a data query URL",
             ],
         }

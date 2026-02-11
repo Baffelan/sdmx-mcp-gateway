@@ -163,6 +163,7 @@ class SessionManager:
         client = SDMXProgressiveClient(
             base_url=config["base_url"],
             agency_id=config["agency_id"],
+            endpoint_key=key,
         )
 
         return SessionState(

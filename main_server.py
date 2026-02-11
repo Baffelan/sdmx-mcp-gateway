@@ -166,7 +166,7 @@ def get_app_context(ctx: Context[Any, Any, Any] | None) -> AppContext | None:
 @mcp.tool()
 async def list_dataflows(
     keywords: list[str] | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     limit: int = 10,
     offset: int = 0,
     ctx: Context[Any, Any, Any] | None = None,
@@ -183,17 +183,28 @@ async def list_dataflows(
 
     Args:
         keywords: Optional list of keywords to filter dataflows
-        agency_id: The agency to query (default: "SPC")
+        agency_id: The agency to query (uses session endpoint if not specified)
         limit: Number of results to return (default: 10)
         offset: Number of results to skip for pagination (default: 0)
 
     Returns:
         Structured result with dataflows, pagination info, and navigation hints
     """
+    from config import get_dataflow_agency
     from tools.sdmx_tools import list_dataflows as list_dataflows_impl
 
     # Get session-specific client for multi-user support
     client = get_session_client(ctx)
+    user_provided_agency = agency_id is not None
+    agency_id = agency_id or client.agency_id
+
+    # When user didn't explicitly provide agency_id, check for dataflow listing override
+    # (e.g. OECD publishes under sub-agencies, requiring "all" for listing)
+    if not user_provided_agency:
+        ep_key = _get_session_endpoint_key(ctx)
+        df_agency = get_dataflow_agency(ep_key)
+        if df_agency:
+            agency_id = df_agency
 
     result = await list_dataflows_impl(client, keywords, agency_id, limit, offset, ctx)
 
@@ -260,7 +271,7 @@ async def list_dataflows(
 @mcp.tool()
 async def get_dataflow_structure(
     dataflow_id: str,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataflowStructureResult:
     """
@@ -271,7 +282,7 @@ async def get_dataflow_structure(
 
     Args:
         dataflow_id: The dataflow identifier
-        agency_id: The agency (default: "SPC")
+        agency_id: The agency (uses session endpoint if not specified)
 
     Returns:
         Structured result with dataflow metadata and structure definition
@@ -280,6 +291,7 @@ async def get_dataflow_structure(
 
     # Get session-specific client for multi-user support
     client = get_session_client(ctx)
+    agency_id = agency_id or client.agency_id
 
     result = await get_structure_impl(client, dataflow_id, agency_id, ctx)
 
@@ -343,7 +355,7 @@ async def get_dataflow_structure(
 @mcp.tool()
 async def get_codelist(
     codelist_id: str,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     version: str = "latest",
     search_term: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
@@ -356,7 +368,7 @@ async def get_codelist(
 
     Args:
         codelist_id: The codelist identifier
-        agency_id: The agency (default: "SPC")
+        agency_id: The agency (uses session endpoint if not specified)
         version: Version (default: "latest")
         search_term: Optional search term to filter codes
 
@@ -365,6 +377,7 @@ async def get_codelist(
     """
     # Get session-specific client for multi-user support
     client = get_session_client(ctx)
+    agency_id = agency_id or client.agency_id
     result = await client.browse_codelist(codelist_id, agency_id, version, search_term)
     return result
 
@@ -375,7 +388,7 @@ async def get_dimension_codes(
     dimension_id: str,
     limit: int = 50,
     offset: int = 0,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DimensionCodesResult:
     """
@@ -389,7 +402,7 @@ async def get_dimension_codes(
         dimension_id: The dimension identifier
         limit: Maximum codes to return (default: 50)
         offset: Number of codes to skip for pagination (default: 0)
-        agency_id: The agency (default: "SPC")
+        agency_id: The agency (uses session endpoint if not specified)
 
     Returns:
         Structured result with codes for the dimension
@@ -398,6 +411,7 @@ async def get_dimension_codes(
 
     # Get session-specific client for multi-user support
     client = get_session_client(ctx)
+    agency_id = agency_id or client.agency_id
 
     result = await get_codes_impl(client, dataflow_id, dimension_id, agency_id, limit, offset, ctx)
 
@@ -506,7 +520,7 @@ async def get_code_usage(
     dataflow_id: str,
     codes: list[str] | None = None,
     dimension_id: str | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> CodeUsageResult:
     """
@@ -525,7 +539,7 @@ async def get_code_usage(
         dataflow_id: The dataflow to check
         codes: Optional list of specific codes to check. If empty, returns all used codes.
         dimension_id: Optional dimension to check. If empty, checks all dimensions.
-        agency_id: The agency (default: "SPC")
+        agency_id: The agency (uses session endpoint if not specified)
 
     Returns:
         CodeUsageResult with:
@@ -540,37 +554,21 @@ async def get_code_usage(
         >>> get_code_usage("DF_SDG", dimension_id="INDICATOR")
         # Returns all indicator codes that actually have data
     """
-    import xml.etree.ElementTree as ET
-
-    from utils import SDMX_NAMESPACES
-
     client = get_session_client(ctx)
     agency = agency_id or client.agency_id
-    ns = SDMX_NAMESPACES
+    ep_key = _get_session_endpoint_key(ctx)
     api_calls = 0
 
     if ctx:
-        await ctx.info(f"Checking code usage for {dataflow_id}...")
-
-    url = f"{client.base_url}/dataflow/{agency}/{dataflow_id}/latest?references=all&detail=full"
-    headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
+        await ctx.info("Checking code usage for " + dataflow_id + "...")
 
     try:
-        session = await client._get_session()
-        resp = await session.get(url, headers=headers)
-        resp.raise_for_status()
-        api_calls += 1
+        info, fetch_calls = await _fetch_constraint_info(
+            client, dataflow_id, agency, endpoint_key=ep_key
+        )
+        api_calls += fetch_calls
 
-        root = ET.fromstring(resp.content)
-
-        # Find the Actual ContentConstraint
-        actual_constraint = None
-        for constraint in root.findall(".//str:ContentConstraint", ns):
-            if constraint.get("type") == "Actual":
-                actual_constraint = constraint
-                break
-
-        if actual_constraint is None:
+        if not info.used_codes:
             return CodeUsageResult(
                 dataflow_id=dataflow_id,
                 dimension_id=dimension_id,
@@ -579,43 +577,27 @@ async def get_code_usage(
                 summary={"total_checked": 0, "used": 0, "unused": 0},
                 all_used_codes=None,
                 interpretation=[
-                    f"No Actual ContentConstraint found for {dataflow_id}.",
+                    "No ContentConstraint found for " + dataflow_id + ".",
                     "Cannot efficiently determine code usage.",
                 ],
                 api_calls_made=api_calls,
             )
 
-        constraint_id = actual_constraint.get("id", "")
+        constraint_id = info.constraint_id or ""
+        constraint_type = info.constraint_type or "Actual"
 
-        # Parse CubeRegion to get all codes with actual data
-        all_used_codes: dict[str, list[str]] = {}
-
-        for cube_region in actual_constraint.findall(".//str:CubeRegion", ns):
-            include = cube_region.get("include", "true") == "true"
-            if not include:
-                continue
-
-            for key_value in cube_region.findall(".//com:KeyValue", ns):
-                dim_id = key_value.get("id", "")
-                values: list[str] = []
-                for value in key_value.findall("./com:Value", ns):
-                    if value.text:
-                        values.append(value.text)
-
-                if dim_id not in all_used_codes:
-                    all_used_codes[dim_id] = []
-                all_used_codes[dim_id].extend(values)
-
-        # Deduplicate
-        for dim_id in all_used_codes:
-            all_used_codes[dim_id] = sorted(set(all_used_codes[dim_id]))
+        # Convert sets to sorted lists
+        all_used_codes: dict[str, list[str]] = {
+            dim_id: sorted(code_set)
+            for dim_id, code_set in info.used_codes.items()
+        }
 
         # Check specific codes if provided
         codes_checked: list[CodeUsageInfo] = []
 
         if codes:
             if dimension_id:
-                used_in_dim = set(all_used_codes.get(dimension_id, []))
+                used_in_dim = info.used_codes.get(dimension_id, set())
                 for code in codes:
                     codes_checked.append(
                         CodeUsageInfo(
@@ -625,7 +607,7 @@ async def get_code_usage(
             else:
                 for code in codes:
                     found_in = None
-                    for dim_id, dim_codes in all_used_codes.items():
+                    for dim_id, dim_codes in info.used_codes.items():
                         if code in dim_codes:
                             found_in = dim_id
                             break
@@ -643,17 +625,23 @@ async def get_code_usage(
         }
 
         interpretation = [
-            f"**Dataflow:** {dataflow_id}",
-            f"**Constraint:** {constraint_id} (Actual)",
+            "**Dataflow:** " + dataflow_id,
+            "**Constraint:** " + constraint_id + " (" + constraint_type + ")",
         ]
+        if constraint_type == "Allowed":
+            interpretation.append(
+                "**Note:** Using Allowed constraint (permitted codes, not confirmed in data)."
+            )
         if codes:
             interpretation.append(
-                f"**Codes checked:** {len(codes)} - {used_count} used, {len(codes) - used_count} unused"
+                "**Codes checked:** " + str(len(codes))
+                + " - " + str(used_count) + " used, "
+                + str(len(codes) - used_count) + " unused"
             )
         else:
             interpretation.append("**Codes with data by dimension:**")
             for dim_id, dim_codes in sorted(all_used_codes.items()):
-                interpretation.append(f"  - {dim_id}: {len(dim_codes)} codes")
+                interpretation.append("  - " + dim_id + ": " + str(len(dim_codes)) + " codes")
 
         return CodeUsageResult(
             dataflow_id=dataflow_id,
@@ -675,7 +663,7 @@ async def get_code_usage(
             codes_checked=[],
             summary={"total_checked": 0, "used": 0, "unused": 0},
             all_used_codes=None,
-            interpretation=[f"Error: {str(e)}"],
+            interpretation=["Error: " + str(e)],
             api_calls_made=api_calls,
         )
 
@@ -710,7 +698,7 @@ class TimeAvailabilityResult(BaseModel):
 async def check_time_availability(
     dataflow_id: str,
     query_period: str,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> TimeAvailabilityResult:
     """
@@ -733,19 +721,18 @@ async def check_time_availability(
     Args:
         dataflow_id: The dataflow to check
         query_period: The period to check (e.g. "2010", "2010-Q1", "2010-01", "2010-W05")
-        agency_id: The agency (default: "SPC")
+        agency_id: The agency (uses session endpoint if not specified)
 
     Returns:
         TimeAvailabilityResult with availability classification and reasoning
     """
-    import xml.etree.ElementTree as ET
     from datetime import date as date_type
 
-    from utils import SDMX_NAMESPACES, classify_time_overlap, parse_query_period
+    from utils import classify_time_overlap, parse_query_period
 
     client = get_session_client(ctx)
     agency = agency_id or client.agency_id
-    ns = SDMX_NAMESPACES
+    ep_key = _get_session_endpoint_key(ctx)
     api_calls = 0
 
     if ctx:
@@ -769,29 +756,13 @@ async def check_time_availability(
             "Valid examples: 2010, 2010-Q1, 2010-01, 2010-M01, 2010-W01, 2010-01-15",
         )
 
-    # Fetch the constraint (same URL pattern as get_code_usage)
-    url = (
-        client.base_url + "/dataflow/" + agency + "/" + dataflow_id
-        + "/latest?references=all&detail=full"
-    )
-    headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
-
     try:
-        session = await client._get_session()
-        resp = await session.get(url, headers=headers)
-        resp.raise_for_status()
-        api_calls += 1
+        info, fetch_calls = await _fetch_constraint_info(
+            client, dataflow_id, agency, endpoint_key=ep_key
+        )
+        api_calls += fetch_calls
 
-        root = ET.fromstring(resp.content)
-
-        # Find the Actual ContentConstraint
-        actual_constraint = None
-        for constraint in root.findall(".//str:ContentConstraint", ns):
-            if constraint.get("type") == "Actual":
-                actual_constraint = constraint
-                break
-
-        if actual_constraint is None:
+        if not info.used_codes and info.time_start is None:
             return TimeAvailabilityResult(
                 dataflow_id=dataflow_id,
                 query_period=query_period,
@@ -802,46 +773,29 @@ async def check_time_availability(
                 available_frequencies=[],
                 overlap="none",
                 interpretation=[
-                    "No Actual ContentConstraint found for " + dataflow_id + ".",
+                    "No ContentConstraint found for " + dataflow_id + ".",
                     "Cannot determine time availability from metadata alone.",
                 ],
                 recommendation="No constraint available. Use get_data_availability() or query the data directly.",
                 api_calls_made=api_calls,
             )
 
-        # Extract FREQ values from included CubeRegion(s)
-        available_freqs: list[str] = []
-        for cube_region in actual_constraint.findall(".//str:CubeRegion", ns):
-            if cube_region.get("include", "true") != "true":
-                continue
-            for key_value in cube_region.findall(".//com:KeyValue", ns):
-                if key_value.get("id") == "FREQ":
-                    for value in key_value.findall("./com:Value", ns):
-                        if value.text and value.text not in available_freqs:
-                            available_freqs.append(value.text)
+        # Extract FREQ values from used_codes
+        available_freqs = sorted(info.used_codes.get("FREQ", set()))
 
-        # Extract TimeRange (earliest start / latest end across all CubeRegions)
+        # Parse time range from _ConstraintInfo
         time_start: date_type | None = None
         time_end: date_type | None = None
-
-        for cube_region in actual_constraint.findall(".//str:CubeRegion", ns):
-            if cube_region.get("include", "true") != "true":
-                continue
-            for time_range in cube_region.findall(".//com:TimeRange", ns):
-                for start_el in time_range.findall("com:StartPeriod", ns):
-                    try:
-                        val = date_type.fromisoformat(start_el.text[:10])
-                        if time_start is None or val < time_start:
-                            time_start = val
-                    except (ValueError, TypeError):
-                        pass
-                for end_el in time_range.findall("com:EndPeriod", ns):
-                    try:
-                        val = date_type.fromisoformat(end_el.text[:10])
-                        if time_end is None or val > time_end:
-                            time_end = val
-                    except (ValueError, TypeError):
-                        pass
+        if info.time_start:
+            try:
+                time_start = date_type.fromisoformat(info.time_start[:10])
+            except (ValueError, TypeError):
+                pass
+        if info.time_end:
+            try:
+                time_end = date_type.fromisoformat(info.time_end[:10])
+            except (ValueError, TypeError):
+                pass
 
         # Determine overlap
         if time_start is not None and time_end is not None:
@@ -856,7 +810,7 @@ async def check_time_availability(
         # Build interpretation
         interpretation: list[str] = [
             "**Dataflow:** " + dataflow_id,
-            "**Query period:** " + query_period + " → " + q_start.isoformat() + " to " + q_end.isoformat() + " (implied freq: " + implied_freq + ")",
+            "**Query period:** " + query_period + " -> " + q_start.isoformat() + " to " + q_end.isoformat() + " (implied freq: " + implied_freq + ")",
         ]
 
         if time_start and time_end:
@@ -873,6 +827,11 @@ async def check_time_availability(
 
         interpretation.append("**Time overlap:** " + overlap)
         interpretation.append("**Frequency match:** " + ("yes" if freq_match else "no"))
+
+        if info.constraint_type == "Allowed":
+            interpretation.append(
+                "**Note:** Using Allowed constraint (permitted values, not confirmed in data)."
+            )
 
         # Decision logic
         if overlap == "none":
@@ -944,7 +903,7 @@ async def check_time_availability(
 async def find_code_usage_across_dataflows(
     code: str,
     dimension_id: str | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> CrossDataflowCodeUsageResult:
     """
@@ -956,16 +915,16 @@ async def find_code_usage_across_dataflows(
     Searches all constraints in a single API call.
 
     **When to use this tool:**
-    - "What datasets have data for Vanuatu?" → code="VU", dimension_id="GEO_PICT"
-    - "Which dataflows cover GDP indicators?" → code="GDP", dimension_id="INDICATOR"
-    - "What data exists for this country across all topics?" → start here, then use
+    - "What datasets have data for Vanuatu?" -> code="VU", dimension_id="GEO_PICT"
+    - "Which dataflows cover GDP indicators?" -> code="GDP", dimension_id="INDICATOR"
+    - "What data exists for this country across all topics?" -> start here, then use
       compare_dataflow_dimensions() to check how the discovered dataflows relate.
 
-    **Workflow A — search by dimension (direct):**
+    **Workflow A -- search by dimension (direct):**
         find_code_usage_across_dataflows("FJ", dimension_id="GEO_PICT")
         Returns only matches where "FJ" appears in the GEO_PICT dimension.
 
-    **Workflow B — search by codelist (two steps):**
+    **Workflow B -- search by codelist (two steps):**
         If you know a code belongs to a codelist (e.g., CL_COM_GEO_PICT) but
         not which dimensions use it:
         1. Call this tool WITHOUT dimension_id to get all dataflows/dimensions
@@ -973,12 +932,16 @@ async def find_code_usage_across_dataflows(
         2. For each matched dataflow, call get_dataflow_structure() to inspect
            the DSD and verify which codelist each matched dimension uses.
 
+    **Provider support:** Bulk search requires endpoint support. Currently
+    supported by SPC (Actual), ECB (Allowed), and UNICEF (Actual). Other
+    endpoints will return a message explaining the limitation.
+
     Args:
         code: The specific code to check (e.g., "FJ")
         dimension_id: Optional dimension to restrict search (e.g., "GEO_PICT").
             If provided, only matches in this dimension are returned.
             If omitted, all dimensions are searched.
-        agency_id: The agency (default: "SPC")
+        agency_id: The agency (uses session endpoint if not specified)
 
     Returns:
         CrossDataflowCodeUsageResult with:
@@ -987,118 +950,163 @@ async def find_code_usage_across_dataflows(
     """
     import xml.etree.ElementTree as ET
 
+    from config import get_constraint_strategy
     from utils import SDMX_NAMESPACES
 
     client = get_session_client(ctx)
     agency = agency_id or client.agency_id
+    ep_key = _get_session_endpoint_key(ctx)
     ns = SDMX_NAMESPACES
     api_calls = 0
 
+    bulk_strategy = get_constraint_strategy(ep_key, "bulk")
+
+    if bulk_strategy is None:
+        return CrossDataflowCodeUsageResult(
+            dimension_id=dimension_id,
+            code=code,
+            total_dataflows_checked=0,
+            dataflows_with_data=[],
+            summary={"dataflows_checked": 0, "with_data": 0, "without_data": 0},
+            interpretation=[
+                "**Endpoint " + ep_key + " does not support bulk cross-dataflow search.**",
+                "",
+                "Alternative: use get_code_usage(dataflow_id, codes=['"
+                + code + "']) to check individual dataflows.",
+            ],
+            api_calls_made=0,
+        )
+
     if ctx:
-        await ctx.info(f"Fetching ALL Actual constraints to find usage of code '{code}'...")
+        await ctx.info("Searching all constraints for code '" + code + "' (" + ep_key + ")...")
 
     headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
 
     try:
         session = await client._get_session()
 
-        # SMART: Get ALL constraints in ONE API call
-        constraints_url = f"{client.base_url}/contentconstraint/{agency}/all/latest?detail=full"
+        # Build URL based on bulk strategy
+        if bulk_strategy == "contentconstraint":
+            constraints_url = (
+                client.base_url + "/contentconstraint/"
+                + agency + "/all/latest?detail=full"
+            )
+        elif bulk_strategy == "availableconstraint":
+            constraints_url = (
+                client.base_url + "/availableconstraint/all/all/all/all"
+            )
+        else:
+            return CrossDataflowCodeUsageResult(
+                dimension_id=dimension_id,
+                code=code,
+                total_dataflows_checked=0,
+                dataflows_with_data=[],
+                summary={"dataflows_checked": 0, "with_data": 0, "without_data": 0},
+                interpretation=[
+                    "Unknown bulk strategy: " + str(bulk_strategy),
+                ],
+                api_calls_made=0,
+            )
+
         resp = await session.get(constraints_url, headers=headers, timeout=120)
         resp.raise_for_status()
         api_calls += 1
 
         root = ET.fromstring(resp.content)
 
-        # Find all Actual constraints that contain this code
+        # Find constraints that contain this code.
+        # Prefer Actual, but also search Allowed (e.g. ECB only has Allowed).
         dataflows_with_data: list[CrossDataflowUsageInfo] = []
-        constraints_checked = 0
-        actual_constraints = 0
+        constraints_searched = 0
+        constraint_type_used = None
 
-        for constraint in root.findall(".//str:ContentConstraint", ns):
-            if constraint.get("type") != "Actual":
-                continue
-
-            actual_constraints += 1
-            constraint_id = constraint.get("id", "")
-
-            # Extract dataflow reference from ConstraintAttachment (the proper SDMX way)
-            # The Ref element contains: id, version, agencyID, package, class
-            dataflow_id = None
-            dataflow_version = None
-            dataflow_name = None
-
-            # Primary method: Get dataflow from ConstraintAttachment/Dataflow/Ref
-            # The Ref element may be namespace-less, so we also iterate children
-            for df_elem in constraint.findall(".//str:ConstraintAttachment/str:Dataflow", ns):
-                # Try XPath first (works when Ref has no namespace)
-                for df_ref in df_elem.findall("./Ref", ns):
-                    dataflow_id = df_ref.get("id")
-                    dataflow_version = df_ref.get("version")
-                    break
-                # Fallback: iterate children to find Ref element
-                if not dataflow_id:
-                    for child in df_elem:
-                        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                        if tag == "Ref":
-                            dataflow_id = child.get("id")
-                            dataflow_version = child.get("version")
-                            break
-                if dataflow_id:
-                    break
-
-            # Fallback: extract from constraint ID pattern (CON_XXX or CR_A_XXX)
-            if not dataflow_id:
-                if constraint_id.startswith("CR_A_"):
-                    dataflow_id = constraint_id[5:]  # CR_A_DF_SDG -> DF_SDG
-                elif constraint_id.startswith("CON_"):
-                    dataflow_id = "DF_" + constraint_id[4:]  # CON_BOP -> DF_BOP
-
-            if not dataflow_id:
-                continue
-
-            # Search CubeRegions for the code
-            found_in_dim = None
-            for cube_region in constraint.findall(".//str:CubeRegion", ns):
-                if cube_region.get("include", "true") != "true":
+        # Two passes: first Actual, then Allowed (if no Actual found)
+        for target_type in ("Actual", "Allowed"):
+            found_any = False
+            for constraint in root.findall(".//str:ContentConstraint", ns):
+                ctype = constraint.get("type", "")
+                if ctype != target_type:
                     continue
 
-                for key_value in cube_region.findall(".//com:KeyValue", ns):
-                    dim_id = key_value.get("id", "")
-                    if dimension_id and dim_id != dimension_id:
+                found_any = True
+                constraints_searched += 1
+                constraint_id = constraint.get("id", "")
+
+                # Extract dataflow reference from ConstraintAttachment
+                dataflow_id_val = None
+                dataflow_version = None
+                dataflow_name = None
+
+                for df_elem in constraint.findall(
+                    ".//str:ConstraintAttachment/str:Dataflow", ns
+                ):
+                    for df_ref in df_elem.findall("./Ref", ns):
+                        dataflow_id_val = df_ref.get("id")
+                        dataflow_version = df_ref.get("version")
+                        break
+                    if not dataflow_id_val:
+                        for child in df_elem:
+                            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                            if tag == "Ref":
+                                dataflow_id_val = child.get("id")
+                                dataflow_version = child.get("version")
+                                break
+                    if dataflow_id_val:
+                        break
+
+                # Fallback: extract from constraint ID pattern
+                if not dataflow_id_val:
+                    if constraint_id.startswith("CR_A_"):
+                        dataflow_id_val = constraint_id[5:]
+                    elif constraint_id.startswith("CCA_"):
+                        dataflow_id_val = constraint_id[4:]
+                    elif constraint_id.startswith("CON_"):
+                        dataflow_id_val = "DF_" + constraint_id[4:]
+
+                if not dataflow_id_val:
+                    continue
+
+                # Search CubeRegions for the code
+                found_in_dim = None
+                for cube_region in constraint.findall(".//str:CubeRegion", ns):
+                    if cube_region.get("include", "true") != "true":
                         continue
-                    for value in key_value.findall("./com:Value", ns):
-                        if value.text == code:
-                            found_in_dim = dim_id
+                    for key_value in cube_region.findall(".//com:KeyValue", ns):
+                        dim_id = key_value.get("id", "")
+                        if dimension_id and dim_id != dimension_id:
+                            continue
+                        for value in key_value.findall("./com:Value", ns):
+                            if value.text == code:
+                                found_in_dim = dim_id
+                                break
+                        if found_in_dim:
                             break
                     if found_in_dim:
                         break
+
                 if found_in_dim:
-                    break
-
-            if found_in_dim:
-                # Get constraint name as proxy for dataflow name (if not already set)
-                if not dataflow_name:
-                    name_elem = constraint.find("./com:Name", ns)
-                    if name_elem is not None and name_elem.text:
-                        dataflow_name = name_elem.text
-
-                dataflows_with_data.append(
-                    CrossDataflowUsageInfo(
-                        dataflow_id=dataflow_id,
-                        dataflow_version=dataflow_version,
-                        dataflow_name=dataflow_name,
-                        dimension_id=found_in_dim,
-                        is_used=True,
+                    if not dataflow_name:
+                        name_elem = constraint.find("./com:Name", ns)
+                        if name_elem is not None and name_elem.text:
+                            dataflow_name = name_elem.text
+                    dataflows_with_data.append(
+                        CrossDataflowUsageInfo(
+                            dataflow_id=dataflow_id_val,
+                            dataflow_version=dataflow_version,
+                            dataflow_name=dataflow_name,
+                            dimension_id=found_in_dim,
+                            is_used=True,
+                        )
                     )
-                )
 
-            constraints_checked += 1
+            if found_any:
+                constraint_type_used = target_type
+                break  # Don't fall through to Allowed if Actual had constraints
 
         summary = {
-            "dataflows_checked": actual_constraints,
+            "dataflows_checked": constraints_searched,
             "with_data": len(dataflows_with_data),
-            "without_data": actual_constraints - len(dataflows_with_data),
+            "without_data": constraints_searched - len(dataflows_with_data),
         }
 
         interpretation = []
@@ -1106,15 +1114,24 @@ async def find_code_usage_across_dataflows(
             interpretation.append("**Dimension filter:** " + dimension_id)
         else:
             interpretation.append("**Searched all dimensions (no filter)**")
+
+        constraint_label = constraint_type_used or "no"
         interpretation.extend([
             "**Code:** " + code,
             "",
-            "**Search method:** Single API call for all "
-            + str(actual_constraints)
-            + " Actual constraints",
-            "**API calls made:** " + str(api_calls) + " (efficient!)",
+            "**Search method:** Single API call — "
+            + str(constraints_searched) + " " + constraint_label
+            + " constraints (" + ep_key + ")",
+            "**API calls made:** " + str(api_calls),
             "",
         ])
+
+        if constraint_type_used == "Allowed":
+            interpretation.append(
+                "**Note:** Using Allowed constraints (permitted codes, not confirmed in data). "
+                "Results show what the schema allows, not what data actually exists."
+            )
+            interpretation.append("")
 
         if dataflows_with_data:
             interpretation.append(
@@ -1144,7 +1161,7 @@ async def find_code_usage_across_dataflows(
                 ])
         else:
             no_data_msg = "**Code '" + code + "' has NO DATA in any of the "
-            no_data_msg += str(actual_constraints) + " dataflows"
+            no_data_msg += str(constraints_searched) + " dataflows"
             if dimension_id:
                 no_data_msg += " (dimension: " + dimension_id + ")"
             no_data_msg += "**"
@@ -1153,7 +1170,7 @@ async def find_code_usage_across_dataflows(
         return CrossDataflowCodeUsageResult(
             dimension_id=dimension_id,
             code=code,
-            total_dataflows_checked=actual_constraints,
+            total_dataflows_checked=constraints_searched,
             dataflows_with_data=dataflows_with_data,
             summary=summary,
             interpretation=interpretation,
@@ -1175,6 +1192,15 @@ async def find_code_usage_across_dataflows(
             interpretation=["Error: " + str(e)],
             api_calls_made=api_calls,
         )
+
+
+def _get_session_endpoint_key(ctx: Context[Any, Any, Any] | None) -> str:
+    """Return the endpoint key for the current MCP session, or 'SPC' as default."""
+    app_ctx = get_app_context(ctx)
+    if app_ctx is not None:
+        session = app_ctx.get_session(ctx)
+        return session.endpoint_key
+    return "SPC"
 
 
 # =============================================================================
@@ -1217,13 +1243,14 @@ def _get_client_for_endpoint(
 class _ConstraintInfo:
     """Parsed constraint data: used codes and time range."""
 
-    __slots__ = ("used_codes", "time_start", "time_end", "constraint_type")
+    __slots__ = ("used_codes", "time_start", "time_end", "constraint_type", "constraint_id")
 
     def __init__(self) -> None:
         self.used_codes: dict[str, set[str]] = {}
         self.time_start: str | None = None
         self.time_end: str | None = None
         self.constraint_type: str | None = None  # "Actual" or "Allowed"
+        self.constraint_id: str | None = None
 
 
 def _parse_constraint_xml(
@@ -1259,6 +1286,7 @@ def _parse_constraint_xml(
         return False
 
     info.constraint_type = chosen_constraint.get("type", "")
+    info.constraint_id = chosen_constraint.get("id", "")
 
     # Extract used codes per dimension
     for cube_region in chosen_constraint.findall(".//str:CubeRegion", ns):
@@ -1307,22 +1335,23 @@ async def _fetch_constraint_info(
     client: SDMXProgressiveClient,
     dataflow_id: str,
     agency: str,
+    endpoint_key: str | None = None,
 ) -> tuple[_ConstraintInfo, int]:
     """
-    Fetch used codes and time range from constraints.
+    Fetch used codes and time range from constraints using the config strategy.
 
-    Tries two sources in order:
-    1. /availableconstraint/{flow}/all/all/all — dynamic, returns Actual
-       constraint with all dimensions (supported by SPC, UNICEF, IMF)
-    2. /dataflow/{agency}/{flow}/latest?references=contentconstraint —
-       static constraints attached to the dataflow (prefers Actual,
-       falls back to Allowed; works for ECB)
+    Looks up the ``single_flow`` constraint strategy for the endpoint and
+    executes the appropriate query.  When *endpoint_key* is ``None`` (custom
+    endpoint), falls back to a two-step cascade:
+      1. /availableconstraint/{flow}/all/all/all
+      2. ?references=contentconstraint
 
     Returns (_ConstraintInfo, api_calls_made).
     Returns (empty info, api_calls) when no constraint is found or on error.
     """
     import xml.etree.ElementTree as ET
 
+    from config import get_constraint_strategy
     from utils import SDMX_NAMESPACES
 
     ns = SDMX_NAMESPACES
@@ -1330,36 +1359,82 @@ async def _fetch_constraint_info(
     api_calls = 0
     headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
 
+    strategy = get_constraint_strategy(endpoint_key, "single_flow") if endpoint_key else None
+
     try:
         session = await client._get_session()
 
-        # Strategy 1: /availableconstraint/ (dynamic, all dimensions)
-        avail_url = (
-            client.base_url + "/availableconstraint/"
-            + dataflow_id + "/all/all/all"
-        )
-        try:
-            resp = await session.get(avail_url, headers=headers, timeout=120)
+        if strategy == "availableconstraint":
+            url = (
+                client.base_url + "/availableconstraint/"
+                + dataflow_id + "/all/all/all"
+            )
+            resp = await session.get(url, headers=headers, timeout=120)
             api_calls += 1
             if resp.status_code == 200 and len(resp.content) > 0:
                 root = ET.fromstring(resp.content)
-                if _parse_constraint_xml(root, ns, info):
-                    return info, api_calls
-        except Exception:
-            api_calls += 1  # count the failed attempt
+                _parse_constraint_xml(root, ns, info)
+            return info, api_calls
 
-        # Strategy 2: ?references=contentconstraint (static, fallback)
-        ref_url = (
-            client.base_url + "/dataflow/" + agency + "/"
-            + dataflow_id + "/latest?references=contentconstraint"
-        )
-        resp = await session.get(ref_url, headers=headers, timeout=120)
-        api_calls += 1
-        if resp.status_code == 200 and len(resp.content) > 0:
-            root = ET.fromstring(resp.content)
-            _parse_constraint_xml(root, ns, info)
+        elif strategy == "references":
+            url = (
+                client.base_url + "/dataflow/" + agency + "/"
+                + dataflow_id + "/latest?references=contentconstraint"
+            )
+            resp = await session.get(url, headers=headers, timeout=120)
+            api_calls += 1
+            if resp.status_code == 200 and len(resp.content) > 0:
+                root = ET.fromstring(resp.content)
+                _parse_constraint_xml(root, ns, info)
+            return info, api_calls
 
-        return info, api_calls
+        elif strategy == "references_all":
+            # ILO: /availableconstraint/ returns 500, but ?references=all
+            # on the dataflow endpoint includes Actual constraints with
+            # full dimension coverage.
+            url = (
+                client.base_url + "/dataflow/" + agency + "/"
+                + dataflow_id + "/latest?references=all"
+            )
+            resp = await session.get(url, headers=headers, timeout=120)
+            api_calls += 1
+            if resp.status_code == 200 and len(resp.content) > 0:
+                root = ET.fromstring(resp.content)
+                _parse_constraint_xml(root, ns, info)
+            return info, api_calls
+
+        elif strategy is None and endpoint_key is not None:
+            # Known endpoint with no constraint support — don't waste API calls
+            return info, api_calls
+
+        else:
+            # Unknown/custom endpoint — cascade: try availableconstraint first,
+            # then references as fallback
+            avail_url = (
+                client.base_url + "/availableconstraint/"
+                + dataflow_id + "/all/all/all"
+            )
+            try:
+                resp = await session.get(avail_url, headers=headers, timeout=120)
+                api_calls += 1
+                if resp.status_code == 200 and len(resp.content) > 0:
+                    root = ET.fromstring(resp.content)
+                    if _parse_constraint_xml(root, ns, info):
+                        return info, api_calls
+            except Exception:
+                api_calls += 1
+
+            ref_url = (
+                client.base_url + "/dataflow/" + agency + "/"
+                + dataflow_id + "/latest?references=contentconstraint"
+            )
+            resp = await session.get(ref_url, headers=headers, timeout=120)
+            api_calls += 1
+            if resp.status_code == 200 and len(resp.content) > 0:
+                root = ET.fromstring(resp.content)
+                _parse_constraint_xml(root, ns, info)
+
+            return info, api_calls
 
     except Exception as e:
         logger.warning(
@@ -1408,12 +1483,7 @@ async def compare_dataflow_dimensions(
     api_calls = 0
 
     # Determine current session endpoint key
-    app_ctx = get_app_context(ctx)
-    if app_ctx is not None:
-        session = app_ctx.get_session(ctx)
-        session_endpoint_key = session.endpoint_key
-    else:
-        session_endpoint_key = "SPC"
+    session_endpoint_key = _get_session_endpoint_key(ctx)
 
     # Resolve clients
     temp_clients: list[SDMXProgressiveClient] = []
@@ -1451,12 +1521,12 @@ async def compare_dataflow_dimensions(
 
         # Fetch constraint info (used codes + time ranges) — 1 API call each
         constraint_a, calls_a = await _fetch_constraint_info(
-            client_a, dataflow_id_a, agency_a
+            client_a, dataflow_id_a, agency_a, endpoint_key=ep_key_a
         )
         api_calls += calls_a
 
         constraint_b, calls_b = await _fetch_constraint_info(
-            client_b, dataflow_id_b, agency_b
+            client_b, dataflow_id_b, agency_b, endpoint_key=ep_key_b
         )
         api_calls += calls_b
 
@@ -1810,7 +1880,7 @@ async def compare_dataflow_dimensions(
 async def get_data_availability(
     dataflow_id: str,
     filters: dict[str, str] | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataAvailabilityResult:
     """
@@ -1831,6 +1901,7 @@ async def get_data_availability(
 
     # Get session-specific client for multi-user support
     client = get_session_client(ctx)
+    agency_id = agency_id or client.agency_id
 
     result = await get_availability_impl(
         client=client,
@@ -1867,7 +1938,7 @@ async def validate_query(
     filters: dict[str, str] | None = None,
     start_period: str | None = None,
     end_period: str | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> ValidationResult:
     """
@@ -1891,6 +1962,7 @@ async def validate_query(
 
     # Get session-specific client for multi-user support
     client = get_session_client(ctx)
+    agency_id = agency_id or client.agency_id
 
     result = await validate_impl(
         client=client,
@@ -1918,7 +1990,7 @@ async def validate_query(
 async def build_key(
     dataflow_id: str,
     filters: dict[str, str] | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> KeyBuildResult:
     """
@@ -1933,7 +2005,7 @@ async def build_key(
     Args:
         dataflow_id: The dataflow identifier
         filters: Optional dict mapping dimension IDs to values
-        agency_id: The agency (default: "SPC")
+        agency_id: The agency (uses session endpoint if not specified)
 
     Returns:
         Structured result with the constructed key and usage information
@@ -1942,6 +2014,7 @@ async def build_key(
 
     # Get session-specific client for multi-user support
     client = get_session_client(ctx)
+    agency_id = agency_id or client.agency_id
 
     result = await build_sdmx_key(client, dataflow_id, filters or {}, agency_id, ctx)
 
@@ -1975,7 +2048,7 @@ async def build_data_url(
     start_period: str | None = None,
     end_period: str | None = None,
     format_type: str = "csv",
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataUrlResult:
     """
@@ -1991,7 +2064,7 @@ async def build_data_url(
         start_period: Start of time range (optional)
         end_period: End of time range (optional)
         format_type: Output format (csv, json, xml)
-        agency_id: The agency (default: "SPC")
+        agency_id: The agency (uses session endpoint if not specified)
 
     Returns:
         Structured result with the complete data URL and usage information
@@ -2000,6 +2073,7 @@ async def build_data_url(
 
     # Get session-specific client for multi-user support
     client = get_session_client(ctx)
+    agency_id = agency_id or client.agency_id
 
     result = await build_url_impl(
         client=client,
@@ -2398,21 +2472,26 @@ async def _generate_dsd_hierarchy_diagram(
     """
     import xml.etree.ElementTree as ET
 
+    from config import get_best_references
     from utils import SDMX_NAMESPACES
 
     ns = SDMX_NAMESPACES
     api_calls = 0
 
     if ctx:
-        await ctx.info(f"Fetching SDMX hierarchy for DSD {dsd_id}...")
+        await ctx.info("Fetching SDMX hierarchy for DSD " + dsd_id + "...")
 
     headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
 
     try:
         session = await client._get_session()
 
-        # Get DSD with all references (includes parent dataflows and child codelists)
-        dsd_url = f"{client.base_url}/datastructure/{agency}/{dsd_id}/{version}?references=all&detail=full"
+        # Get DSD with references (includes parent dataflows and child codelists)
+        ref_param = get_best_references(client.endpoint_key, "all") or "children"
+        dsd_url = (
+            client.base_url + "/datastructure/" + agency + "/"
+            + dsd_id + "/" + version + "?references=" + ref_param + "&detail=full"
+        )
         resp = await session.get(dsd_url, headers=headers)
         resp.raise_for_status()
         api_calls += 1
@@ -2674,6 +2753,13 @@ async def _generate_dsd_hierarchy_diagram(
             f"**Codelists ({len(codelists_map)}):** {', '.join(codelists_map.keys())}"
         )
 
+        # Note if references were degraded (e.g. ESTAT doesn't support ?references=all)
+        if ref_param != "all":
+            interpretation.append("")
+            interpretation.append(
+                "Note: parent structures not shown (endpoint limitation)"
+            )
+
         # Generate diagram
         mermaid_diagram = _generate_sdmx_dsd_diagram(
             dsd_id=dsd_id,
@@ -2888,17 +2974,20 @@ async def _generate_dataflow_hierarchy_diagram(
     """
     import xml.etree.ElementTree as ET
 
+    from config import get_best_references
     from utils import SDMX_NAMESPACES
 
     ns = SDMX_NAMESPACES
     api_calls = 0
 
     if ctx:
-        await ctx.info(f"Fetching SDMX hierarchy for dataflow {dataflow_id}...")
+        await ctx.info("Fetching SDMX hierarchy for dataflow " + dataflow_id + "...")
 
-    # Step 1: Get dataflow with ALL references (includes categorisations, constraints)
+    # Step 1: Get dataflow with references (includes categorisations, constraints)
+    ref_param = get_best_references(client.endpoint_key, "all") or "children"
     dataflow_url = (
-        f"{client.base_url}/dataflow/{agency}/{dataflow_id}/latest?references=all&detail=full"
+        client.base_url + "/dataflow/" + agency + "/"
+        + dataflow_id + "/latest?references=" + ref_param + "&detail=full"
     )
     headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
 
@@ -3302,6 +3391,13 @@ async def _generate_dataflow_hierarchy_diagram(
         interpretation.append(
             f"**Codelists ({len(codelists_map)}):** {', '.join(codelists_map.keys())}"
         )
+
+        # Note if references were degraded (e.g. ESTAT doesn't support ?references=all)
+        if ref_param != "all":
+            interpretation.append("")
+            interpretation.append(
+                "Note: parent structures not shown (endpoint limitation)"
+            )
 
         # Generate Mermaid diagram
         mermaid_diagram = _generate_sdmx_dataflow_diagram(

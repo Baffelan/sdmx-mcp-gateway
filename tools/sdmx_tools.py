@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 async def list_dataflows(
     client: SDMXProgressiveClient,
     keywords: list[str] | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     limit: int = 10,
     offset: int = 0,
     ctx: Context[Any, Any, Any] | None = None,
@@ -51,12 +51,14 @@ async def list_dataflows(
     Args:
         client: SDMX client instance (from session)
         keywords: Optional list of keywords to filter dataflows
-        agency_id: The agency to query (default: "SPC")
+        agency_id: The agency to query (uses client default if not specified)
         limit: Number of results to return (default: 10)
         offset: Number of results to skip for pagination (default: 0)
         ctx: MCP context for progress reporting
     """
     try:
+        agency_id = agency_id or client.agency_id
+
         if ctx:
             await ctx.info("Discovering dataflows (overview mode)...")
 
@@ -163,7 +165,7 @@ def _extract_dict(obj: Any) -> dict[str, Any]:
 async def get_dataflow_structure(
     client: SDMXProgressiveClient,
     dataflow_id: str,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> dict[str, Any]:
     """
@@ -179,6 +181,8 @@ async def get_dataflow_structure(
         ctx: MCP context for progress reporting
     """
     try:
+        agency_id = agency_id or client.agency_id
+
         # Validate input
         if not validate_dataflow_id(dataflow_id):
             return {
@@ -283,7 +287,7 @@ async def get_dimension_codes(
     client: SDMXProgressiveClient,
     dataflow_id: str,
     dimension_id: str,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
     ctx: Context[Any, Any, Any] | None = None,
@@ -303,6 +307,8 @@ async def get_dimension_codes(
         ctx: MCP context for progress reporting
     """
     try:
+        agency_id = agency_id or client.agency_id
+
         if ctx:
             await ctx.info(f"Getting codes for dimension: {dimension_id}")
 
@@ -354,7 +360,7 @@ async def get_data_availability(
     client: SDMXProgressiveClient,
     dataflow_id: str,
     filters: dict[str, str] | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> dict[str, Any]:
     """
@@ -371,6 +377,8 @@ async def get_data_availability(
         ctx: MCP context for progress reporting
     """
     try:
+        agency_id = agency_id or client.agency_id
+
         # Validate input
         if not validate_dataflow_id(dataflow_id):
             return {
@@ -428,7 +436,7 @@ async def validate_query(
     filters: dict[str, str] | None = None,
     start_period: str | None = None,
     end_period: str | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> dict[str, Any]:
     """
@@ -447,6 +455,8 @@ async def validate_query(
         agency_id: The agency that owns the dataflow
         ctx: MCP context for progress reporting
     """
+    agency_id = agency_id or client.agency_id
+
     validation_results: dict[str, Any] = {
         "is_valid": True,
         "errors": [],
@@ -610,7 +620,7 @@ async def build_data_url(
     filters: dict[str, str] | None = None,
     start_period: str | None = None,
     end_period: str | None = None,
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     output_format: str = "csv",
     include_headers: bool = True,
     ctx: Context[Any, Any, Any] | None = None,
@@ -634,6 +644,8 @@ async def build_data_url(
         ctx: MCP context for progress reporting
     """
     try:
+        agency_id = agency_id or client.agency_id
+
         # Validate first
         validation = await validate_query(
             client=client,
@@ -812,7 +824,7 @@ async def build_sdmx_key(
     client: SDMXProgressiveClient,
     dataflow_id: str,
     filters: dict[str, str],
-    agency_id: str = "SPC",
+    agency_id: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> dict[str, Any]:
     """
@@ -832,6 +844,8 @@ async def build_sdmx_key(
         Dictionary with the built key and explanation
     """
     try:
+        agency_id = agency_id or client.agency_id
+
         # Get structure to understand dimension order
         structure = await client.get_structure_summary(
             dataflow_id=dataflow_id,

@@ -116,9 +116,15 @@ class SDMXProgressiveClient:
     _cache: dict[str, Any]
     version_cache: dict[tuple[str, str], str]
 
-    def __init__(self, base_url: str | None = None, agency_id: str | None = None):
+    def __init__(
+        self,
+        base_url: str | None = None,
+        agency_id: str | None = None,
+        endpoint_key: str | None = None,
+    ):
         self.base_url = (base_url or SDMX_BASE_URL).rstrip("/")
         self.agency_id = agency_id or SDMX_AGENCY_ID
+        self.endpoint_key = endpoint_key
         self.session = None
         self._cache = {}  # Simple cache for repeated requests
         # Cache for dataflow versions to avoid repeated lookups
@@ -667,6 +673,15 @@ class SDMXProgressiveClient:
             logger.exception("Failed to discover dataflows")
             raise
 
+    def _get_fallback_agencies(self, primary_agency: str) -> list[str]:
+        """Fallback agencies for codelist lookup when primary agency returns 404/204."""
+        fallbacks: list[str] = []
+        if primary_agency != "SDMX":
+            fallbacks.append("SDMX")  # Cross-domain codelists
+        if "." in primary_agency:
+            fallbacks.append(primary_agency.split(".")[0])  # IMF.STA -> IMF
+        return fallbacks
+
     async def browse_codelist(
         self,
         codelist_id: str,
@@ -708,6 +723,23 @@ class SDMXProgressiveClient:
 
             # Request the codelist
             response = await session.get(url)
+
+            # If the primary agency fails, try fallback agencies
+            # (e.g. UNICEF codelist owned by SDMX, or IMF.STA codelist owned by IMF)
+            if (
+                response.status_code in (404, 204)
+                or (response.status_code == 200 and len(response.content) < 50)
+            ):
+                for fb_agency in self._get_fallback_agencies(agency):
+                    fb_url = (
+                        self.base_url + "/codelist/"
+                        + fb_agency + "/" + codelist_id + "/" + version
+                    )
+                    fb_response = await session.get(fb_url)
+                    if fb_response.status_code == 200 and len(fb_response.content) > 50:
+                        response = fb_response
+                        break
+
             response.raise_for_status()
 
             if ctx:
@@ -805,13 +837,27 @@ class SDMXProgressiveClient:
         Get actual data availability from ContentConstraint.
         This shows what data actually exists vs what's theoretically possible.
         """
+        from config import get_best_references
+
         agency = agency_id or self.agency_id
 
+        # Check if endpoint supports the required references parameter
+        ref_param = get_best_references(self.endpoint_key, "all")
+        if ref_param is None:
+            return {
+                "dataflow_id": dataflow_id,
+                "has_constraint": False,
+                "note": "Endpoint does not support constraint references",
+            }
+
         # Fetch dataflow with references to get constraints
-        url = f"{self.base_url}/dataflow/{agency}/{dataflow_id}/{version}?references=all"
+        url = (
+            self.base_url + "/dataflow/" + agency + "/"
+            + dataflow_id + "/" + version + "?references=" + ref_param
+        )
 
         if ctx:
-            ctx.info(f"Checking actual data availability for {dataflow_id}...")
+            ctx.info("Checking actual data availability for " + dataflow_id + "...")
 
         try:
             session = await self._get_session()
@@ -950,15 +996,34 @@ class SDMXProgressiveClient:
                 "supported_types": list(endpoint_map.keys()),
             }
 
-        # Determine which references parameter to use
+        from config import get_best_references
+
+        # Determine which references parameter to use, respecting endpoint support
         if direction == "parents":
-            references_param = "parents"
+            references_param = get_best_references(self.endpoint_key, "parents")
+            if references_param is None:
+                return {
+                    "target": {
+                        "type": structure_type,
+                        "id": structure_id,
+                        "agency": agency,
+                        "version": version,
+                    },
+                    "parents": [],
+                    "note": "Endpoint does not support ?references=parents",
+                }
         elif direction == "children":
             references_param = "children"
         else:  # both
-            references_param = "all"
+            references_param = get_best_references(self.endpoint_key, "all")
+            if references_param is None:
+                references_param = "children"  # Minimum useful fallback
 
-        url = f"{self.base_url}/{endpoint}/{agency}/{structure_id}/{version}?references={references_param}&detail=referencestubs"
+        url = (
+            self.base_url + "/" + endpoint + "/" + agency + "/"
+            + structure_id + "/" + version
+            + "?references=" + references_param + "&detail=referencestubs"
+        )
 
         if ctx:
             ctx.info(f"Fetching {direction} references for {structure_type}/{structure_id}...")

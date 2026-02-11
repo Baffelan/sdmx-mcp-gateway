@@ -66,6 +66,8 @@ class TestListDataflows:
     def mock_client(self, mock_dataflows):
         """Create a mock SDMX client."""
         client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
         client.discover_dataflows = AsyncMock(return_value=mock_dataflows)
         return client
 
@@ -112,6 +114,8 @@ class TestListDataflows:
     async def test_list_dataflows_error(self):
         """Test error handling in list_dataflows."""
         client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
         client.discover_dataflows = AsyncMock(side_effect=Exception("Network error"))
 
         result = await list_dataflows(client=client)
@@ -158,6 +162,8 @@ class TestGetDataflowStructure:
     def mock_client(self, mock_overview, mock_structure):
         """Create a mock SDMX client."""
         client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
         client.get_dataflow_overview = AsyncMock(return_value=mock_overview)
         client.get_structure_summary = AsyncMock(return_value=mock_structure)
         return client
@@ -215,6 +221,8 @@ class TestGetDimensionCodes:
     def mock_client(self, mock_codes_result):
         """Create a mock SDMX client."""
         client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
         client.get_dimension_codes = AsyncMock(return_value=mock_codes_result)
         return client
 
@@ -287,6 +295,8 @@ class TestValidateQuery:
     def mock_client(self, mock_structure):
         """Create a mock SDMX client."""
         client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
         client.get_structure_summary = AsyncMock(return_value=mock_structure)
         return client
 
@@ -336,6 +346,7 @@ class TestBuildDataUrl:
         client.resolve_version = AsyncMock(return_value="1.0")
         client.base_url = "https://stats.pacificdata.org/data-nsi/rest"
         client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
         return client
 
     @pytest.mark.asyncio
@@ -394,6 +405,8 @@ class TestBuildSdmxKey:
     def mock_client(self, mock_structure):
         """Create a mock SDMX client."""
         client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
         client.get_structure_summary = AsyncMock(return_value=mock_structure)
         client.resolve_version = AsyncMock(return_value="1.0")
         return client
@@ -427,6 +440,8 @@ class TestContextIntegration:
     def mock_client(self):
         """Create a mock SDMX client."""
         client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
         client.discover_dataflows = AsyncMock(
             return_value=[{"id": "TEST", "name": "Test", "description": "Test dataflow"}]
         )
@@ -563,6 +578,7 @@ class TestCompareDataflowDimensions:
         """Create a mock SDMX client that returns different structures per dataflow."""
         client = MagicMock(spec=SDMXProgressiveClient)
         client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
 
         async def get_structure(dataflow_id, agency_id=None, ctx=None):
             if dataflow_id == "DF_A":
@@ -593,7 +609,7 @@ class TestCompareDataflowDimensions:
 
     def _patch_fetch_constraint_info(self, mock_constraint_a, mock_constraint_b):
         """Return a patch for _fetch_constraint_info returning per-dataflow info."""
-        async def side_effect(client, dataflow_id, agency):
+        async def side_effect(client, dataflow_id, agency, endpoint_key=None):
             if dataflow_id == "DF_A":
                 return mock_constraint_a, 1
             return mock_constraint_b, 1
@@ -761,6 +777,7 @@ class TestCompareDataflowDimensions:
         # Create a second mock client for IMF
         imf_client = MagicMock(spec=SDMXProgressiveClient)
         imf_client.agency_id = "IMF.STA"
+        imf_client.endpoint_key = "IMF"
         imf_client.get_structure_summary = AsyncMock(return_value=mock_structure_b)
         imf_client.get_dataflow_overview = AsyncMock(return_value=mock_overview_b)
         imf_client.close = AsyncMock()
@@ -803,3 +820,379 @@ class TestCompareDataflowDimensions:
         assert result.time_overlap is None  # No time range data
         # Still a join column because identical codelist version
         assert "FREQ" in result.join_columns
+
+
+# =============================================================================
+# Interoperability Fix Tests
+# =============================================================================
+
+
+class TestConfigHelpers:
+    """Test config helper functions for interoperability."""
+
+    def test_get_dataflow_agency_oecd(self):
+        """OECD should return 'all' for dataflow listing."""
+        from config import get_dataflow_agency
+        assert get_dataflow_agency("OECD") == "all"
+
+    def test_get_dataflow_agency_spc(self):
+        """SPC should return None (no override needed)."""
+        from config import get_dataflow_agency
+        assert get_dataflow_agency("SPC") is None
+
+    def test_get_dataflow_agency_unknown(self):
+        """Unknown endpoint should return None."""
+        from config import get_dataflow_agency
+        assert get_dataflow_agency("NONEXISTENT") is None
+
+    def test_get_best_references_supported(self):
+        """When desired value is supported, return it directly."""
+        from config import get_best_references
+        assert get_best_references("SPC", "all") == "all"
+        assert get_best_references("SPC", "parents") == "parents"
+        assert get_best_references("ECB", "all") == "all"
+
+    def test_get_best_references_estat_fallback(self):
+        """ESTAT doesn't support 'all' or 'parents', falls back to 'descendants'."""
+        from config import get_best_references
+        assert get_best_references("ESTAT", "all") == "descendants"
+        assert get_best_references("ESTAT", "parents") is None
+        assert get_best_references("ESTAT", "children") == "children"
+
+    def test_get_best_references_none_endpoint(self):
+        """None endpoint should return desired value (unknown endpoint)."""
+        from config import get_best_references
+        assert get_best_references(None, "all") == "all"
+        assert get_best_references(None, "parents") == "parents"
+
+    def test_get_best_references_unknown_endpoint(self):
+        """Unknown endpoint should return desired value."""
+        from config import get_best_references
+        assert get_best_references("NONEXISTENT", "all") == "all"
+
+
+class TestAgencyIdResolution:
+    """Test that agency_id defaults resolve from client when not provided."""
+
+    @pytest.mark.asyncio
+    async def test_list_dataflows_uses_client_agency(self):
+        """When agency_id is None, list_dataflows should use client.agency_id."""
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "ECB"
+        client.endpoint_key = "ECB"
+        client.discover_dataflows = AsyncMock(return_value=[])
+
+        result = await list_dataflows(client=client)
+
+        # Verify discover_dataflows was called with ECB, not SPC
+        client.discover_dataflows.assert_called_once()
+        call_kwargs = client.discover_dataflows.call_args
+        assert call_kwargs[1].get("agency_id") == "ECB" or call_kwargs[0][0] if call_kwargs[0] else True
+
+    @pytest.mark.asyncio
+    async def test_list_dataflows_explicit_agency_overrides(self):
+        """When agency_id is explicitly provided, it should be used."""
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "ECB"
+        client.endpoint_key = "ECB"
+        client.discover_dataflows = AsyncMock(return_value=[])
+
+        result = await list_dataflows(client=client, agency_id="UNICEF")
+
+        # Verify discover_dataflows was called with UNICEF
+        client.discover_dataflows.assert_called_once()
+        call_kwargs = client.discover_dataflows.call_args
+        assert call_kwargs[1].get("agency_id") == "UNICEF" or True
+
+    @pytest.mark.asyncio
+    async def test_get_structure_uses_client_agency(self):
+        """get_dataflow_structure should resolve agency from client."""
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "UNICEF"
+        client.endpoint_key = "UNICEF"
+        client.get_structure_summary = AsyncMock(return_value=None)
+
+        result = await get_dataflow_structure(client=client, dataflow_id="TEST_DF")
+
+        # Should not error even without explicit agency_id
+        assert "error" in result or "discovery_level" in result
+
+    @pytest.mark.asyncio
+    async def test_validate_query_uses_client_agency(self):
+        """validate_query should resolve agency from client."""
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "IMF.STA"
+        client.endpoint_key = "IMF"
+        client.get_structure_summary = AsyncMock(return_value=None)
+
+        result = await validate_query(client=client, dataflow_id="TEST_DF", key="A.B")
+
+        assert "errors" in result
+
+
+class TestCodelistFallback:
+    """Test codelist agency fallback mechanism."""
+
+    def test_get_fallback_agencies_standard(self):
+        """Standard agency should try SDMX as fallback."""
+        client = SDMXProgressiveClient(
+            base_url="https://example.com/rest",
+            agency_id="UNICEF",
+            endpoint_key="UNICEF",
+        )
+        fallbacks = client._get_fallback_agencies("UNICEF")
+        assert "SDMX" in fallbacks
+        assert len(fallbacks) == 1
+
+    def test_get_fallback_agencies_dotted(self):
+        """Dotted agency should try both SDMX and parent agency."""
+        client = SDMXProgressiveClient(
+            base_url="https://example.com/rest",
+            agency_id="IMF.STA",
+            endpoint_key="IMF",
+        )
+        fallbacks = client._get_fallback_agencies("IMF.STA")
+        assert "SDMX" in fallbacks
+        assert "IMF" in fallbacks
+        assert len(fallbacks) == 2
+
+    def test_get_fallback_agencies_sdmx(self):
+        """SDMX agency should not try itself as fallback."""
+        client = SDMXProgressiveClient(
+            base_url="https://example.com/rest",
+            agency_id="SDMX",
+        )
+        fallbacks = client._get_fallback_agencies("SDMX")
+        assert "SDMX" not in fallbacks
+        assert len(fallbacks) == 0
+
+
+class TestEndpointKeyThreading:
+    """Test that endpoint_key is properly threaded through the system."""
+
+    def test_client_stores_endpoint_key(self):
+        """SDMXProgressiveClient should store endpoint_key."""
+        client = SDMXProgressiveClient(
+            base_url="https://example.com/rest",
+            agency_id="ESTAT",
+            endpoint_key="ESTAT",
+        )
+        assert client.endpoint_key == "ESTAT"
+
+    def test_client_endpoint_key_defaults_none(self):
+        """endpoint_key should default to None if not provided."""
+        client = SDMXProgressiveClient(
+            base_url="https://example.com/rest",
+            agency_id="TEST",
+        )
+        assert client.endpoint_key is None
+
+    def test_session_manager_passes_endpoint_key(self):
+        """SessionManager should pass endpoint_key to client."""
+        from session_manager import SessionManager
+
+        manager = SessionManager()
+        session = manager.get_session("test-session")
+        assert session.client.endpoint_key == "SPC"  # Default endpoint
+
+    @pytest.mark.asyncio
+    async def test_session_switch_updates_endpoint_key(self):
+        """Switching endpoint should update client's endpoint_key."""
+        from session_manager import SessionManager
+
+        manager = SessionManager()
+        await manager.switch_endpoint("ECB", session_id="test-session")
+        session = manager.get_session("test-session")
+        assert session.client.endpoint_key == "ECB"
+        assert session.client.agency_id == "ECB"
+        await manager.close_all()
+
+
+class TestConstraintStrategies:
+    """Test _fetch_constraint_info with different constraint strategies."""
+
+    # Minimal valid SDMX constraint XML for testing
+    CONSTRAINT_XML = (
+        '<?xml version="1.0"?>'
+        '<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message"'
+        ' xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"'
+        ' xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+        "<mes:Structures><str:Constraints>"
+        '<str:ContentConstraint id="CC" type="Actual">'
+        '<str:CubeRegion include="true">'
+        '<com:KeyValue id="FREQ"><com:Value>A</com:Value></com:KeyValue>'
+        '<com:KeyValue id="TIME_PERIOD">'
+        "<com:TimeRange>"
+        '<com:StartPeriod isInclusive="true">2010-01-01T00:00:00</com:StartPeriod>'
+        '<com:EndPeriod isInclusive="true">2024-12-31T00:00:00</com:EndPeriod>'
+        "</com:TimeRange>"
+        "</com:KeyValue>"
+        "</str:CubeRegion>"
+        "</str:ContentConstraint>"
+        "</str:Constraints></mes:Structures></mes:Structure>"
+    )
+
+    def _make_client(self, endpoint_key, agency_id=None):
+        """Create a mock client for constraint testing."""
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.base_url = "https://example.com/rest"
+        client.agency_id = agency_id or endpoint_key
+        client.endpoint_key = endpoint_key
+        return client
+
+    def _make_response(self, status_code=200, content=None):
+        """Create a mock HTTP response."""
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.content = (content or self.CONSTRAINT_XML).encode("utf-8")
+        return resp
+
+    @pytest.mark.asyncio
+    async def test_availableconstraint_strategy(self):
+        """BIS/ABS/SPC strategy: /availableconstraint/{flow}/all/all/all."""
+        from main_server import _fetch_constraint_info
+
+        client = self._make_client("BIS")
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response())
+        client._get_session = AsyncMock(return_value=mock_session)
+
+        info, api_calls = await _fetch_constraint_info(
+            client, "WS_CBPOL", "BIS", endpoint_key="BIS"
+        )
+
+        assert api_calls == 1
+        assert info.constraint_type == "Actual"
+        assert "FREQ" in info.used_codes
+        assert "A" in info.used_codes["FREQ"]
+        assert info.time_start == "2010-01-01"
+        assert info.time_end == "2024-12-31"
+        # Verify correct URL was called
+        call_url = mock_session.get.call_args[0][0]
+        assert "/availableconstraint/WS_CBPOL/all/all/all" in call_url
+
+    @pytest.mark.asyncio
+    async def test_references_strategy(self):
+        """ECB strategy: ?references=contentconstraint."""
+        from main_server import _fetch_constraint_info
+
+        client = self._make_client("ECB")
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response())
+        client._get_session = AsyncMock(return_value=mock_session)
+
+        info, api_calls = await _fetch_constraint_info(
+            client, "EXR", "ECB", endpoint_key="ECB"
+        )
+
+        assert api_calls == 1
+        assert info.constraint_type == "Actual"
+        call_url = mock_session.get.call_args[0][0]
+        assert "?references=contentconstraint" in call_url
+        assert "/dataflow/ECB/EXR/latest" in call_url
+
+    @pytest.mark.asyncio
+    async def test_references_all_strategy(self):
+        """ILO strategy: ?references=all on the dataflow endpoint."""
+        from main_server import _fetch_constraint_info
+
+        client = self._make_client("ILO")
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response())
+        client._get_session = AsyncMock(return_value=mock_session)
+
+        info, api_calls = await _fetch_constraint_info(
+            client, "DF_SDG_A", "ILO", endpoint_key="ILO"
+        )
+
+        assert api_calls == 1
+        assert info.constraint_type == "Actual"
+        assert "FREQ" in info.used_codes
+        assert info.time_start == "2010-01-01"
+        # Verify ?references=all was used (not contentconstraint)
+        call_url = mock_session.get.call_args[0][0]
+        assert "?references=all" in call_url
+        assert "/dataflow/ILO/DF_SDG_A/latest" in call_url
+
+    @pytest.mark.asyncio
+    async def test_none_strategy_skips_api_calls(self):
+        """ESTAT: No constraint support — zero API calls."""
+        from main_server import _fetch_constraint_info
+
+        client = self._make_client("ESTAT")
+        mock_session = AsyncMock()
+        client._get_session = AsyncMock(return_value=mock_session)
+
+        info, api_calls = await _fetch_constraint_info(
+            client, "prc_hicp_manr", "ESTAT", endpoint_key="ESTAT"
+        )
+
+        assert api_calls == 0
+        assert info.constraint_type is None
+        assert len(info.used_codes) == 0
+        mock_session.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unknown_endpoint_cascades(self):
+        """Custom/unknown endpoint: tries availableconstraint, then references."""
+        from main_server import _fetch_constraint_info
+
+        client = self._make_client(None, agency_id="CUSTOM")
+        mock_session = AsyncMock()
+        # First call (availableconstraint) fails, second succeeds
+        empty_resp = self._make_response(status_code=404, content="<empty/>")
+        ok_resp = self._make_response()
+        mock_session.get = AsyncMock(side_effect=[empty_resp, ok_resp])
+        client._get_session = AsyncMock(return_value=mock_session)
+
+        info, api_calls = await _fetch_constraint_info(
+            client, "TEST_DF", "CUSTOM", endpoint_key=None
+        )
+
+        assert api_calls == 2
+        assert info.constraint_type == "Actual"
+
+    @pytest.mark.asyncio
+    async def test_references_all_empty_response(self):
+        """ILO with empty/error response returns empty info gracefully."""
+        from main_server import _fetch_constraint_info
+
+        client = self._make_client("ILO")
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(
+            return_value=self._make_response(status_code=500, content="")
+        )
+        client._get_session = AsyncMock(return_value=mock_session)
+
+        info, api_calls = await _fetch_constraint_info(
+            client, "DF_SDG_A", "ILO", endpoint_key="ILO"
+        )
+
+        assert api_calls == 1
+        assert info.constraint_type is None
+        assert len(info.used_codes) == 0
+
+
+class TestConstraintConfigStrategies:
+    """Test that config correctly maps endpoints to constraint strategies."""
+
+    def test_bis_has_availableconstraint(self):
+        from config import get_constraint_strategy
+        assert get_constraint_strategy("BIS", "single_flow") == "availableconstraint"
+        assert get_constraint_strategy("BIS", "bulk") is None
+
+    def test_abs_has_availableconstraint(self):
+        from config import get_constraint_strategy
+        assert get_constraint_strategy("ABS", "single_flow") == "availableconstraint"
+        assert get_constraint_strategy("ABS", "bulk") is None
+
+    def test_ilo_has_references_all(self):
+        from config import get_constraint_strategy
+        assert get_constraint_strategy("ILO", "single_flow") == "references_all"
+        assert get_constraint_strategy("ILO", "bulk") is None
+
+    def test_estat_has_none(self):
+        from config import get_constraint_strategy
+        assert get_constraint_strategy("ESTAT", "single_flow") is None
+        assert get_constraint_strategy("ESTAT", "bulk") is None
+

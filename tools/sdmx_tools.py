@@ -708,7 +708,7 @@ async def build_data_url(
         url = f"{base_url}/data/{dataflow_id}/{data_key}"
 
         # Add query parameters
-        params: list[str] = []
+        params: list[str] = ["dimensionAtObservation=AllDimensions"]
         if start_period:
             params.append(f"startPeriod={quote(start_period)}")
         if end_period:

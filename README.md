@@ -10,7 +10,7 @@ A Model Context Protocol (MCP) server that provides progressive discovery tools 
 - **Structured Outputs**: All tools return validated Pydantic models
 - **Multiple Transports**: STDIO (development) and Streamable HTTP (production)
 - **Interactive Elicitation**: User confirmation dialogs for endpoint switching
-- **Multi-Provider Support**: SPC, ECB, UNICEF, IMF data sources
+- **Multi-Provider Support**: SPC, ECB, UNICEF, IMF, OECD, ESTAT, ILO, ABS, BIS
 
 ## Quick Start
 
@@ -106,12 +106,17 @@ sdmx-mcp-gateway/
 
 ## Supported Data Sources
 
-| Key      | Provider                    | Description                           |
-| -------- | --------------------------- | ------------------------------------- |
-| `SPC`    | Pacific Data Hub            | Pacific regional statistics (default) |
-| `ECB`    | European Central Bank       | European financial statistics         |
-| `UNICEF` | UNICEF                      | Children and youth statistics         |
-| `IMF`    | International Monetary Fund | Global financial statistics           |
+| Key      | Provider                         | Description                           | Constraints        |
+| -------- | -------------------------------- | ------------------------------------- | ------------------ |
+| `SPC`    | Pacific Data Hub                 | Pacific regional statistics (default) | Actual (single + bulk) |
+| `ECB`    | European Central Bank            | European financial statistics         | Allowed (single + bulk) |
+| `UNICEF` | UNICEF                           | Children and youth statistics         | Actual (single + bulk) |
+| `IMF`    | International Monetary Fund      | Global financial statistics           | Actual (single) |
+| `OECD`   | OECD                             | Economic and social statistics        | Actual (single) |
+| `BIS`    | Bank for International Settlements | International financial statistics  | Actual (single) |
+| `ABS`    | Australian Bureau of Statistics  | Australian official statistics        | Actual (single) |
+| `ILO`    | International Labour Organization | Labour and employment statistics     | Actual (single) |
+| `ESTAT`  | Eurostat                         | European Union official statistics    | None |
 
 Switch providers using:
 
@@ -122,6 +127,8 @@ switch_endpoint("ECB")
 # Interactive selection (with elicitation)
 switch_endpoint_interactive()
 ```
+
+See `docs/ENDPOINT_CONFIGURATION.md` for provider-specific behaviours and constraint strategies.
 
 ## Installation
 
@@ -224,6 +231,49 @@ Before configuring any MCP client, ensure you have:
 > ```
 >
 > Then replace `"command": "uv"` with the full path to your venv's python, and adjust args accordingly.
+
+### Claude Code
+
+Add to your project or user settings (`.claude/settings.json` or `~/.claude/settings.json`):
+
+```json
+{
+    "mcpServers": {
+        "sdmx-gateway": {
+            "command": "uv",
+            "args": [
+                "run",
+                "--directory",
+                "/path/to/sdmx-mcp-gateway",
+                "python",
+                "main_server.py"
+            ]
+        }
+    }
+}
+```
+
+> **Note**: If `uv` is not on your PATH, use the full path (e.g. `"/home/user/.local/bin/uv"`).
+
+### OpenAI Codex CLI
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.sdmx]
+command = "uv"
+args = ["run", "--directory", "/path/to/sdmx-mcp-gateway", "python", "main_server.py"]
+enabled = true
+tool_timeout_sec = 120
+```
+
+> **Note**: The `command` field must be the executable only. If `uv` is not on your PATH, use the full path (e.g. `"/home/user/.local/bin/uv"`). Arguments go in `args` as a separate array.
+
+Or via the CLI:
+
+```bash
+codex mcp add sdmx -- uv run --directory /path/to/sdmx-mcp-gateway python main_server.py
+```
 
 ### Claude Desktop
 
@@ -610,13 +660,9 @@ uv run pytest tests/e2e/
 
 ### Multi-User Endpoint Switching
 
-The endpoint switching uses global state. In multi-user deployments, switching affects all users. Suitable for:
+Endpoint switching is session-scoped: each MCP session has its own active provider. STDIO mode uses a single session; HTTP transport uses `Mcp-Session-Id` headers for multi-user isolation. Sessions timeout after 30 minutes of inactivity.
 
-- Single-user Claude Desktop integration
-- Local development
-- Single-tenant deployments
-
-See `MULTI_USER_CONSIDERATIONS.md` for production alternatives.
+See `docs/MULTI_USER_CONSIDERATIONS.md` for production deployment details.
 
 ### Elicitation Support
 

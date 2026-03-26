@@ -152,6 +152,28 @@ class SDMXProgressiveClient:
             await self.session.aclose()
             self.session = None
 
+    async def fetch_data_probe(
+        self,
+        data_url: str,
+        accept: str = "application/vnd.sdmx.data+csv;version=1.0.0",
+        timeout: float = 30.0,
+    ) -> tuple[int, str]:
+        """Fetch data from an SDMX data URL for probing.
+
+        Makes a GET request and returns (status_code, response_text).
+        Returns (0, "") on network/transport errors.
+        """
+        session = await self._get_session()
+        try:
+            response = await session.get(
+                data_url,
+                headers={"Accept": accept, "Accept-Language": "en"},
+                timeout=timeout,
+            )
+            return response.status_code, response.text
+        except Exception:
+            return 0, ""
+
     async def resolve_version(
         self,
         dataflow_id: str,

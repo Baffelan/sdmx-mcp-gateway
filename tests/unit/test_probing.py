@@ -76,3 +76,159 @@ class TestProbeModels:
         assert result.original_status == "empty"
         assert len(result.suggestions) == 1
         assert result.suggestions[0].rank == 1
+
+
+from unittest.mock import AsyncMock, MagicMock
+
+
+class TestFetchDataProbe:
+    """Test SDMXProgressiveClient.fetch_data_probe method."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_probe_success(self):
+        from sdmx_progressive_client import SDMXProgressiveClient
+
+        client = SDMXProgressiveClient(
+            base_url="https://example.org/rest", agency_id="TEST"
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "DATAFLOW,FREQ,OBS_VALUE\nTEST:DF(1.0),A,123\n"
+        mock_response.raise_for_status = MagicMock()
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=mock_response)
+        client.session = mock_session
+
+        status, text = await client.fetch_data_probe(
+            "https://example.org/rest/data/DF/A"
+        )
+
+        assert status == 200
+        assert "123" in text
+        mock_session.get.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_probe_http_error(self):
+        from sdmx_progressive_client import SDMXProgressiveClient
+
+        client = SDMXProgressiveClient(
+            base_url="https://example.org/rest", agency_id="TEST"
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = ""
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=mock_response)
+        client.session = mock_session
+
+        status, text = await client.fetch_data_probe(
+            "https://example.org/rest/data/DF/A"
+        )
+
+        assert status == 404
+        assert text == ""
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_probe_network_error(self):
+        import httpx
+
+        from sdmx_progressive_client import SDMXProgressiveClient
+
+        client = SDMXProgressiveClient(
+            base_url="https://example.org/rest", agency_id="TEST"
+        )
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+        client.session = mock_session
+
+        status, text = await client.fetch_data_probe(
+            "https://example.org/rest/data/DF/A"
+        )
+
+        assert status == 0
+        assert text == ""
+
+
+class TestUrlParsing:
+    """Test SDMX data URL parsing and normalization."""
+
+    def test_parse_basic_url(self):
+        from tools.probing_tools import parse_sdmx_data_url
+
+        parsed = parse_sdmx_data_url(
+            "https://stats-sdmx-disseminate.pacificdata.org/rest/data/DF_KAVA/A.FJ.KAVA_PROD"
+            "?startPeriod=2020&endPeriod=2024"
+        )
+        assert parsed["base_url"] == "https://stats-sdmx-disseminate.pacificdata.org/rest"
+        assert parsed["dataflow_id"] == "DF_KAVA"
+        assert parsed["key"] == "A.FJ.KAVA_PROD"
+        assert parsed["key_parts"] == ["A", "FJ", "KAVA_PROD"]
+        assert parsed["start_period"] == "2020"
+        assert parsed["end_period"] == "2024"
+
+    def test_parse_url_with_agency(self):
+        from tools.probing_tools import parse_sdmx_data_url
+
+        parsed = parse_sdmx_data_url(
+            "https://data.api.abs.gov.au/rest/data/ABS,CPI,1.0.0/1.10001..Q"
+            "?dimensionAtObservation=AllDimensions"
+        )
+        assert parsed["dataflow_id"] == "ABS,CPI,1.0.0"
+        assert parsed["key"] == "1.10001..Q"
+        assert parsed["key_parts"] == ["1", "10001", "", "Q"]
+
+    def test_parse_url_no_params(self):
+        from tools.probing_tools import parse_sdmx_data_url
+
+        parsed = parse_sdmx_data_url(
+            "https://example.org/rest/data/DF_POP/all"
+        )
+        assert parsed["dataflow_id"] == "DF_POP"
+        assert parsed["key"] == "all"
+        assert parsed["start_period"] is None
+        assert parsed["end_period"] is None
+
+    def test_parse_url_invalid(self):
+        from tools.probing_tools import parse_sdmx_data_url
+
+        parsed = parse_sdmx_data_url("https://example.org/not-sdmx")
+        assert parsed is None
+
+    def test_fingerprint_deterministic(self):
+        from tools.probing_tools import normalize_query_fingerprint
+
+        url = "https://example.org/rest/data/DF/A.FJ?startPeriod=2020&endPeriod=2024"
+        fp1 = normalize_query_fingerprint(url)
+        fp2 = normalize_query_fingerprint(url)
+        assert fp1 == fp2
+        assert fp1.startswith("sha256:")
+
+    def test_fingerprint_param_order_invariant(self):
+        from tools.probing_tools import normalize_query_fingerprint
+
+        url_a = "https://example.org/rest/data/DF/A?startPeriod=2020&endPeriod=2024"
+        url_b = "https://example.org/rest/data/DF/A?endPeriod=2024&startPeriod=2020"
+        assert normalize_query_fingerprint(url_a) == normalize_query_fingerprint(url_b)
+
+    def test_build_probe_url_adds_first_n(self):
+        from tools.probing_tools import build_probe_url
+
+        probe = build_probe_url(
+            "https://example.org/rest/data/DF/A.FJ?startPeriod=2020"
+        )
+        assert "firstNObservations=1" in probe
+
+    def test_build_probe_url_preserves_existing_params(self):
+        from tools.probing_tools import build_probe_url
+
+        probe = build_probe_url(
+            "https://example.org/rest/data/DF/A.FJ?startPeriod=2020&endPeriod=2024"
+        )
+        assert "startPeriod=2020" in probe
+        assert "endPeriod=2024" in probe
+        assert "firstNObservations=1" in probe

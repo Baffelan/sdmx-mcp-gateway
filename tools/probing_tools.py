@@ -190,7 +190,9 @@ def parse_csv_probe_response(
             geo_dim_id = h
 
     # Parse rows
+    # Sample sets are capped at max_distinct_per_dim; true counts tracked separately
     dim_values: dict[str, set[str]] = {h: set() for _, h in dim_indices}
+    dim_true_counts: dict[str, int] = {h: 0 for _, h in dim_indices}
     series_keys: set[tuple[str, ...]] = set()
     time_values: set[str] = set()
     sample_obs: list[dict[str, Any]] = []
@@ -207,8 +209,10 @@ def parse_csv_probe_response(
         for idx, dim_id in dim_indices:
             val = row[idx].strip() if idx < len(row) else ""
             row_dims[dim_id] = val
-            if len(dim_values[dim_id]) < max_distinct_per_dim:
-                dim_values[dim_id].add(val)
+            if val not in dim_values[dim_id]:
+                dim_true_counts[dim_id] += 1
+                if len(dim_values[dim_id]) < max_distinct_per_dim:
+                    dim_values[dim_id].add(val)
             if dim_id != time_dim_id:
                 series_parts.append(val)
 
@@ -229,12 +233,12 @@ def parse_csv_probe_response(
                         obs_val = None
             sample_obs.append({"dimensions": row_dims, "value": obs_val})
 
-    # Build dimension summaries
+    # Build dimension summaries (distinct_count uses true count, not capped set)
     dimensions: dict[str, dict[str, Any]] = {}
     for _, dim_id in dim_indices:
         vals = dim_values[dim_id]
         dimensions[dim_id] = {
-            "distinct_count": len(vals),
+            "distinct_count": dim_true_counts[dim_id],
             "sample_values": sorted(vals)[:max_distinct_per_dim],
         }
 
@@ -263,7 +267,11 @@ def _empty_shape() -> dict[str, Any]:
 
 
 # Probe result cache: fingerprint -> result dict
+# Module-level cache shared across sessions. Fingerprints include the full URL
+# (scheme + host + path), so different endpoints produce different entries.
+# Capped at _PROBE_CACHE_MAX to prevent unbounded growth in long-running processes.
 _probe_cache: dict[str, dict[str, Any]] = {}
+_PROBE_CACHE_MAX = 1000
 
 
 async def probe_data_url(
@@ -319,7 +327,7 @@ async def probe_data_url(
         result["status"] = "empty"
         result["query_fingerprint"] = fingerprint
         result["notes"] = ["HTTP 404 — no data found for this query."]
-        _probe_cache[fingerprint] = result
+        _cache_put(fingerprint, result)
         return result
 
     if status_code >= 400:
@@ -348,8 +356,17 @@ async def probe_data_url(
 
     shape["query_fingerprint"] = fingerprint
 
-    _probe_cache[fingerprint] = shape
+    _cache_put(fingerprint, shape)
     return shape
+
+
+def _cache_put(fingerprint: str, result: dict[str, Any]) -> None:
+    """Store a probe result, evicting oldest entries if cache is full."""
+    if len(_probe_cache) >= _PROBE_CACHE_MAX:
+        # Evict oldest entry (first key in insertion order — Python 3.7+)
+        oldest = next(iter(_probe_cache))
+        del _probe_cache[oldest]
+    _probe_cache[fingerprint] = result
 
 
 def _build_url_from_parts(
@@ -362,7 +379,10 @@ def _build_url_from_parts(
     """Build an SDMX data URL from structured components."""
     base = base_url.rstrip("/")
 
-    # Build key from filters (without DSD — just concatenate values)
+    # Build key from filters without DSD lookup.
+    # WARNING: keys are sorted alphabetically by dimension ID, which may not
+    # match the DSD's dimension position order. Use data_url input (preferred)
+    # or build_key() + build_data_url() for correct key construction.
     if filters:
         key = ".".join(filters.get(k, "") for k in sorted(filters.keys()))
     else:

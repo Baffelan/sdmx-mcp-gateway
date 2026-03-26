@@ -477,3 +477,168 @@ def _build_candidate_url(
     if params:
         url += "?" + "&".join(params)
     return url
+
+
+async def suggest_nonempty_queries(
+    client: SDMXProgressiveClient,
+    data_url: str,
+    relax_dimensions: list[str] | None = None,
+    max_suggestions: int = 5,
+    max_probes: int = 20,
+    intent_hint: str = "generic",
+) -> dict[str, Any]:
+    """Suggest nearby non-empty queries by bounded relaxation.
+
+    If the original query is non-empty, returns immediately.
+    Otherwise, generates single-dimension relaxations and probes them
+    within a strict budget.
+
+    Args:
+        client: SDMX client for probing and DSD access.
+        data_url: The exact SDMX data URL that may be empty.
+        relax_dimensions: Only relax these dimensions (None = all).
+        max_suggestions: Max number of suggestions to return.
+        max_probes: Max number of HTTP probes to make.
+        intent_hint: One of generic, kpi, timeseries, ranking, map.
+
+    Returns a dict matching the SuggestionResult schema.
+    """
+    fingerprint = normalize_query_fingerprint(data_url)
+    probes_used = 0
+
+    # Step 1: Probe the original query
+    original_result = await probe_data_url(client=client, data_url=data_url)
+    probes_used += 1
+
+    if original_result["status"] == "nonempty":
+        return {
+            "original_status": "nonempty",
+            "original_query_fingerprint": fingerprint,
+            "suggestions": [],
+            "probes_used": probes_used,
+            "notes": [],
+        }
+
+    # Step 2: Parse the URL and get DSD for dimension names
+    parsed = parse_sdmx_data_url(data_url)
+    if parsed is None:
+        return {
+            "original_status": original_result["status"],
+            "original_query_fingerprint": fingerprint,
+            "suggestions": [],
+            "probes_used": probes_used,
+            "notes": ["Could not parse data URL for relaxation."],
+        }
+
+    # Extract dataflow ID (strip agency/version if present)
+    raw_flow = parsed["dataflow_id"]
+    flow_parts = raw_flow.split(",")
+    dataflow_id = flow_parts[1] if len(flow_parts) >= 2 else flow_parts[0]
+    agency_id = flow_parts[0] if len(flow_parts) >= 2 else client.agency_id
+
+    # Get dimension names from DSD
+    structure = await client.get_structure_summary(
+        dataflow_id=dataflow_id,
+        agency_id=agency_id,
+    )
+
+    if structure is None:
+        return {
+            "original_status": original_result["status"],
+            "original_query_fingerprint": fingerprint,
+            "suggestions": [],
+            "probes_used": probes_used,
+            "notes": ["Could not fetch DSD for " + dataflow_id + "."],
+        }
+
+    # Build ordered dimension name list (excluding TimeDimension)
+    if hasattr(structure, "dimensions"):
+        dims = structure.dimensions
+    else:
+        dims = []
+
+    dim_names: list[str] = []
+    for d in sorted(dims, key=lambda x: getattr(x, "position", 0)):
+        if getattr(d, "type", "") == "TimeDimension":
+            continue
+        dim_names.append(getattr(d, "id", ""))
+
+    # Step 3: Generate candidates
+    candidates = generate_relaxation_candidates(
+        parsed, dim_names, relax_dimensions=relax_dimensions,
+    )
+
+    # Step 4: Rank candidates by intent
+    candidates = _rank_candidates(candidates, intent_hint)
+
+    # Step 5: Probe candidates within budget
+    suggestions: list[dict[str, Any]] = []
+    rank = 0
+
+    for candidate in candidates:
+        if probes_used >= max_probes:
+            break
+        if len(suggestions) >= max_suggestions:
+            break
+
+        probe_result = await probe_data_url(client=client, data_url=candidate["url"])
+        probes_used += 1
+
+        if probe_result["status"] == "nonempty":
+            rank += 1
+            suggestions.append({
+                "rank": rank,
+                "change_summary": candidate["change_summary"],
+                "changed_dimensions": candidate["changed_dimensions"],
+                "suggested_data_url": candidate["url"],
+                "probe_result": {
+                    "status": "nonempty",
+                    "observation_count": probe_result["observation_count"],
+                    "series_count": probe_result["series_count"],
+                    "time_period_count": probe_result["time_period_count"],
+                },
+            })
+
+    notes: list[str] = []
+    if probes_used >= max_probes and len(suggestions) < max_suggestions:
+        notes.append(
+            "Probe budget exhausted (" + str(max_probes) + " probes). "
+            "Not all candidates were tested."
+        )
+
+    return {
+        "original_status": original_result["status"],
+        "original_query_fingerprint": fingerprint,
+        "suggestions": suggestions,
+        "probes_used": probes_used,
+        "notes": notes,
+    }
+
+
+def _rank_candidates(
+    candidates: list[dict[str, Any]],
+    intent_hint: str,
+) -> list[dict[str, Any]]:
+    """Reorder candidates to preserve intent.
+
+    For map intent: defer geo relaxation (try other dims first).
+    For timeseries intent: defer time relaxation.
+    Default: single-dim before multi-dim, dimension order preserved.
+    """
+    defer_dims: set[str] = set()
+    if intent_hint == "map":
+        defer_dims = GEO_DIMENSION_IDS
+    elif intent_hint == "timeseries":
+        defer_dims = TIME_DIMENSION_IDS
+
+    deferred: list[dict[str, Any]] = []
+    prioritised: list[dict[str, Any]] = []
+
+    for c in candidates:
+        changed = set(c["changed_dimensions"])
+        if changed & defer_dims:
+            deferred.append(c)
+        else:
+            prioritised.append(c)
+
+    return prioritised + deferred

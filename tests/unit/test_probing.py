@@ -313,3 +313,122 @@ class TestCsvParsing:
 
         assert shape["observation_count"] == 1
         assert shape["sample_observations"][0]["value"] is None
+
+
+class TestCandidateGeneration:
+    """Test relaxation candidate generation."""
+
+    def test_single_dimension_relaxations(self):
+        from tools.probing_tools import generate_relaxation_candidates
+
+        parsed = {
+            "base_url": "https://example.org/rest",
+            "dataflow_id": "DF_POP",
+            "key": "A.FJ.POP_TOTAL",
+            "key_parts": ["A", "FJ", "POP_TOTAL"],
+            "start_period": "2020",
+            "end_period": "2024",
+            "params": {},
+        }
+        dim_names = ["FREQ", "GEO_PICT", "INDICATOR"]
+
+        candidates = generate_relaxation_candidates(
+            parsed, dim_names, relax_dimensions=None
+        )
+
+        # Should produce 3 single-dimension relaxations + 1 time widening
+        single_dim = [c for c in candidates if "TIME_PERIOD" not in c["changed_dimensions"]]
+        assert len(single_dim) == 3
+
+        # Check that each relaxes one dimension
+        for c in single_dim:
+            assert len(c["changed_dimensions"]) == 1
+            assert c["url"].startswith("https://example.org/rest/data/DF_POP/")
+
+    def test_relaxation_with_restricted_dims(self):
+        from tools.probing_tools import generate_relaxation_candidates
+
+        parsed = {
+            "base_url": "https://example.org/rest",
+            "dataflow_id": "DF_POP",
+            "key": "A.FJ.POP_TOTAL",
+            "key_parts": ["A", "FJ", "POP_TOTAL"],
+            "start_period": "2020",
+            "end_period": "2024",
+            "params": {},
+        }
+        dim_names = ["FREQ", "GEO_PICT", "INDICATOR"]
+
+        candidates = generate_relaxation_candidates(
+            parsed, dim_names, relax_dimensions=["GEO_PICT"]
+        )
+
+        # Should only relax GEO_PICT (no TIME_PERIOD in relax list)
+        assert all("GEO_PICT" in c["changed_dimensions"] for c in candidates)
+
+    def test_relaxation_preserves_time_params(self):
+        from tools.probing_tools import generate_relaxation_candidates
+
+        parsed = {
+            "base_url": "https://example.org/rest",
+            "dataflow_id": "DF_POP",
+            "key": "A.FJ.POP_TOTAL",
+            "key_parts": ["A", "FJ", "POP_TOTAL"],
+            "start_period": "2020",
+            "end_period": "2024",
+            "params": {},
+        }
+        dim_names = ["FREQ", "GEO_PICT", "INDICATOR"]
+
+        candidates = generate_relaxation_candidates(parsed, dim_names)
+
+        # Non-time candidates should preserve time params
+        non_time = [c for c in candidates if "TIME_PERIOD" not in c["changed_dimensions"]]
+        for c in non_time:
+            assert "startPeriod=2020" in c["url"]
+            assert "endPeriod=2024" in c["url"]
+
+    def test_time_widening_candidate(self):
+        from tools.probing_tools import generate_relaxation_candidates
+
+        parsed = {
+            "base_url": "https://example.org/rest",
+            "dataflow_id": "DF_POP",
+            "key": "A.FJ.POP_TOTAL",
+            "key_parts": ["A", "FJ", "POP_TOTAL"],
+            "start_period": "2020",
+            "end_period": "2024",
+            "params": {},
+        }
+        dim_names = ["FREQ", "GEO_PICT", "INDICATOR"]
+
+        candidates = generate_relaxation_candidates(parsed, dim_names)
+
+        # Should include time-widened candidate (no time params)
+        time_widened = [c for c in candidates if "TIME_PERIOD" in c["changed_dimensions"]]
+        assert len(time_widened) >= 1
+        for c in time_widened:
+            assert "startPeriod" not in c["url"]
+            assert "endPeriod" not in c["url"]
+
+    def test_skips_already_wildcarded(self):
+        from tools.probing_tools import generate_relaxation_candidates
+
+        parsed = {
+            "base_url": "https://example.org/rest",
+            "dataflow_id": "DF_POP",
+            "key": ".FJ.POP_TOTAL",
+            "key_parts": ["", "FJ", "POP_TOTAL"],
+            "start_period": None,
+            "end_period": None,
+            "params": {},
+        }
+        dim_names = ["FREQ", "GEO_PICT", "INDICATOR"]
+
+        candidates = generate_relaxation_candidates(parsed, dim_names)
+
+        # FREQ is already empty (wildcarded), should not appear
+        freq_candidates = [c for c in candidates if "FREQ" in c["changed_dimensions"]]
+        assert len(freq_candidates) == 0
+        # No time params so no time widening either
+        assert all("TIME_PERIOD" not in c["changed_dimensions"] for c in candidates)

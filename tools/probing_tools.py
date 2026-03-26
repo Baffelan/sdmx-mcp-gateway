@@ -388,3 +388,92 @@ def _error_result(message: str) -> dict[str, Any]:
     result["notes"] = [message]
     result["query_fingerprint"] = ""
     return result
+
+
+def generate_relaxation_candidates(
+    parsed_url: dict[str, Any],
+    dimension_names: list[str],
+    relax_dimensions: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Generate candidate URLs by relaxing one dimension or time range at a time.
+
+    Args:
+        parsed_url: Output of parse_sdmx_data_url().
+        dimension_names: Ordered list of dimension IDs matching key_parts positions.
+        relax_dimensions: If set, only relax these dimensions. None = all.
+
+    Returns:
+        List of candidate dicts, each with:
+            url, changed_dimensions, change_summary, relaxation_level
+        Ordered: single-dimension relaxations first, then time widening.
+    """
+    base_url = parsed_url["base_url"]
+    dataflow_id = parsed_url["dataflow_id"]
+    key_parts = list(parsed_url["key_parts"])
+    start_period = parsed_url["start_period"]
+    end_period = parsed_url["end_period"]
+
+    candidates: list[dict[str, Any]] = []
+
+    # Single-dimension relaxations (set one key position to empty)
+    for i, dim_id in enumerate(dimension_names):
+        if i >= len(key_parts):
+            break
+        if key_parts[i] == "" or key_parts[i] == "all":
+            # Already wildcarded — skip
+            continue
+        if relax_dimensions is not None and dim_id not in relax_dimensions:
+            continue
+
+        relaxed = list(key_parts)
+        original_value = relaxed[i]
+        relaxed[i] = ""
+        new_key = ".".join(relaxed)
+
+        url = _build_candidate_url(
+            base_url, dataflow_id, new_key, start_period, end_period,
+        )
+        candidates.append({
+            "url": url,
+            "changed_dimensions": [dim_id],
+            "change_summary": "Relaxed " + dim_id + " from " + original_value + " to all values",
+            "relaxation_level": 1,
+        })
+
+    # Time-range widening (drop startPeriod and endPeriod)
+    if start_period or end_period:
+        should_include = (
+            relax_dimensions is None or "TIME_PERIOD" in relax_dimensions
+        )
+        if should_include:
+            url = _build_candidate_url(
+                base_url, dataflow_id, ".".join(key_parts), None, None,
+            )
+            candidates.append({
+                "url": url,
+                "changed_dimensions": ["TIME_PERIOD"],
+                "change_summary": "Removed time period filter (was "
+                    + (start_period or "?") + " to " + (end_period or "?") + ")",
+                "relaxation_level": 1,
+            })
+
+    return candidates
+
+
+def _build_candidate_url(
+    base_url: str,
+    dataflow_id: str,
+    key: str,
+    start_period: str | None,
+    end_period: str | None,
+) -> str:
+    """Build a data URL from components for candidate generation."""
+    url = base_url.rstrip("/") + "/data/" + dataflow_id + "/" + key
+    params: list[str] = []
+    if start_period:
+        params.append("startPeriod=" + start_period)
+    if end_period:
+        params.append("endPeriod=" + end_period)
+    if params:
+        url += "?" + "&".join(params)
+    return url

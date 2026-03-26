@@ -1,6 +1,6 @@
 """Integration tests for query probing tools."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -135,3 +135,35 @@ class TestProbeDataUrl:
         assert result1["status"] == result2["status"]
         # Second call should hit cache — only 1 HTTP call
         assert mock_client.fetch_data_probe.call_count == 1
+
+
+class TestProbeDataUrlHandler:
+    """Test the MCP tool handler for probe_data_url."""
+
+    @pytest.fixture(autouse=True)
+    def clear_probe_cache(self):
+        from tools.probing_tools import _probe_cache
+        _probe_cache.clear()
+        yield
+        _probe_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_handler_returns_probe_result_model(self):
+        from main_server import probe_data_url as handler
+        from models.schemas import ProbeResult
+
+        mock_client = MagicMock(spec=SDMXProgressiveClient)
+        mock_client.agency_id = "SPC"
+        mock_client.endpoint_key = "SPC"
+        mock_client.base_url = "https://example.org/rest"
+        mock_client.fetch_data_probe = AsyncMock(
+            return_value=(200, SAMPLE_CSV_NONEMPTY)
+        )
+
+        with patch("main_server.get_session_client", return_value=mock_client):
+            result = await handler(data_url=SAMPLE_URL)
+
+        assert isinstance(result, ProbeResult)
+        assert result.status == "nonempty"
+        assert result.observation_count == 3
+        assert result.query_fingerprint.startswith("sha256:")

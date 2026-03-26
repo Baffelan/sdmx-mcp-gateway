@@ -52,6 +52,7 @@ from models.schemas import (
     DimensionCodesResult,
     DimensionComparison,
     DimensionInfo,
+    DimensionSummary,
     EndpointInfo,
     EndpointListResult,
     EndpointSwitchConfirmation,
@@ -59,9 +60,11 @@ from models.schemas import (
     FilterInfo,
     KeyBuildResult,
     PaginationInfo,
+    ProbeResult,
     ReferenceChange,
     RepresentationInfo,
     StructureComparisonResult,
+    SampleObservation,
     StructureDiagramResult,
     StructureEdge,
     StructureInfo,
@@ -2118,6 +2121,85 @@ async def build_data_url(
         usage=result.get("usage", "Use this URL to retrieve the actual statistical data"),
         formats_available=["csv", "json", "xml"],
         note=None,
+    )
+
+
+@mcp.tool()
+async def probe_data_url(
+    data_url: str | None = None,
+    dataflow_id: str | None = None,
+    filters: dict[str, str] | None = None,
+    start_period: str | None = None,
+    end_period: str | None = None,
+    sample_observations_limit: int = 5,
+    max_distinct_values_per_dimension: int = 10,
+    timeout_ms: int = 10000,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> ProbeResult:
+    """
+    Probe an exact SDMX data query and return whether it contains data.
+
+    This answers the question that validation and code-usage checks cannot:
+    does this exact query return observations right now?
+
+    Accepts either a complete data URL or structured parameters.
+    Uses lightweight probing (firstNObservations=1) to minimise payload.
+
+    Args:
+        data_url: Complete SDMX data URL to probe
+        dataflow_id: Dataflow ID (alternative to data_url)
+        filters: Dimension filters (alternative to data_url)
+        start_period: Start time period
+        end_period: End time period
+        sample_observations_limit: Max sample observations to return
+        max_distinct_values_per_dimension: Max distinct values per dimension summary
+        timeout_ms: Probe timeout in milliseconds
+
+    Returns:
+        Probe result with status, observation count, shape, and sample data
+    """
+    from tools.probing_tools import probe_data_url as probe_impl
+
+    client = get_session_client(ctx)
+
+    result = await probe_impl(
+        client=client,
+        data_url=data_url,
+        dataflow_id=dataflow_id,
+        filters=filters,
+        start_period=start_period,
+        end_period=end_period,
+        sample_limit=sample_observations_limit,
+        max_distinct_per_dim=max_distinct_values_per_dimension,
+        timeout_ms=timeout_ms,
+    )
+
+    dim_summaries: dict[str, DimensionSummary] = {}
+    for dim_id, summary in result.get("dimensions", {}).items():
+        dim_summaries[dim_id] = DimensionSummary(
+            distinct_count=summary.get("distinct_count", 0),
+            sample_values=summary.get("sample_values", []),
+        )
+
+    sample_obs = [
+        SampleObservation(
+            dimensions=obs.get("dimensions", {}),
+            value=obs.get("value"),
+        )
+        for obs in result.get("sample_observations", [])
+    ]
+
+    return ProbeResult(
+        status=result.get("status", "error"),
+        observation_count=result.get("observation_count", 0),
+        series_count=result.get("series_count", 0),
+        time_period_count=result.get("time_period_count", 0),
+        dimensions=dim_summaries,
+        has_time_dimension=result.get("has_time_dimension", False),
+        geo_dimension_id=result.get("geo_dimension_id"),
+        sample_observations=sample_obs,
+        query_fingerprint=result.get("query_fingerprint", ""),
+        notes=result.get("notes", []),
     )
 
 

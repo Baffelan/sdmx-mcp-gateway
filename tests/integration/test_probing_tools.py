@@ -4,8 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from sdmx_progressive_client import SDMXProgressiveClient
-
+from sdmx_progressive_client import DataStructureSummary, DimensionInfo, SDMXProgressiveClient
 
 SAMPLE_CSV_NONEMPTY = (
     "DATAFLOW,FREQ,GEO_PICT,INDICATOR,TIME_PERIOD,OBS_VALUE\n"
@@ -167,9 +166,6 @@ class TestProbeDataUrlHandler:
         assert result.status == "nonempty"
         assert result.observation_count == 3
         assert result.query_fingerprint.startswith("sha256:")
-
-
-from sdmx_progressive_client import DataStructureSummary, DimensionInfo
 
 
 def _make_mock_structure():

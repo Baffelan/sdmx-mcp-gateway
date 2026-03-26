@@ -1,5 +1,7 @@
 """Unit tests for query probing models and utilities."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 
@@ -76,9 +78,6 @@ class TestProbeModels:
         assert result.original_status == "empty"
         assert len(result.suggestions) == 1
         assert result.suggestions[0].rank == 1
-
-
-from unittest.mock import AsyncMock, MagicMock
 
 
 class TestFetchDataProbe:

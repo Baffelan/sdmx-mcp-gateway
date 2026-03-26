@@ -1,0 +1,137 @@
+"""Integration tests for query probing tools."""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from sdmx_progressive_client import SDMXProgressiveClient
+
+
+SAMPLE_CSV_NONEMPTY = (
+    "DATAFLOW,FREQ,GEO_PICT,INDICATOR,TIME_PERIOD,OBS_VALUE\n"
+    "SPC:DF_KAVA(3.0),A,FJ,KAVA_PROD,2020,1234\n"
+    "SPC:DF_KAVA(3.0),A,FJ,KAVA_PROD,2021,1456\n"
+    "SPC:DF_KAVA(3.0),A,TO,KAVA_PROD,2020,789\n"
+)
+
+SAMPLE_CSV_EMPTY = "DATAFLOW,FREQ,GEO_PICT,INDICATOR,TIME_PERIOD,OBS_VALUE\n"
+
+SAMPLE_URL = (
+    "https://stats-sdmx-disseminate.pacificdata.org/rest"
+    "/data/DF_KAVA/A.FJ.KAVA_PROD?startPeriod=2020&endPeriod=2024"
+)
+
+
+class TestProbeDataUrl:
+    """Test probe_data_url implementation."""
+
+    @pytest.fixture(autouse=True)
+    def clear_probe_cache(self):
+        """Clear the probe cache before each test to avoid inter-test pollution."""
+        from tools.probing_tools import _probe_cache
+        _probe_cache.clear()
+        yield
+        _probe_cache.clear()
+
+    @pytest.fixture
+    def mock_client(self):
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
+        client.base_url = "https://stats-sdmx-disseminate.pacificdata.org/rest"
+        return client
+
+    @pytest.mark.asyncio
+    async def test_probe_nonempty_url(self, mock_client):
+        from tools.probing_tools import probe_data_url
+
+        mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_NONEMPTY))
+
+        result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
+
+        assert result["status"] == "nonempty"
+        assert result["observation_count"] == 3
+        assert result["series_count"] == 2
+        assert result["time_period_count"] == 2
+        assert result["has_time_dimension"] is True
+        assert result["geo_dimension_id"] == "GEO_PICT"
+        assert result["query_fingerprint"].startswith("sha256:")
+        assert len(result["sample_observations"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_probe_empty_url(self, mock_client):
+        from tools.probing_tools import probe_data_url
+
+        mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_EMPTY))
+
+        result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
+
+        assert result["status"] == "empty"
+        assert result["observation_count"] == 0
+        assert any("zero observations" in n.lower() for n in result["notes"])
+
+    @pytest.mark.asyncio
+    async def test_probe_http_error(self, mock_client):
+        from tools.probing_tools import probe_data_url
+
+        mock_client.fetch_data_probe = AsyncMock(return_value=(500, ""))
+
+        result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
+
+        assert result["status"] == "error"
+        assert any("500" in n for n in result["notes"])
+
+    @pytest.mark.asyncio
+    async def test_probe_network_failure(self, mock_client):
+        from tools.probing_tools import probe_data_url
+
+        mock_client.fetch_data_probe = AsyncMock(return_value=(0, ""))
+
+        result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
+
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_probe_404_empty(self, mock_client):
+        from tools.probing_tools import probe_data_url
+
+        mock_client.fetch_data_probe = AsyncMock(return_value=(404, ""))
+
+        result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
+
+        assert result["status"] == "empty"
+        assert any("404" in n or "no data" in n.lower() for n in result["notes"])
+
+    @pytest.mark.asyncio
+    async def test_probe_with_structured_input(self, mock_client):
+        from tools.probing_tools import probe_data_url
+
+        mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_NONEMPTY))
+
+        result = await probe_data_url(
+            client=mock_client,
+            dataflow_id="DF_KAVA",
+            filters={"FREQ": "A", "GEO_PICT": "FJ", "INDICATOR": "KAVA_PROD"},
+            start_period="2020",
+            end_period="2024",
+        )
+
+        assert result["status"] == "nonempty"
+        mock_client.fetch_data_probe.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_probe_cache_hit(self, mock_client):
+        from tools.probing_tools import _probe_cache, probe_data_url
+
+        # Clear cache before test
+        _probe_cache.clear()
+
+        mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_NONEMPTY))
+
+        result1 = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
+        result2 = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
+
+        assert result1["query_fingerprint"] == result2["query_fingerprint"]
+        assert result1["status"] == result2["status"]
+        # Second call should hit cache — only 1 HTTP call
+        assert mock_client.fetch_data_probe.call_count == 1

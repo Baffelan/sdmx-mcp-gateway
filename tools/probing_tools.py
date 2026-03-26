@@ -260,3 +260,131 @@ def _empty_shape() -> dict[str, Any]:
         "geo_dimension_id": None,
         "sample_observations": [],
     }
+
+
+# Probe result cache: fingerprint -> result dict
+_probe_cache: dict[str, dict[str, Any]] = {}
+
+
+async def probe_data_url(
+    client: SDMXProgressiveClient,
+    data_url: str | None = None,
+    dataflow_id: str | None = None,
+    filters: dict[str, str] | None = None,
+    start_period: str | None = None,
+    end_period: str | None = None,
+    sample_limit: int = 5,
+    max_distinct_per_dim: int = 10,
+    timeout_ms: int = 10000,
+) -> dict[str, Any]:
+    """Probe an exact SDMX query and return shape metadata.
+
+    Accepts either a data_url or structured input (dataflow_id + filters).
+    If structured input is provided and data_url is None, the URL is built
+    from the client's base_url.
+
+    Returns a dict matching the ProbeResult schema.
+    """
+    # Build URL from structured input if needed
+    if data_url is None:
+        if dataflow_id is None:
+            return _error_result("Either data_url or dataflow_id is required")
+        data_url = _build_url_from_parts(
+            client.base_url, dataflow_id, filters, start_period, end_period,
+        )
+
+    fingerprint = normalize_query_fingerprint(data_url)
+
+    # Check cache
+    if fingerprint in _probe_cache:
+        return _probe_cache[fingerprint]
+
+    # Build lightweight probe URL
+    probe_url = build_probe_url(data_url)
+    timeout_s = timeout_ms / 1000.0
+
+    status_code, csv_text = await client.fetch_data_probe(
+        probe_url, timeout=timeout_s,
+    )
+
+    result: dict[str, Any]
+
+    if status_code == 0:
+        result = _error_result("Network or transport error — provider unreachable")
+        result["query_fingerprint"] = fingerprint
+        return result
+
+    if status_code == 404:
+        result = _empty_shape()
+        result["status"] = "empty"
+        result["query_fingerprint"] = fingerprint
+        result["notes"] = ["HTTP 404 — no data found for this query."]
+        _probe_cache[fingerprint] = result
+        return result
+
+    if status_code >= 400:
+        result = _error_result(
+            "Provider returned HTTP " + str(status_code)
+        )
+        result["query_fingerprint"] = fingerprint
+        result["notes"] = ["HTTP " + str(status_code) + " from provider."]
+        return result
+
+    # Parse the CSV response
+    shape = parse_csv_probe_response(
+        csv_text,
+        sample_limit=sample_limit,
+        max_distinct_per_dim=max_distinct_per_dim,
+    )
+
+    if shape["observation_count"] == 0:
+        shape["status"] = "empty"
+        shape["notes"] = [
+            "Query is syntactically valid but returned zero observations."
+        ]
+    else:
+        shape["status"] = "nonempty"
+        shape["notes"] = []
+
+    shape["query_fingerprint"] = fingerprint
+
+    _probe_cache[fingerprint] = shape
+    return shape
+
+
+def _build_url_from_parts(
+    base_url: str,
+    dataflow_id: str,
+    filters: dict[str, str] | None,
+    start_period: str | None,
+    end_period: str | None,
+) -> str:
+    """Build an SDMX data URL from structured components."""
+    base = base_url.rstrip("/")
+
+    # Build key from filters (without DSD — just concatenate values)
+    if filters:
+        key = ".".join(filters.get(k, "") for k in sorted(filters.keys()))
+    else:
+        key = "all"
+
+    url = base + "/data/" + dataflow_id + "/" + key
+
+    params: list[str] = []
+    if start_period:
+        params.append("startPeriod=" + start_period)
+    if end_period:
+        params.append("endPeriod=" + end_period)
+    if params:
+        url += "?" + "&".join(params)
+
+    return url
+
+
+def _error_result(message: str) -> dict[str, Any]:
+    """Build an error probe result."""
+    result = _empty_shape()
+    result["status"] = "error"
+    result["notes"] = [message]
+    result["query_fingerprint"] = ""
+    return result

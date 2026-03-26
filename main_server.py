@@ -61,6 +61,7 @@ from models.schemas import (
     KeyBuildResult,
     PaginationInfo,
     ProbeResult,
+    QuerySuggestion,
     ReferenceChange,
     RepresentationInfo,
     StructureComparisonResult,
@@ -69,6 +70,8 @@ from models.schemas import (
     StructureEdge,
     StructureInfo,
     StructureNode,
+    SuggestionProbeResult,
+    SuggestionResult,
     TimeOverlap,
     TimeRange,
     ValidationResult,
@@ -2199,6 +2202,72 @@ async def probe_data_url(
         geo_dimension_id=result.get("geo_dimension_id"),
         sample_observations=sample_obs,
         query_fingerprint=result.get("query_fingerprint", ""),
+        notes=result.get("notes", []),
+    )
+
+
+@mcp.tool()
+async def suggest_nonempty_queries(
+    data_url: str,
+    relax_dimensions: list[str] | None = None,
+    max_suggestions: int = 5,
+    max_probes: int = 20,
+    strategy: str = "least_change",
+    intent_hint: str = "generic",
+    ctx: Context[Any, Any, Any] | None = None,
+) -> SuggestionResult:
+    """
+    Suggest nearby non-empty SDMX queries when the original returns no data.
+
+    Given an exact query that may be empty, explores bounded relaxations —
+    removing one filter at a time — and returns validated alternatives ranked
+    by minimal deviation from the original.
+
+    Args:
+        data_url: The exact SDMX data URL to recover from
+        relax_dimensions: Only relax these dimensions (None = try all)
+        max_suggestions: Maximum number of suggestions to return
+        max_probes: Maximum HTTP probes to make (budget)
+        strategy: Recovery strategy (currently only least_change)
+        intent_hint: One of generic, kpi, timeseries, ranking, map
+
+    Returns:
+        Suggestion result with ranked non-empty alternatives
+    """
+    from tools.probing_tools import suggest_nonempty_queries as suggest_impl
+
+    client = get_session_client(ctx)
+
+    result = await suggest_impl(
+        client=client,
+        data_url=data_url,
+        relax_dimensions=relax_dimensions,
+        max_suggestions=max_suggestions,
+        max_probes=max_probes,
+        intent_hint=intent_hint,
+    )
+
+    suggestions = [
+        QuerySuggestion(
+            rank=s["rank"],
+            change_summary=s["change_summary"],
+            changed_dimensions=s["changed_dimensions"],
+            suggested_data_url=s["suggested_data_url"],
+            probe_result=SuggestionProbeResult(
+                status=s["probe_result"]["status"],
+                observation_count=s["probe_result"]["observation_count"],
+                series_count=s["probe_result"]["series_count"],
+                time_period_count=s["probe_result"]["time_period_count"],
+            ),
+        )
+        for s in result.get("suggestions", [])
+    ]
+
+    return SuggestionResult(
+        original_status=result.get("original_status", "error"),
+        original_query_fingerprint=result.get("original_query_fingerprint", ""),
+        suggestions=suggestions,
+        probes_used=result.get("probes_used", 0),
         notes=result.get("notes", []),
     )
 

@@ -310,3 +310,36 @@ class TestSuggestNonemptyQueries:
             if "TIME_PERIOD" in s["changed_dimensions"]
         ]
         assert len(time_suggestions) >= 1
+
+
+class TestSuggestNonemptyHandler:
+    """Test the MCP tool handler for suggest_nonempty_queries."""
+
+    @pytest.fixture(autouse=True)
+    def clear_probe_cache(self):
+        from tools.probing_tools import _probe_cache
+        _probe_cache.clear()
+        yield
+        _probe_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_handler_returns_suggestion_result_model(self):
+        from main_server import suggest_nonempty_queries as handler
+        from models.schemas import SuggestionResult
+
+        mock_client = MagicMock(spec=SDMXProgressiveClient)
+        mock_client.agency_id = "SPC"
+        mock_client.endpoint_key = "SPC"
+        mock_client.base_url = "https://example.org/rest"
+        mock_client.fetch_data_probe = AsyncMock(
+            return_value=(200, SAMPLE_CSV_NONEMPTY)
+        )
+        mock_client.get_structure_summary = AsyncMock(
+            return_value=_make_mock_structure()
+        )
+
+        with patch("main_server.get_session_client", return_value=mock_client):
+            result = await handler(data_url=SAMPLE_URL)
+
+        assert isinstance(result, SuggestionResult)
+        assert result.original_status == "nonempty"

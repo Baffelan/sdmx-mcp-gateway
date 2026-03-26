@@ -7,7 +7,9 @@ and query usefulness (the exact query returns observations).
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import logging
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -143,3 +145,118 @@ def build_probe_url(url: str) -> str:
         urlencode(flat),
         "",
     ))
+
+
+def parse_csv_probe_response(
+    csv_text: str,
+    sample_limit: int = 5,
+    max_distinct_per_dim: int = 10,
+) -> dict[str, Any]:
+    """Parse an SDMX CSV response and return shape metadata.
+
+    Returns a dict with:
+        observation_count, series_count, time_period_count,
+        dimensions (id -> {distinct_count, sample_values}),
+        has_time_dimension, geo_dimension_id,
+        sample_observations (list of {dimensions, value}).
+    """
+    reader = csv.reader(io.StringIO(csv_text))
+    try:
+        headers = next(reader)
+    except StopIteration:
+        return _empty_shape()
+
+    headers = [h.strip() for h in headers]
+
+    # Identify special columns
+    skip_cols = {"DATAFLOW", "OBS_VALUE", "OBS_STATUS", "OBS_FLAG",
+                 "CONF_STATUS", "DECIMALS", "UNIT_MULT", "COMMENT_OBS",
+                 "COMMENT_TS"}
+    obs_value_idx = headers.index("OBS_VALUE") if "OBS_VALUE" in headers else None
+
+    # Find dimension columns (everything that isn't a skip col)
+    dim_indices: list[tuple[int, str]] = []
+    for i, h in enumerate(headers):
+        if h not in skip_cols:
+            dim_indices.append((i, h))
+
+    # Identify time and geo dimensions
+    time_dim_id: str | None = None
+    geo_dim_id: str | None = None
+    for _, h in dim_indices:
+        if h in TIME_DIMENSION_IDS:
+            time_dim_id = h
+        if h in GEO_DIMENSION_IDS:
+            geo_dim_id = h
+
+    # Parse rows
+    dim_values: dict[str, set[str]] = {h: set() for _, h in dim_indices}
+    series_keys: set[tuple[str, ...]] = set()
+    time_values: set[str] = set()
+    sample_obs: list[dict[str, Any]] = []
+    obs_count = 0
+
+    for row in reader:
+        if not row or all(c.strip() == "" for c in row):
+            continue
+        obs_count += 1
+
+        # Collect dimension values
+        row_dims: dict[str, str] = {}
+        series_parts: list[str] = []
+        for idx, dim_id in dim_indices:
+            val = row[idx].strip() if idx < len(row) else ""
+            row_dims[dim_id] = val
+            if len(dim_values[dim_id]) < max_distinct_per_dim:
+                dim_values[dim_id].add(val)
+            if dim_id != time_dim_id:
+                series_parts.append(val)
+
+        series_keys.add(tuple(series_parts))
+
+        if time_dim_id and time_dim_id in row_dims:
+            time_values.add(row_dims[time_dim_id])
+
+        # Sample observations
+        if len(sample_obs) < sample_limit:
+            obs_val: float | None = None
+            if obs_value_idx is not None and obs_value_idx < len(row):
+                raw = row[obs_value_idx].strip()
+                if raw:
+                    try:
+                        obs_val = float(raw)
+                    except ValueError:
+                        obs_val = None
+            sample_obs.append({"dimensions": row_dims, "value": obs_val})
+
+    # Build dimension summaries
+    dimensions: dict[str, dict[str, Any]] = {}
+    for _, dim_id in dim_indices:
+        vals = dim_values[dim_id]
+        dimensions[dim_id] = {
+            "distinct_count": len(vals),
+            "sample_values": sorted(vals)[:max_distinct_per_dim],
+        }
+
+    return {
+        "observation_count": obs_count,
+        "series_count": len(series_keys),
+        "time_period_count": len(time_values),
+        "dimensions": dimensions,
+        "has_time_dimension": time_dim_id is not None,
+        "geo_dimension_id": geo_dim_id,
+        "sample_observations": sample_obs,
+    }
+
+
+def _empty_shape() -> dict[str, Any]:
+    """Return shape metadata for an empty or unparseable response."""
+    return {
+        "observation_count": 0,
+        "series_count": 0,
+        "time_period_count": 0,
+        "dimensions": {},
+        "has_time_dimension": False,
+        "geo_dimension_id": None,
+        "sample_observations": [],
+    }

@@ -232,3 +232,84 @@ class TestUrlParsing:
         assert "startPeriod=2020" in probe
         assert "endPeriod=2024" in probe
         assert "firstNObservations=1" in probe
+
+
+class TestCsvParsing:
+    """Test CSV probe response parsing."""
+
+    def test_parse_nonempty_csv(self):
+        from tools.probing_tools import parse_csv_probe_response
+
+        csv_text = (
+            "DATAFLOW,FREQ,GEO_PICT,INDICATOR,TIME_PERIOD,OBS_VALUE\n"
+            "SPC:DF_KAVA(3.0),A,FJ,KAVA_PROD,2020,1234\n"
+            "SPC:DF_KAVA(3.0),A,FJ,KAVA_PROD,2021,1456\n"
+            "SPC:DF_KAVA(3.0),A,TO,KAVA_PROD,2020,789\n"
+        )
+        shape = parse_csv_probe_response(csv_text)
+
+        assert shape["observation_count"] == 3
+        assert shape["series_count"] == 2  # FJ and TO
+        assert shape["time_period_count"] == 2  # 2020 and 2021
+        assert "GEO_PICT" in shape["dimensions"]
+        assert shape["dimensions"]["GEO_PICT"]["distinct_count"] == 2
+        assert set(shape["dimensions"]["GEO_PICT"]["sample_values"]) == {"FJ", "TO"}
+        assert shape["has_time_dimension"] is True
+        assert shape["geo_dimension_id"] == "GEO_PICT"
+        assert len(shape["sample_observations"]) <= 5
+
+    def test_parse_empty_csv(self):
+        from tools.probing_tools import parse_csv_probe_response
+
+        csv_text = "DATAFLOW,FREQ,GEO_PICT,INDICATOR,TIME_PERIOD,OBS_VALUE\n"
+        shape = parse_csv_probe_response(csv_text)
+
+        assert shape["observation_count"] == 0
+        assert shape["series_count"] == 0
+        assert shape["time_period_count"] == 0
+
+    def test_parse_csv_no_geo(self):
+        from tools.probing_tools import parse_csv_probe_response
+
+        csv_text = (
+            "DATAFLOW,FREQ,INDICATOR,TIME_PERIOD,OBS_VALUE\n"
+            "SPC:DF(1.0),A,GDP,2020,100\n"
+        )
+        shape = parse_csv_probe_response(csv_text)
+
+        assert shape["geo_dimension_id"] is None
+        assert shape["has_time_dimension"] is True
+
+    def test_parse_csv_no_time(self):
+        from tools.probing_tools import parse_csv_probe_response
+
+        csv_text = (
+            "DATAFLOW,GEO,INDICATOR,OBS_VALUE\n"
+            "SPC:DF(1.0),FJ,GDP,100\n"
+        )
+        shape = parse_csv_probe_response(csv_text)
+
+        assert shape["has_time_dimension"] is False
+        assert shape["time_period_count"] == 0
+
+    def test_parse_csv_sample_limit(self):
+        from tools.probing_tools import parse_csv_probe_response
+
+        rows = ["SPC:DF(1.0),A,GDP,20{:02d},{}".format(i, i * 100) for i in range(20)]
+        csv_text = "DATAFLOW,FREQ,INDICATOR,TIME_PERIOD,OBS_VALUE\n" + "\n".join(rows) + "\n"
+        shape = parse_csv_probe_response(csv_text, sample_limit=5)
+
+        assert shape["observation_count"] == 20
+        assert len(shape["sample_observations"]) == 5
+
+    def test_parse_csv_obs_value_missing(self):
+        from tools.probing_tools import parse_csv_probe_response
+
+        csv_text = (
+            "DATAFLOW,FREQ,INDICATOR,TIME_PERIOD,OBS_VALUE\n"
+            "SPC:DF(1.0),A,GDP,2020,\n"
+        )
+        shape = parse_csv_probe_response(csv_text)
+
+        assert shape["observation_count"] == 1
+        assert shape["sample_observations"][0]["value"] is None

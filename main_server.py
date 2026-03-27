@@ -106,8 +106,15 @@ for env_key in ("MCP_ALLOWED_HOSTS", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_PRIVATE_D
         h = h.strip()
         if h and h not in _extra_hosts:
             _extra_hosts.append(h)
-_allowed_hosts = ["localhost:*", "127.0.0.1:*", "[::1]:*"] + [h + ":*" for h in _extra_hosts]
-_allowed_origins = ["http://localhost:*", "https://localhost:*"] + ["https://" + h + ":*" for h in _extra_hosts]
+# Include both bare hostname and hostname:* (wildcard port) for each allowed host
+_allowed_hosts = ["localhost:*", "127.0.0.1:*", "[::1]:*"]
+for h in _extra_hosts:
+    _allowed_hosts.append(h)        # bare: sdmx-gateway.up.railway.app
+    _allowed_hosts.append(h + ":*") # with port: sdmx-gateway.up.railway.app:8000
+_allowed_origins = ["http://localhost:*", "https://localhost:*"]
+for h in _extra_hosts:
+    _allowed_origins.append("https://" + h)
+    _allowed_origins.append("https://" + h + ":*")
 
 mcp = FastMCP(
     "SDMX Data Gateway",

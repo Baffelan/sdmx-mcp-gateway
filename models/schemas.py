@@ -241,6 +241,9 @@ class DataAvailabilityResult(BaseModel):
     data_exists: Optional[bool] = Field(
         default=None, description="Whether data exists for checked combination"
     )
+    observation_count: Optional[int] = Field(
+        default=None, description="Observation count if the provider exposes it"
+    )
     recommendation: Optional[str] = Field(
         default=None, description="Recommendation based on availability"
     )
@@ -774,3 +777,96 @@ class DiscoveryGuideResult(BaseModel):
         description="List of workflow steps with descriptions"
     )
     tips: list[str] = Field(description="Helpful tips for the discovery process")
+
+
+# =============================================================================
+# Query Probing Schemas
+# =============================================================================
+
+
+class DimensionSummary(BaseModel):
+    """Summary of observed values for one dimension in a probe result."""
+
+    distinct_count: int = Field(description="Number of distinct values observed")
+    sample_values: list[str] = Field(
+        default_factory=list, description="Sample of observed values"
+    )
+
+
+class SampleObservation(BaseModel):
+    """A single observation from the probe sample."""
+
+    dimensions: dict[str, str] = Field(description="Dimension values for this observation")
+    value: float | None = Field(default=None, description="Observation value")
+
+
+class ProbeResult(BaseModel):
+    """Result from probe_data_url() tool."""
+
+    status: str = Field(
+        description="One of: nonempty, empty, partial, error"
+    )
+    observation_count: int = Field(
+        default=0, description="Number of actual observations returned"
+    )
+    series_count: int = Field(
+        default=0, description="Number of distinct series"
+    )
+    time_period_count: int = Field(
+        default=0, description="Number of distinct time period values"
+    )
+    dimensions: dict[str, DimensionSummary] = Field(
+        default_factory=dict,
+        description="Summary of observed dimension values",
+    )
+    has_time_dimension: bool = Field(
+        default=False, description="Whether a time dimension was detected"
+    )
+    geo_dimension_id: str | None = Field(
+        default=None, description="Geography dimension ID if detected"
+    )
+    sample_observations: list[SampleObservation] = Field(
+        default_factory=list, description="Bounded sample of observations"
+    )
+    query_fingerprint: str = Field(
+        default="", description="SHA-256 fingerprint of the normalised query"
+    )
+    notes: list[str] = Field(
+        default_factory=list, description="Diagnostic notes"
+    )
+
+
+# =============================================================================
+# Suggestion Schemas
+# =============================================================================
+
+
+class SuggestionProbeResult(BaseModel):
+    """Compact probe result embedded in a suggestion."""
+
+    status: str = Field(description="nonempty or empty")
+    observation_count: int = Field(default=0)
+    series_count: int = Field(default=0)
+    time_period_count: int = Field(default=0)
+
+
+class QuerySuggestion(BaseModel):
+    """A single non-empty query alternative."""
+
+    rank: int = Field(description="Rank by minimal deviation from original")
+    change_summary: str = Field(description="Human-readable description of the change")
+    changed_dimensions: list[str] = Field(description="Dimension IDs that were relaxed")
+    suggested_data_url: str = Field(description="Complete URL for the suggested query")
+    probe_result: SuggestionProbeResult = Field(description="Probe result for this suggestion")
+
+
+class SuggestionResult(BaseModel):
+    """Result from suggest_nonempty_queries() tool."""
+
+    original_status: str = Field(description="Probe status of the original query")
+    original_query_fingerprint: str = Field(default="", description="Fingerprint of original")
+    suggestions: list[QuerySuggestion] = Field(
+        default_factory=list, description="Ranked non-empty alternatives"
+    )
+    probes_used: int = Field(default=0, description="Number of probes consumed")
+    notes: list[str] = Field(default_factory=list, description="Diagnostic notes")

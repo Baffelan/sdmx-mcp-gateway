@@ -52,6 +52,7 @@ from models.schemas import (
     DimensionCodesResult,
     DimensionComparison,
     DimensionInfo,
+    DimensionSummary,
     EndpointInfo,
     EndpointListResult,
     EndpointSwitchConfirmation,
@@ -59,13 +60,18 @@ from models.schemas import (
     FilterInfo,
     KeyBuildResult,
     PaginationInfo,
+    ProbeResult,
+    QuerySuggestion,
     ReferenceChange,
     RepresentationInfo,
     StructureComparisonResult,
+    SampleObservation,
     StructureDiagramResult,
     StructureEdge,
     StructureInfo,
     StructureNode,
+    SuggestionProbeResult,
+    SuggestionResult,
     TimeOverlap,
     TimeRange,
     ValidationResult,
@@ -163,9 +169,19 @@ def get_app_context(ctx: Context[Any, Any, Any] | None) -> AppContext | None:
 # =============================================================================
 
 
+def _normalise_keywords_input(keywords: str | list[str] | None) -> list[str] | None:
+    """Accept MCP keyword input as either a string or a list of strings."""
+    if keywords is None:
+        return None
+    if isinstance(keywords, str):
+        parts = [part.strip() for part in keywords.replace(",", " ").split()]
+        return [part for part in parts if part] or None
+    return [keyword for keyword in keywords if keyword]
+
+
 @mcp.tool()
 async def list_dataflows(
-    keywords: list[str] | None = None,
+    keywords: str | list[str] | None = None,
     agency_id: str | None = None,
     limit: int = 10,
     offset: int = 0,
@@ -182,7 +198,7 @@ async def list_dataflows(
     dataflows with data for that code, across all topics.
 
     Args:
-        keywords: Optional list of keywords to filter dataflows
+        keywords: Optional keyword string or list of keywords to filter dataflows
         agency_id: The agency to query (uses session endpoint if not specified)
         limit: Number of results to return (default: 10)
         offset: Number of results to skip for pagination (default: 0)
@@ -197,6 +213,7 @@ async def list_dataflows(
     client = get_session_client(ctx)
     user_provided_agency = agency_id is not None
     agency_id = agency_id or client.agency_id
+    normalized_keywords = _normalise_keywords_input(keywords)
 
     # When user didn't explicitly provide agency_id, check for dataflow listing override
     # (e.g. OECD publishes under sub-agencies, requiring "all" for listing)
@@ -206,7 +223,9 @@ async def list_dataflows(
         if df_agency:
             agency_id = df_agency
 
-    result = await list_dataflows_impl(client, keywords, agency_id, limit, offset, ctx)
+    result = await list_dataflows_impl(
+        client, normalized_keywords, agency_id, limit, offset, ctx
+    )
 
     # Convert to structured output
     if "error" in result:
@@ -1927,6 +1946,7 @@ async def get_data_availability(
         interpretation=result.get("interpretation", []),
         dimension_values_checked=result.get("dimension_values_checked"),
         data_exists=result.get("data_exists"),
+        observation_count=result.get("observation_count"),
         recommendation=result.get("recommendation"),
     )
 
@@ -2118,6 +2138,151 @@ async def build_data_url(
         usage=result.get("usage", "Use this URL to retrieve the actual statistical data"),
         formats_available=["csv", "json", "xml"],
         note=None,
+    )
+
+
+@mcp.tool()
+async def probe_data_url(
+    data_url: str | None = None,
+    dataflow_id: str | None = None,
+    filters: dict[str, str] | None = None,
+    start_period: str | None = None,
+    end_period: str | None = None,
+    sample_observations_limit: int = 5,
+    max_distinct_values_per_dimension: int = 10,
+    timeout_ms: int = 10000,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> ProbeResult:
+    """
+    Probe an exact SDMX data query and return whether it contains data.
+
+    This answers the question that validation and code-usage checks cannot:
+    does this exact query return observations right now?
+
+    Accepts either a complete data URL or structured parameters.
+    Uses lightweight probing (firstNObservations=1) to minimise payload.
+
+    Args:
+        data_url: Complete SDMX data URL to probe
+        dataflow_id: Dataflow ID (alternative to data_url)
+        filters: Dimension filters (alternative to data_url)
+        start_period: Start time period
+        end_period: End time period
+        sample_observations_limit: Max sample observations to return
+        max_distinct_values_per_dimension: Max distinct values per dimension summary
+        timeout_ms: Probe timeout in milliseconds
+
+    Returns:
+        Probe result with status, observation count, shape, and sample data
+    """
+    from tools.probing_tools import probe_data_url as probe_impl
+
+    client = get_session_client(ctx)
+
+    result = await probe_impl(
+        client=client,
+        data_url=data_url,
+        dataflow_id=dataflow_id,
+        filters=filters,
+        start_period=start_period,
+        end_period=end_period,
+        sample_limit=sample_observations_limit,
+        max_distinct_per_dim=max_distinct_values_per_dimension,
+        timeout_ms=timeout_ms,
+    )
+
+    dim_summaries: dict[str, DimensionSummary] = {}
+    for dim_id, summary in result.get("dimensions", {}).items():
+        dim_summaries[dim_id] = DimensionSummary(
+            distinct_count=summary.get("distinct_count", 0),
+            sample_values=summary.get("sample_values", []),
+        )
+
+    sample_obs = [
+        SampleObservation(
+            dimensions=obs.get("dimensions", {}),
+            value=obs.get("value"),
+        )
+        for obs in result.get("sample_observations", [])
+    ]
+
+    return ProbeResult(
+        status=result.get("status", "error"),
+        observation_count=result.get("observation_count", 0),
+        series_count=result.get("series_count", 0),
+        time_period_count=result.get("time_period_count", 0),
+        dimensions=dim_summaries,
+        has_time_dimension=result.get("has_time_dimension", False),
+        geo_dimension_id=result.get("geo_dimension_id"),
+        sample_observations=sample_obs,
+        query_fingerprint=result.get("query_fingerprint", ""),
+        notes=result.get("notes", []),
+    )
+
+
+@mcp.tool()
+async def suggest_nonempty_queries(
+    data_url: str,
+    relax_dimensions: list[str] | None = None,
+    max_suggestions: int = 5,
+    max_probes: int = 20,
+    strategy: str = "least_change",
+    intent_hint: str = "generic",
+    ctx: Context[Any, Any, Any] | None = None,
+) -> SuggestionResult:
+    """
+    Suggest nearby non-empty SDMX queries when the original returns no data.
+
+    Given an exact query that may be empty, explores bounded relaxations —
+    removing one filter at a time — and returns validated alternatives ranked
+    by minimal deviation from the original.
+
+    Args:
+        data_url: The exact SDMX data URL to recover from
+        relax_dimensions: Only relax these dimensions (None = try all)
+        max_suggestions: Maximum number of suggestions to return
+        max_probes: Maximum HTTP probes to make (budget)
+        strategy: Recovery strategy (currently only least_change)
+        intent_hint: One of generic, kpi, timeseries, ranking, map
+
+    Returns:
+        Suggestion result with ranked non-empty alternatives
+    """
+    from tools.probing_tools import suggest_nonempty_queries as suggest_impl
+
+    client = get_session_client(ctx)
+
+    result = await suggest_impl(
+        client=client,
+        data_url=data_url,
+        relax_dimensions=relax_dimensions,
+        max_suggestions=max_suggestions,
+        max_probes=max_probes,
+        intent_hint=intent_hint,
+    )
+
+    suggestions = [
+        QuerySuggestion(
+            rank=s["rank"],
+            change_summary=s["change_summary"],
+            changed_dimensions=s["changed_dimensions"],
+            suggested_data_url=s["suggested_data_url"],
+            probe_result=SuggestionProbeResult(
+                status=s["probe_result"]["status"],
+                observation_count=s["probe_result"]["observation_count"],
+                series_count=s["probe_result"]["series_count"],
+                time_period_count=s["probe_result"]["time_period_count"],
+            ),
+        )
+        for s in result.get("suggestions", [])
+    ]
+
+    return SuggestionResult(
+        original_status=result.get("original_status", "error"),
+        original_query_fingerprint=result.get("original_query_fingerprint", ""),
+        suggestions=suggestions,
+        probes_used=result.get("probes_used", 0),
+        notes=result.get("notes", []),
     )
 
 

@@ -433,6 +433,134 @@ class TestBuildSdmxKey:
         assert "key" in result
 
 
+class TestGetDataAvailability:
+    """Test availability queries, including exact availableconstraint support."""
+
+    EXACT_CONSTRAINT_XML = (
+        '<?xml version="1.0"?>'
+        '<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message"'
+        ' xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"'
+        ' xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+        "<mes:Structures><str:Constraints>"
+        '<str:ContentConstraint id="CC" type="Actual">'
+        "<com:Annotations>"
+        '<com:Annotation id="obs_count">'
+        "<com:AnnotationTitle>794</com:AnnotationTitle>"
+        "<com:AnnotationType>sdmx_metrics</com:AnnotationType>"
+        "</com:Annotation>"
+        "</com:Annotations>"
+        '<str:CubeRegion include="true">'
+        '<com:KeyValue id="FREQ"><com:Value>M</com:Value></com:KeyValue>'
+        '<com:KeyValue id="COMMODITY"><com:Value>GOLD</com:Value></com:KeyValue>'
+        '<com:KeyValue id="INDICATOR"><com:Value>COMPRICE</com:Value></com:KeyValue>'
+        '<com:KeyValue id="TIME_PERIOD">'
+        "<com:TimeRange>"
+        '<com:StartPeriod isInclusive="true">1960-01-01T00:00:00</com:StartPeriod>'
+        '<com:EndPeriod isInclusive="true">2026-02-28T00:00:00</com:EndPeriod>'
+        "</com:TimeRange>"
+        "</com:KeyValue>"
+        "</str:CubeRegion>"
+        "</str:ContentConstraint>"
+        "</str:Constraints></mes:Structures></mes:Structure>"
+    )
+
+    EMPTY_SENTINEL_XML = (
+        '<?xml version="1.0"?>'
+        '<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message"'
+        ' xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"'
+        ' xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+        "<mes:Structures><str:Constraints>"
+        '<str:ContentConstraint id="CC" type="Actual">'
+        "<com:Annotations>"
+        '<com:Annotation id="obs_count">'
+        "<com:AnnotationTitle>0</com:AnnotationTitle>"
+        "<com:AnnotationType>sdmx_metrics</com:AnnotationType>"
+        "</com:Annotation>"
+        "</com:Annotations>"
+        '<str:CubeRegion include="true">'
+        '<com:KeyValue id="TIME_PERIOD">'
+        "<com:TimeRange>"
+        '<com:StartPeriod isInclusive="true">9999-01-01T00:00:00</com:StartPeriod>'
+        '<com:EndPeriod isInclusive="true">0001-12-31T23:59:59</com:EndPeriod>'
+        "</com:TimeRange>"
+        "</com:KeyValue>"
+        "</str:CubeRegion>"
+        "</str:ContentConstraint>"
+        "</str:Constraints></mes:Structures></mes:Structure>"
+    )
+
+    @pytest.fixture
+    def mock_structure(self):
+        return DataStructureSummary(
+            id="DSD_COMMODITY_PRICES",
+            agency="SPC",
+            version="1.0",
+            dimensions=[
+                DimensionInfo(id="FREQ", position=1, type="Dimension"),
+                DimensionInfo(id="COMMODITY", position=2, type="Dimension"),
+                DimensionInfo(id="INDICATOR", position=3, type="Dimension"),
+                DimensionInfo(id="TIME_PERIOD", position=4, type="TimeDimension"),
+            ],
+            key_family=["FREQ", "COMMODITY", "INDICATOR"],
+            attributes=[],
+            primary_measure="OBS_VALUE",
+        )
+
+    @pytest.fixture
+    def mock_client(self, mock_structure):
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
+        client.base_url = "https://stats-sdmx-disseminate.pacificdata.org/rest"
+        client.get_structure_summary = AsyncMock(return_value=mock_structure)
+        return client
+
+    def _make_response(self, xml_text):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.content = xml_text.encode("utf-8")
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    @pytest.mark.asyncio
+    async def test_uses_availableconstraint_exact_with_obs_count(self, mock_client):
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response(self.EXACT_CONSTRAINT_XML))
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+
+        result = await get_data_availability(
+            client=mock_client,
+            dataflow_id="DF_COMMODITY_PRICES",
+            filters={"FREQ": "M", "COMMODITY": "GOLD", "INDICATOR": "COMPRICE"},
+        )
+
+        assert result["has_constraint"] is True
+        assert result["data_exists"] is True
+        assert result["observation_count"] == 794
+        assert result["time_range"] == {"start": "1960-01-01", "end": "2026-02-28"}
+        call_url = mock_session.get.call_args[0][0]
+        assert "/availableconstraint/DF_COMMODITY_PRICES/M.GOLD.COMPRICE/all/all" in call_url
+        assert "mode=exact" in call_url
+
+    @pytest.mark.asyncio
+    async def test_empty_sentinel_range_becomes_empty_result(self, mock_client):
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response(self.EMPTY_SENTINEL_XML))
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+
+        result = await get_data_availability(
+            client=mock_client,
+            dataflow_id="DF_COMMODITY_PRICES",
+            filters={"FREQ": "M", "COMMODITY": "UNICORNS", "INDICATOR": "COMPRICE"},
+        )
+
+        assert result["has_constraint"] is True
+        assert result["data_exists"] is False
+        assert result["observation_count"] == 0
+        assert result["time_range"] is None
+        assert any("sentinel time range" in line for line in result["interpretation"])
+
+
 class TestContextIntegration:
     """Test MCP Context integration."""
 
@@ -463,6 +591,35 @@ class TestContextIntegration:
         # Should succeed regardless of context
         assert "dataflows" in result
         assert result["total_found"] == 1
+
+
+class TestMainServerListDataflows:
+    """Test MCP-facing list_dataflows handler argument normalization."""
+
+    @pytest.mark.asyncio
+    async def test_handler_accepts_string_keywords(self):
+        """String keywords should be normalised for MCP callers."""
+        from main_server import list_dataflows as handler
+
+        mock_client = MagicMock(spec=SDMXProgressiveClient)
+        mock_client.agency_id = "SPC"
+        mock_client.endpoint_key = "SPC"
+        mock_client.discover_dataflows = AsyncMock(
+            return_value=[
+                {
+                    "id": "DF_COMMODITY_PRICES",
+                    "name": "Selected International Commodity Prices",
+                    "description": "Nominal prices in USD for key commodities",
+                }
+            ]
+        )
+
+        with patch("main_server.get_session_client", return_value=mock_client):
+            result = await handler(keywords="commodity prices")
+
+        assert result.total_found == 1
+        assert result.keywords == ["commodity", "prices"]
+        assert result.dataflows[0].id == "DF_COMMODITY_PRICES"
 
 
 class TestCompareDataflowDimensions:
@@ -882,7 +1039,7 @@ class TestAgencyIdResolution:
         client.endpoint_key = "ECB"
         client.discover_dataflows = AsyncMock(return_value=[])
 
-        result = await list_dataflows(client=client)
+        await list_dataflows(client=client)
 
         # Verify discover_dataflows was called with ECB, not SPC
         client.discover_dataflows.assert_called_once()
@@ -897,7 +1054,7 @@ class TestAgencyIdResolution:
         client.endpoint_key = "ECB"
         client.discover_dataflows = AsyncMock(return_value=[])
 
-        result = await list_dataflows(client=client, agency_id="UNICEF")
+        await list_dataflows(client=client, agency_id="UNICEF")
 
         # Verify discover_dataflows was called with UNICEF
         client.discover_dataflows.assert_called_once()
@@ -1195,4 +1352,3 @@ class TestConstraintConfigStrategies:
         from config import get_constraint_strategy
         assert get_constraint_strategy("ESTAT", "single_flow") is None
         assert get_constraint_strategy("ESTAT", "bulk") is None
-

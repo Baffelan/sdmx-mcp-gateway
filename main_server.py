@@ -5205,10 +5205,12 @@ def main():
         try:
             mcp.run(
                 transport="streamable-http",
+                host=args.host,
+                port=args.port,
             )
         except TypeError:
             # Fallback if transport options not supported
-            mcp.run()
+            mcp.run(transport="streamable-http")
     else:
         # Default to stdio
         mcp.run()

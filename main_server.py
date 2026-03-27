@@ -5200,23 +5200,13 @@ def main():
     if args.transport == "stdio":
         mcp.run(transport="stdio")
     elif args.transport in ("http", "streamable-http"):
+        transport = "streamable-http"
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.settings.stateless_http = args.stateless
+        mcp.settings.json_response = args.json_response
         logger.info("HTTP server listening on %s:%d", args.host, args.port)
-        try:
-            mcp.run(
-                transport=args.transport,
-                host=args.host,
-                port=args.port,
-            )
-        except TypeError as exc:
-            logger.exception(
-                "HTTP startup failed because the installed MCP SDK does not accept "
-                "host/port arguments for %s transport. Refusing to fall back to "
-                "default bind settings.",
-                args.transport,
-            )
-            raise SystemExit(
-                "MCP HTTP startup failed: host/port transport arguments were rejected"
-            ) from exc
+        mcp.run(transport=transport)
     else:
         # Default to stdio
         mcp.run()

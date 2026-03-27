@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from typing import Any
 
@@ -5163,15 +5164,15 @@ def main():
     )
     parser.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="Host for HTTP transport (default: 127.0.0.1)",
+        default=os.environ.get("HOST", "0.0.0.0"),
+        help="Host for HTTP transport (default: HOST env or 0.0.0.0)",
     )
     parser.add_argument(
         "--port",
         "-p",
         type=int,
-        default=8000,
-        help="Port for HTTP transport (default: 8000)",
+        default=int(os.environ.get("PORT", "8000")),
+        help="Port for HTTP transport (default: PORT env or 8000)",
     )
     parser.add_argument(
         "--stateless",
@@ -5200,17 +5201,22 @@ def main():
         mcp.run(transport="stdio")
     elif args.transport in ("http", "streamable-http"):
         logger.info("HTTP server listening on %s:%d", args.host, args.port)
-        # Note: HTTP transport options depend on MCP SDK version
-        # Some options may not be available in all versions
         try:
             mcp.run(
-                transport="streamable-http",
+                transport=args.transport,
                 host=args.host,
                 port=args.port,
             )
-        except TypeError:
-            # Fallback if transport options not supported
-            mcp.run(transport="streamable-http")
+        except TypeError as exc:
+            logger.exception(
+                "HTTP startup failed because the installed MCP SDK does not accept "
+                "host/port arguments for %s transport. Refusing to fall back to "
+                "default bind settings.",
+                args.transport,
+            )
+            raise SystemExit(
+                "MCP HTTP startup failed: host/port transport arguments were rejected"
+            ) from exc
     else:
         # Default to stdio
         mcp.run()

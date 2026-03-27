@@ -167,8 +167,8 @@ uv run python main_server.py [OPTIONS]
 
 Options:
   --transport, -t    Transport type: stdio, http, streamable-http (default: stdio)
-  --host             Host for HTTP transport (default: 127.0.0.1)
-  --port, -p         Port for HTTP transport (default: 8000)
+  --host             Host for HTTP transport (default: HOST env or 0.0.0.0)
+  --port, -p         Port for HTTP transport (default: PORT env or 8000)
   --stateless        Run in stateless mode (HTTP only)
   --json-response    Use JSON responses instead of SSE (HTTP only)
   --debug            Enable debug logging
@@ -187,8 +187,13 @@ uv run mcp dev ./main_server.py
 ### Production Mode (Streamable HTTP)
 
 ```bash
-uv run python main_server.py --transport http --port 8000 --stateless --json-response
+uv run python main_server.py --transport streamable-http --host 0.0.0.0 --port "${PORT:-8000}"
 ```
+
+For container platforms such as Vercel, Railway, or Fly, prefer binding to `0.0.0.0`
+and reading the port from the platform-provided `PORT` environment variable. The
+server now fails fast if the installed MCP SDK ignores the requested HTTP bind
+settings, rather than silently falling back to localhost.
 
 ## MCP Client Configuration
 

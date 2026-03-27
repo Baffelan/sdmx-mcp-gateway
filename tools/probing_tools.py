@@ -11,8 +11,12 @@ import csv
 import hashlib
 import io
 import logging
+import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+from config import get_constraint_strategy
+from utils import SDMX_NAMESPACES
 
 if TYPE_CHECKING:
     from sdmx_progressive_client import SDMXProgressiveClient
@@ -297,17 +301,72 @@ async def probe_data_url(
     if data_url is None:
         if dataflow_id is None:
             return _error_result("Either data_url or dataflow_id is required")
-        data_url = _build_url_from_parts(
-            client.base_url, dataflow_id, filters, start_period, end_period,
+        data_url = await _build_url_from_parts(
+            client=client,
+            dataflow_id=dataflow_id,
+            filters=filters,
+            start_period=start_period,
+            end_period=end_period,
         )
 
     fingerprint = normalize_query_fingerprint(data_url)
+    cache_key = _make_probe_cache_key(
+        fingerprint=fingerprint,
+        sample_limit=sample_limit,
+        max_distinct_per_dim=max_distinct_per_dim,
+    )
 
     # Check cache
-    if fingerprint in _probe_cache:
-        return _probe_cache[fingerprint]
+    if cache_key in _probe_cache:
+        return _probe_cache[cache_key]
 
-    # Build lightweight probe URL
+    availability = await _preflight_with_availableconstraint(
+        client=client,
+        data_url=data_url,
+        timeout_ms=timeout_ms,
+    )
+    if availability is not None and availability["status"] == "empty":
+        result = _empty_shape()
+        result["status"] = "empty"
+        result["observation_count"] = availability.get("observation_count", 0)
+        result["query_fingerprint"] = fingerprint
+        result["notes"] = availability.get("notes", [])
+        _cache_put(cache_key, result)
+        return result
+
+    shape = await _probe_via_csv(
+        client=client,
+        data_url=data_url,
+        sample_limit=sample_limit,
+        max_distinct_per_dim=max_distinct_per_dim,
+        timeout_ms=timeout_ms,
+    )
+
+    if shape["status"] == "error":
+        shape["query_fingerprint"] = fingerprint
+        return shape
+
+    if availability is not None and availability.get("observation_count") is not None:
+        shape["observation_count"] = availability["observation_count"]
+        shape["notes"].append(
+            "Observation count sourced from exact availableconstraint; "
+            "CSV probe used for sample shape only."
+        )
+
+    shape["query_fingerprint"] = fingerprint
+
+    _cache_put(cache_key, shape)
+    return shape
+
+
+async def _probe_via_csv(
+    client: SDMXProgressiveClient,
+    data_url: str,
+    sample_limit: int,
+    max_distinct_per_dim: int,
+    timeout_ms: int,
+) -> dict[str, Any]:
+    """Fetch lightweight CSV data and derive probe shape metadata."""
     probe_url = build_probe_url(data_url)
     timeout_s = timeout_ms / 1000.0
 
@@ -315,30 +374,22 @@ async def probe_data_url(
         probe_url, timeout=timeout_s,
     )
 
-    result: dict[str, Any]
-
     if status_code == 0:
-        result = _error_result("Network or transport error — provider unreachable")
-        result["query_fingerprint"] = fingerprint
-        return result
+        return _error_result("Network or transport error — provider unreachable")
 
     if status_code == 404:
         result = _empty_shape()
         result["status"] = "empty"
-        result["query_fingerprint"] = fingerprint
         result["notes"] = ["HTTP 404 — no data found for this query."]
-        _cache_put(fingerprint, result)
         return result
 
     if status_code >= 400:
         result = _error_result(
             "Provider returned HTTP " + str(status_code)
         )
-        result["query_fingerprint"] = fingerprint
         result["notes"] = ["HTTP " + str(status_code) + " from provider."]
         return result
 
-    # Parse the CSV response
     shape = parse_csv_probe_response(
         csv_text,
         sample_limit=sample_limit,
@@ -354,51 +405,92 @@ async def probe_data_url(
         shape["status"] = "nonempty"
         shape["notes"] = []
 
-    shape["query_fingerprint"] = fingerprint
-
-    _cache_put(fingerprint, shape)
     return shape
 
 
-def _cache_put(fingerprint: str, result: dict[str, Any]) -> None:
+def _make_probe_cache_key(
+    fingerprint: str,
+    sample_limit: int,
+    max_distinct_per_dim: int,
+) -> str:
+    """Build a cache key that includes result-shaping parameters."""
+    return (
+        fingerprint
+        + "|sample_limit="
+        + str(sample_limit)
+        + "|max_distinct_per_dim="
+        + str(max_distinct_per_dim)
+    )
+
+
+def _cache_put(cache_key: str, result: dict[str, Any]) -> None:
     """Store a probe result, evicting oldest entries if cache is full."""
     if len(_probe_cache) >= _PROBE_CACHE_MAX:
         # Evict oldest entry (first key in insertion order — Python 3.7+)
         oldest = next(iter(_probe_cache))
         del _probe_cache[oldest]
-    _probe_cache[fingerprint] = result
+    _probe_cache[cache_key] = result
 
 
-def _build_url_from_parts(
-    base_url: str,
+async def _build_url_from_parts(
+    client: SDMXProgressiveClient,
     dataflow_id: str,
     filters: dict[str, str] | None,
     start_period: str | None,
     end_period: str | None,
 ) -> str:
     """Build an SDMX data URL from structured components."""
-    base = base_url.rstrip("/")
+    flow_ref = _parse_flow_ref(dataflow_id, client.agency_id)
+    base = client.base_url.rstrip("/")
 
-    # Build key from filters without DSD lookup.
-    # WARNING: keys are sorted alphabetically by dimension ID, which may not
-    # match the DSD's dimension position order. Use data_url input (preferred)
-    # or build_key() + build_data_url() for correct key construction.
     if filters:
-        key = ".".join(filters.get(k, "") for k in sorted(filters.keys()))
+        structure = await client.get_structure_summary(
+            dataflow_id=flow_ref["dataflow_id"],
+            agency_id=flow_ref["agency_id"],
+            version=flow_ref["version"],
+        )
+        key_parts: list[str] = []
+        for dim in sorted(structure.dimensions, key=lambda d: d.position):
+            if dim.type == "TimeDimension":
+                continue
+            key_parts.append(filters.get(dim.id, ""))
+        key = ".".join(key_parts)
     else:
         key = "all"
 
     url = base + "/data/" + dataflow_id + "/" + key
 
-    params: list[str] = []
+    params: dict[str, str] = {}
     if start_period:
-        params.append("startPeriod=" + start_period)
+        params["startPeriod"] = start_period
     if end_period:
-        params.append("endPeriod=" + end_period)
+        params["endPeriod"] = end_period
     if params:
-        url += "?" + "&".join(params)
+        url += "?" + urlencode(sorted(params.items()))
 
     return url
+
+
+def _parse_flow_ref(flow_ref: str, default_agency_id: str) -> dict[str, str]:
+    """Split an SDMX flow reference into agency, id, and version parts."""
+    parts = flow_ref.split(",")
+    if len(parts) >= 3:
+        return {
+            "agency_id": parts[0],
+            "dataflow_id": parts[1],
+            "version": parts[2],
+        }
+    if len(parts) == 2:
+        return {
+            "agency_id": parts[0],
+            "dataflow_id": parts[1],
+            "version": "latest",
+        }
+    return {
+        "agency_id": default_agency_id,
+        "dataflow_id": flow_ref,
+        "version": "latest",
+    }
 
 
 def _error_result(message: str) -> dict[str, Any]:
@@ -408,6 +500,179 @@ def _error_result(message: str) -> dict[str, Any]:
     result["notes"] = [message]
     result["query_fingerprint"] = ""
     return result
+
+
+async def _preflight_with_availableconstraint(
+    client: SDMXProgressiveClient,
+    data_url: str,
+    timeout_ms: int,
+) -> dict[str, Any] | None:
+    """Use exact availableconstraint when supported to avoid unnecessary CSV fetches."""
+    strategy = get_constraint_strategy(client.endpoint_key, "single_flow")
+    if strategy != "availableconstraint":
+        return None
+
+    parsed = parse_sdmx_data_url(data_url)
+    if parsed is None:
+        return None
+
+    url = (
+        parsed["base_url"].rstrip("/")
+        + "/availableconstraint/"
+        + parsed["dataflow_id"]
+        + "/"
+        + parsed["key"]
+        + "/all/all?mode=exact"
+    )
+    params: list[tuple[str, str]] = [("mode", "exact")]
+    if parsed.get("start_period"):
+        params.append(("startPeriod", parsed["start_period"]))
+    if parsed.get("end_period"):
+        params.append(("endPeriod", parsed["end_period"]))
+    if params:
+        url = (
+            parsed["base_url"].rstrip("/")
+            + "/availableconstraint/"
+            + parsed["dataflow_id"]
+            + "/"
+            + parsed["key"]
+            + "/all/all?"
+            + urlencode(params)
+        )
+
+    try:
+        session = await client._get_session()
+        response = await session.get(
+            url,
+            headers={"Accept": "application/vnd.sdmx.structure+xml;version=2.1"},
+            timeout=timeout_ms / 1000.0,
+        )
+    except Exception:
+        return None
+
+    if response.status_code != 200 or not response.content:
+        return None
+
+    try:
+        root = ET.fromstring(response.content)
+    except ET.ParseError:
+        return None
+
+    constraint = root.find(".//str:ContentConstraint", SDMX_NAMESPACES)
+    if constraint is None:
+        return None
+
+    parsed_query = parse_sdmx_data_url(data_url)
+    observation_count = _extract_obs_count(constraint)
+    time_range = _extract_constraint_time_range(constraint)
+    series_count = _extract_series_count(constraint)
+    time_period_count = _infer_time_period_count(
+        observation_count=observation_count,
+        series_count=series_count,
+        parsed_query=parsed_query,
+    )
+    has_empty_sentinel = (
+        time_range is not None
+        and time_range["start"] == "9999-01-01"
+        and time_range["end"] == "0001-12-31"
+    )
+
+    if observation_count == 0 or has_empty_sentinel:
+        notes = [
+            "Exact availableconstraint indicates zero observations for this query."
+        ]
+        if has_empty_sentinel:
+            notes.append(
+                "Provider returned the SPC empty-result sentinel time range "
+                "(9999-01-01 to 0001-12-31)."
+            )
+        return {
+            "status": "empty",
+            "observation_count": 0,
+            "series_count": 0,
+            "time_period_count": 0,
+            "notes": notes,
+        }
+
+    if observation_count is not None:
+        return {
+            "status": "nonempty",
+            "observation_count": observation_count,
+            "series_count": series_count,
+            "time_period_count": time_period_count,
+            "notes": [],
+        }
+
+    return None
+
+
+def _extract_obs_count(constraint: ET.Element) -> int | None:
+    """Extract provider obs_count annotation if present."""
+    for annotation in constraint.findall(".//com:Annotation", SDMX_NAMESPACES):
+        if annotation.get("id") != "obs_count":
+            continue
+        title = annotation.find("./com:AnnotationTitle", SDMX_NAMESPACES)
+        if title is not None and title.text:
+            try:
+                return int(title.text)
+            except ValueError:
+                return None
+    return None
+
+
+def _extract_constraint_time_range(constraint: ET.Element) -> dict[str, str] | None:
+    """Extract overall time range from a constraint."""
+    starts: list[str] = []
+    ends: list[str] = []
+    for time_range in constraint.findall(".//com:TimeRange", SDMX_NAMESPACES):
+        start_el = time_range.find("./com:StartPeriod", SDMX_NAMESPACES)
+        end_el = time_range.find("./com:EndPeriod", SDMX_NAMESPACES)
+        if start_el is not None and start_el.text:
+            starts.append(start_el.text[:10])
+        if end_el is not None and end_el.text:
+            ends.append(end_el.text[:10])
+    if not starts or not ends:
+        return None
+    return {"start": min(starts), "end": max(ends)}
+
+
+def _extract_series_count(constraint: ET.Element) -> int:
+    """Estimate series count from non-time dimension combinations in CubeRegions."""
+    total = 0
+    for cube_region in constraint.findall(".//str:CubeRegion", SDMX_NAMESPACES):
+        if cube_region.get("include", "true") != "true":
+            continue
+        count = 1
+        has_non_time_dimension = False
+        for key_value in cube_region.findall("./com:KeyValue", SDMX_NAMESPACES):
+            dim_id = key_value.get("id", "")
+            if dim_id in TIME_DIMENSION_IDS:
+                continue
+            values = key_value.findall("./com:Value", SDMX_NAMESPACES)
+            if not values:
+                continue
+            has_non_time_dimension = True
+            count *= len(values)
+        total += count if has_non_time_dimension else 0
+    return total
+
+
+def _infer_time_period_count(
+    observation_count: int | None,
+    series_count: int,
+    parsed_query: dict[str, Any] | None,
+) -> int:
+    """Infer a conservative time-period count from exact availability metadata."""
+    if observation_count is None or observation_count <= 0:
+        return 0
+    if parsed_query is not None:
+        start_period = parsed_query.get("start_period")
+        end_period = parsed_query.get("end_period")
+        if start_period and end_period and start_period == end_period:
+            return 1
+    if series_count == 1:
+        return observation_count
+    return 0
 
 
 def generate_relaxation_candidates(
@@ -432,6 +697,7 @@ def generate_relaxation_candidates(
     key_parts = list(parsed_url["key_parts"])
     start_period = parsed_url["start_period"]
     end_period = parsed_url["end_period"]
+    extra_params = dict(parsed_url.get("params", {}))
 
     candidates: list[dict[str, Any]] = []
 
@@ -451,7 +717,7 @@ def generate_relaxation_candidates(
         new_key = ".".join(relaxed)
 
         url = _build_candidate_url(
-            base_url, dataflow_id, new_key, start_period, end_period,
+            base_url, dataflow_id, new_key, start_period, end_period, extra_params,
         )
         candidates.append({
             "url": url,
@@ -467,7 +733,7 @@ def generate_relaxation_candidates(
         )
         if should_include:
             url = _build_candidate_url(
-                base_url, dataflow_id, ".".join(key_parts), None, None,
+                base_url, dataflow_id, ".".join(key_parts), None, None, extra_params,
             )
             candidates.append({
                 "url": url,
@@ -486,16 +752,20 @@ def _build_candidate_url(
     key: str,
     start_period: str | None,
     end_period: str | None,
+    extra_params: dict[str, str] | None = None,
 ) -> str:
     """Build a data URL from components for candidate generation."""
     url = base_url.rstrip("/") + "/data/" + dataflow_id + "/" + key
-    params: list[str] = []
+    params: list[tuple[str, str]] = []
+    if extra_params:
+        for key_name, value in sorted(extra_params.items()):
+            params.append((key_name, value))
     if start_period:
-        params.append("startPeriod=" + start_period)
+        params.append(("startPeriod", start_period))
     if end_period:
-        params.append("endPeriod=" + end_period)
+        params.append(("endPeriod", end_period))
     if params:
-        url += "?" + "&".join(params)
+        url += "?" + urlencode(params)
     return url
 
 
@@ -527,8 +797,11 @@ async def suggest_nonempty_queries(
     probes_used = 0
 
     # Step 1: Probe the original query
-    original_result = await probe_data_url(client=client, data_url=data_url)
-    probes_used += 1
+    original_result, calls_used = await _evaluate_query_for_suggestions(
+        client=client,
+        data_url=data_url,
+    )
+    probes_used += calls_used
 
     if original_result["status"] == "nonempty":
         return {
@@ -552,14 +825,16 @@ async def suggest_nonempty_queries(
 
     # Extract dataflow ID (strip agency/version if present)
     raw_flow = parsed["dataflow_id"]
-    flow_parts = raw_flow.split(",")
-    dataflow_id = flow_parts[1] if len(flow_parts) >= 2 else flow_parts[0]
-    agency_id = flow_parts[0] if len(flow_parts) >= 2 else client.agency_id
+    flow_ref = _parse_flow_ref(raw_flow, client.agency_id)
+    dataflow_id = flow_ref["dataflow_id"]
+    agency_id = flow_ref["agency_id"]
+    version = flow_ref["version"]
 
     # Get dimension names from DSD
     structure = await client.get_structure_summary(
         dataflow_id=dataflow_id,
         agency_id=agency_id,
+        version=version,
     )
 
     if structure is None:
@@ -601,8 +876,11 @@ async def suggest_nonempty_queries(
         if len(suggestions) >= max_suggestions:
             break
 
-        probe_result = await probe_data_url(client=client, data_url=candidate["url"])
-        probes_used += 1
+        probe_result, calls_used = await _evaluate_query_for_suggestions(
+            client=client,
+            data_url=candidate["url"],
+        )
+        probes_used += calls_used
 
         if probe_result["status"] == "nonempty":
             rank += 1
@@ -633,6 +911,35 @@ async def suggest_nonempty_queries(
         "probes_used": probes_used,
         "notes": notes,
     }
+
+
+async def _evaluate_query_for_suggestions(
+    client: SDMXProgressiveClient,
+    data_url: str,
+) -> tuple[dict[str, Any], int]:
+    """Evaluate a candidate query using availability first, then CSV fallback."""
+    availability = await _preflight_with_availableconstraint(
+        client=client,
+        data_url=data_url,
+        timeout_ms=10000,
+    )
+    if availability is not None:
+        result = {
+            "status": availability["status"],
+            "observation_count": availability.get("observation_count", 0),
+            "series_count": availability.get("series_count", 0),
+            "time_period_count": availability.get("time_period_count", 0),
+        }
+        return result, 1
+
+    result = await _probe_via_csv(
+        client=client,
+        data_url=data_url,
+        sample_limit=0,
+        max_distinct_per_dim=0,
+        timeout_ms=10000,
+    )
+    return result, 1
 
 
 def _rank_candidates(

@@ -169,9 +169,19 @@ def get_app_context(ctx: Context[Any, Any, Any] | None) -> AppContext | None:
 # =============================================================================
 
 
+def _normalise_keywords_input(keywords: str | list[str] | None) -> list[str] | None:
+    """Accept MCP keyword input as either a string or a list of strings."""
+    if keywords is None:
+        return None
+    if isinstance(keywords, str):
+        parts = [part.strip() for part in keywords.replace(",", " ").split()]
+        return [part for part in parts if part] or None
+    return [keyword for keyword in keywords if keyword]
+
+
 @mcp.tool()
 async def list_dataflows(
-    keywords: list[str] | None = None,
+    keywords: str | list[str] | None = None,
     agency_id: str | None = None,
     limit: int = 10,
     offset: int = 0,
@@ -188,7 +198,7 @@ async def list_dataflows(
     dataflows with data for that code, across all topics.
 
     Args:
-        keywords: Optional list of keywords to filter dataflows
+        keywords: Optional keyword string or list of keywords to filter dataflows
         agency_id: The agency to query (uses session endpoint if not specified)
         limit: Number of results to return (default: 10)
         offset: Number of results to skip for pagination (default: 0)
@@ -203,6 +213,7 @@ async def list_dataflows(
     client = get_session_client(ctx)
     user_provided_agency = agency_id is not None
     agency_id = agency_id or client.agency_id
+    normalized_keywords = _normalise_keywords_input(keywords)
 
     # When user didn't explicitly provide agency_id, check for dataflow listing override
     # (e.g. OECD publishes under sub-agencies, requiring "all" for listing)
@@ -212,7 +223,9 @@ async def list_dataflows(
         if df_agency:
             agency_id = df_agency
 
-    result = await list_dataflows_impl(client, keywords, agency_id, limit, offset, ctx)
+    result = await list_dataflows_impl(
+        client, normalized_keywords, agency_id, limit, offset, ctx
+    )
 
     # Convert to structured output
     if "error" in result:
@@ -1933,6 +1946,7 @@ async def get_data_availability(
         interpretation=result.get("interpretation", []),
         dimension_values_checked=result.get("dimension_values_checked"),
         data_exists=result.get("data_exists"),
+        observation_count=result.get("observation_count"),
         recommendation=result.get("recommendation"),
     )
 

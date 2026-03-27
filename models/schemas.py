@@ -241,6 +241,9 @@ class DataAvailabilityResult(BaseModel):
     data_exists: Optional[bool] = Field(
         default=None, description="Whether data exists for checked combination"
     )
+    observation_count: Optional[int] = Field(
+        default=None, description="Observation count if the provider exposes it"
+    )
     recommendation: Optional[str] = Field(
         default=None, description="Recommendation based on availability"
     )

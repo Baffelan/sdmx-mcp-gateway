@@ -15,6 +15,59 @@ SAMPLE_CSV_NONEMPTY = (
 
 SAMPLE_CSV_EMPTY = "DATAFLOW,FREQ,GEO_PICT,INDICATOR,TIME_PERIOD,OBS_VALUE\n"
 
+AVAILABLECONSTRAINT_NONEMPTY = (
+    '<?xml version="1.0"?>'
+    '<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message"'
+    ' xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"'
+    ' xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+    "<mes:Structures><str:Constraints>"
+    '<str:ContentConstraint id="CC" type="Actual">'
+    "<com:Annotations>"
+    '<com:Annotation id="obs_count">'
+    "<com:AnnotationTitle>794</com:AnnotationTitle>"
+    "<com:AnnotationType>sdmx_metrics</com:AnnotationType>"
+    "</com:Annotation>"
+    "</com:Annotations>"
+    '<str:CubeRegion include="true">'
+    '<com:KeyValue id="FREQ"><com:Value>A</com:Value></com:KeyValue>'
+    '<com:KeyValue id="GEO_PICT"><com:Value>FJ</com:Value></com:KeyValue>'
+    '<com:KeyValue id="INDICATOR"><com:Value>KAVA_PROD</com:Value></com:KeyValue>'
+    '<com:KeyValue id="TIME_PERIOD">'
+    "<com:TimeRange>"
+    '<com:StartPeriod isInclusive="true">1960-01-01T00:00:00</com:StartPeriod>'
+    '<com:EndPeriod isInclusive="true">2026-02-28T00:00:00</com:EndPeriod>'
+    "</com:TimeRange>"
+    "</com:KeyValue>"
+    "</str:CubeRegion>"
+    "</str:ContentConstraint>"
+    "</str:Constraints></mes:Structures></mes:Structure>"
+)
+
+AVAILABLECONSTRAINT_EMPTY = (
+    '<?xml version="1.0"?>'
+    '<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message"'
+    ' xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"'
+    ' xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+    "<mes:Structures><str:Constraints>"
+    '<str:ContentConstraint id="CC" type="Actual">'
+    "<com:Annotations>"
+    '<com:Annotation id="obs_count">'
+    "<com:AnnotationTitle>0</com:AnnotationTitle>"
+    "<com:AnnotationType>sdmx_metrics</com:AnnotationType>"
+    "</com:Annotation>"
+    "</com:Annotations>"
+    '<str:CubeRegion include="true">'
+    '<com:KeyValue id="TIME_PERIOD">'
+    "<com:TimeRange>"
+    '<com:StartPeriod isInclusive="true">9999-01-01T00:00:00</com:StartPeriod>'
+    '<com:EndPeriod isInclusive="true">0001-12-31T23:59:59</com:EndPeriod>'
+    "</com:TimeRange>"
+    "</com:KeyValue>"
+    "</str:CubeRegion>"
+    "</str:ContentConstraint>"
+    "</str:Constraints></mes:Structures></mes:Structure>"
+)
+
 SAMPLE_URL = (
     "https://stats-sdmx-disseminate.pacificdata.org/rest"
     "/data/DF_KAVA/A.FJ.KAVA_PROD?startPeriod=2020&endPeriod=2024"
@@ -40,39 +93,58 @@ class TestProbeDataUrl:
         client.base_url = "https://stats-sdmx-disseminate.pacificdata.org/rest"
         return client
 
+    def _make_availability_response(self, xml_text):
+        response = MagicMock()
+        response.status_code = 200
+        response.content = xml_text.encode("utf-8")
+        return response
+
     @pytest.mark.asyncio
     async def test_probe_nonempty_url(self, mock_client):
         from tools.probing_tools import probe_data_url
 
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(
+            return_value=self._make_availability_response(AVAILABLECONSTRAINT_NONEMPTY)
+        )
+        mock_client._get_session = AsyncMock(return_value=mock_session)
         mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_NONEMPTY))
 
         result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
 
         assert result["status"] == "nonempty"
-        assert result["observation_count"] == 3
+        assert result["observation_count"] == 794
         assert result["series_count"] == 2
         assert result["time_period_count"] == 2
         assert result["has_time_dimension"] is True
         assert result["geo_dimension_id"] == "GEO_PICT"
         assert result["query_fingerprint"].startswith("sha256:")
         assert len(result["sample_observations"]) > 0
+        assert mock_client.fetch_data_probe.call_count == 1
 
     @pytest.mark.asyncio
     async def test_probe_empty_url(self, mock_client):
         from tools.probing_tools import probe_data_url
 
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(
+            return_value=self._make_availability_response(AVAILABLECONSTRAINT_EMPTY)
+        )
+        mock_client._get_session = AsyncMock(return_value=mock_session)
         mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_EMPTY))
 
         result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
 
         assert result["status"] == "empty"
         assert result["observation_count"] == 0
-        assert any("zero observations" in n.lower() for n in result["notes"])
+        assert any("availableconstraint" in n.lower() for n in result["notes"])
+        assert mock_client.fetch_data_probe.call_count == 0
 
     @pytest.mark.asyncio
     async def test_probe_http_error(self, mock_client):
         from tools.probing_tools import probe_data_url
 
+        mock_client._get_session = AsyncMock(side_effect=Exception("skip availability"))
         mock_client.fetch_data_probe = AsyncMock(return_value=(500, ""))
 
         result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
@@ -84,6 +156,7 @@ class TestProbeDataUrl:
     async def test_probe_network_failure(self, mock_client):
         from tools.probing_tools import probe_data_url
 
+        mock_client._get_session = AsyncMock(side_effect=Exception("skip availability"))
         mock_client.fetch_data_probe = AsyncMock(return_value=(0, ""))
 
         result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
@@ -94,6 +167,7 @@ class TestProbeDataUrl:
     async def test_probe_404_empty(self, mock_client):
         from tools.probing_tools import probe_data_url
 
+        mock_client._get_session = AsyncMock(side_effect=Exception("skip availability"))
         mock_client.fetch_data_probe = AsyncMock(return_value=(404, ""))
 
         result = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
@@ -105,7 +179,13 @@ class TestProbeDataUrl:
     async def test_probe_with_structured_input(self, mock_client):
         from tools.probing_tools import probe_data_url
 
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(
+            return_value=self._make_availability_response(AVAILABLECONSTRAINT_NONEMPTY)
+        )
+        mock_client._get_session = AsyncMock(return_value=mock_session)
         mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_NONEMPTY))
+        mock_client.get_structure_summary = AsyncMock(return_value=_make_mock_structure())
 
         result = await probe_data_url(
             client=mock_client,
@@ -117,6 +197,25 @@ class TestProbeDataUrl:
 
         assert result["status"] == "nonempty"
         mock_client.fetch_data_probe.assert_called_once()
+        called_url = mock_client.fetch_data_probe.await_args.args[0]
+        assert "/data/DF_KAVA/A.FJ.KAVA_PROD" in called_url
+
+    @pytest.mark.asyncio
+    async def test_probe_structured_input_uses_dsd_dimension_order(self, mock_client):
+        from tools.probing_tools import probe_data_url
+
+        mock_client._get_session = AsyncMock(side_effect=Exception("skip availability"))
+        mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_NONEMPTY))
+        mock_client.get_structure_summary = AsyncMock(return_value=_make_mock_structure())
+
+        await probe_data_url(
+            client=mock_client,
+            dataflow_id="DF_KAVA",
+            filters={"INDICATOR": "KAVA_PROD", "GEO_PICT": "FJ", "FREQ": "A"},
+        )
+
+        called_url = mock_client.fetch_data_probe.await_args.args[0]
+        assert "/data/DF_KAVA/A.FJ.KAVA_PROD" in called_url
 
     @pytest.mark.asyncio
     async def test_probe_cache_hit(self, mock_client):
@@ -125,6 +224,11 @@ class TestProbeDataUrl:
         # Clear cache before test
         _probe_cache.clear()
 
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(
+            return_value=self._make_availability_response(AVAILABLECONSTRAINT_NONEMPTY)
+        )
+        mock_client._get_session = AsyncMock(return_value=mock_session)
         mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_NONEMPTY))
 
         result1 = await probe_data_url(client=mock_client, data_url=SAMPLE_URL)
@@ -134,6 +238,33 @@ class TestProbeDataUrl:
         assert result1["status"] == result2["status"]
         # Second call should hit cache — only 1 HTTP call
         assert mock_client.fetch_data_probe.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_probe_cache_separates_shape_parameters(self, mock_client):
+        from tools.probing_tools import _probe_cache, probe_data_url
+
+        _probe_cache.clear()
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(
+            return_value=self._make_availability_response(AVAILABLECONSTRAINT_NONEMPTY)
+        )
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+        mock_client.fetch_data_probe = AsyncMock(return_value=(200, SAMPLE_CSV_NONEMPTY))
+
+        result1 = await probe_data_url(
+            client=mock_client,
+            data_url=SAMPLE_URL,
+            sample_limit=1,
+        )
+        result2 = await probe_data_url(
+            client=mock_client,
+            data_url=SAMPLE_URL,
+            sample_limit=5,
+        )
+
+        assert len(result1["sample_observations"]) == 1
+        assert len(result2["sample_observations"]) == 3
+        assert mock_client.fetch_data_probe.call_count == 2
 
 
 class TestProbeDataUrlHandler:
@@ -155,6 +286,7 @@ class TestProbeDataUrlHandler:
         mock_client.agency_id = "SPC"
         mock_client.endpoint_key = "SPC"
         mock_client.base_url = "https://example.org/rest"
+        mock_client._get_session = AsyncMock(side_effect=Exception("skip availability"))
         mock_client.fetch_data_probe = AsyncMock(
             return_value=(200, SAMPLE_CSV_NONEMPTY)
         )
@@ -201,7 +333,14 @@ class TestSuggestNonemptyQueries:
         client.endpoint_key = "SPC"
         client.base_url = "https://stats-sdmx-disseminate.pacificdata.org/rest"
         client.get_structure_summary = AsyncMock(return_value=_make_mock_structure())
+        client._get_session = AsyncMock(side_effect=Exception("skip availability"))
         return client
+
+    def _make_availability_response(self, xml_text):
+        response = MagicMock()
+        response.status_code = 200
+        response.content = xml_text.encode("utf-8")
+        return response
 
     @pytest.mark.asyncio
     async def test_original_nonempty_no_suggestions(self, mock_client):
@@ -307,6 +446,117 @@ class TestSuggestNonemptyQueries:
         ]
         assert len(time_suggestions) >= 1
 
+    @pytest.mark.asyncio
+    async def test_suggestions_use_availability_without_csv_for_empty_candidate(self, mock_client):
+        from tools.probing_tools import suggest_nonempty_queries
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(
+            side_effect=[
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+            ]
+        )
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+        mock_client.fetch_data_probe = AsyncMock()
+
+        result = await suggest_nonempty_queries(
+            client=mock_client,
+            data_url=SAMPLE_URL,
+            max_probes=5,
+        )
+
+        assert result["original_status"] == "empty"
+        assert result["suggestions"] == []
+        assert mock_client.fetch_data_probe.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_suggestions_fill_series_and_time_counts_from_availability(self, mock_client):
+        from tools.probing_tools import suggest_nonempty_queries
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(
+            side_effect=[
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+                self._make_availability_response(AVAILABLECONSTRAINT_EMPTY),
+                self._make_availability_response(AVAILABLECONSTRAINT_NONEMPTY),
+            ]
+        )
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+        mock_client.fetch_data_probe = AsyncMock()
+
+        result = await suggest_nonempty_queries(
+            client=mock_client,
+            data_url=SAMPLE_URL,
+            max_suggestions=1,
+        )
+
+        assert len(result["suggestions"]) == 1
+        suggestion = result["suggestions"][0]
+        assert suggestion["probe_result"]["observation_count"] == 794
+        assert suggestion["probe_result"]["series_count"] == 1
+        assert suggestion["probe_result"]["time_period_count"] == 794
+        assert mock_client.fetch_data_probe.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_suggestions_preserve_non_time_query_params(self, mock_client):
+        from tools.probing_tools import suggest_nonempty_queries
+
+        mock_client.fetch_data_probe = AsyncMock(
+            side_effect=[
+                (200, SAMPLE_CSV_EMPTY),
+                (200, SAMPLE_CSV_NONEMPTY),
+            ]
+        )
+        url_with_params = (
+            "https://stats-sdmx-disseminate.pacificdata.org/rest"
+            "/data/DF_KAVA/A.FJ.KAVA_PROD"
+            "?dimensionAtObservation=AllDimensions&format=jsondata&startPeriod=2020"
+        )
+
+        result = await suggest_nonempty_queries(
+            client=mock_client,
+            data_url=url_with_params,
+            max_suggestions=1,
+        )
+
+        assert len(result["suggestions"]) == 1
+        suggested_url = result["suggestions"][0]["suggested_data_url"]
+        assert "dimensionAtObservation=AllDimensions" in suggested_url
+        assert "format=jsondata" in suggested_url
+
+    @pytest.mark.asyncio
+    async def test_suggestions_use_versioned_flow_ref_for_structure_lookup(self, mock_client):
+        from tools.probing_tools import suggest_nonempty_queries
+
+        mock_client.fetch_data_probe = AsyncMock(
+            side_effect=[
+                (200, SAMPLE_CSV_EMPTY),
+                (200, SAMPLE_CSV_NONEMPTY),
+            ]
+        )
+        versioned_url = (
+            "https://stats-sdmx-disseminate.pacificdata.org/rest"
+            "/data/SPC,DF_KAVA,3.0/A.FJ.KAVA_PROD?startPeriod=2020&endPeriod=2024"
+        )
+
+        await suggest_nonempty_queries(
+            client=mock_client,
+            data_url=versioned_url,
+            max_suggestions=1,
+        )
+
+        mock_client.get_structure_summary.assert_awaited_once_with(
+            dataflow_id="DF_KAVA",
+            agency_id="SPC",
+            version="3.0",
+        )
+
 
 class TestSuggestNonemptyHandler:
     """Test the MCP tool handler for suggest_nonempty_queries."""
@@ -327,6 +577,7 @@ class TestSuggestNonemptyHandler:
         mock_client.agency_id = "SPC"
         mock_client.endpoint_key = "SPC"
         mock_client.base_url = "https://example.org/rest"
+        mock_client._get_session = AsyncMock(side_effect=Exception("skip availability"))
         mock_client.fetch_data_probe = AsyncMock(
             return_value=(200, SAMPLE_CSV_NONEMPTY)
         )

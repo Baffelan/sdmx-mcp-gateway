@@ -27,6 +27,7 @@ import sys
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
 
 # Import lifespan and context
@@ -97,9 +98,19 @@ from sdmx_progressive_client import SDMXProgressiveClient
 logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server with lifespan
+# Configure DNS rebinding protection — allow Railway/Vercel hostnames via env var
+_extra_hosts = os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if os.environ.get("MCP_ALLOWED_HOSTS") else []
+_allowed_hosts = ["localhost:*", "127.0.0.1:*", "[::1]:*"] + [h.strip() + ":*" for h in _extra_hosts if h.strip()]
+_allowed_origins = ["http://localhost:*", "https://localhost:*"] + ["https://" + h.strip() + ":*" for h in _extra_hosts if h.strip()]
+
 mcp = FastMCP(
     "SDMX Data Gateway",
     lifespan=app_lifespan,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_allowed_hosts,
+        allowed_origins=_allowed_origins,
+    ),
 )
 
 

@@ -98,10 +98,16 @@ from sdmx_progressive_client import SDMXProgressiveClient
 logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server with lifespan
-# Configure DNS rebinding protection — allow Railway/Vercel hostnames via env var
-_extra_hosts = os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if os.environ.get("MCP_ALLOWED_HOSTS") else []
-_allowed_hosts = ["localhost:*", "127.0.0.1:*", "[::1]:*"] + [h.strip() + ":*" for h in _extra_hosts if h.strip()]
-_allowed_origins = ["http://localhost:*", "https://localhost:*"] + ["https://" + h.strip() + ":*" for h in _extra_hosts if h.strip()]
+# Configure DNS rebinding protection — auto-detect Railway hostnames + manual override
+_extra_hosts: list[str] = []
+for env_key in ("MCP_ALLOWED_HOSTS", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_PRIVATE_DOMAIN"):
+    val = os.environ.get(env_key, "")
+    for h in val.split(","):
+        h = h.strip()
+        if h and h not in _extra_hosts:
+            _extra_hosts.append(h)
+_allowed_hosts = ["localhost:*", "127.0.0.1:*", "[::1]:*"] + [h + ":*" for h in _extra_hosts]
+_allowed_origins = ["http://localhost:*", "https://localhost:*"] + ["https://" + h + ":*" for h in _extra_hosts]
 
 mcp = FastMCP(
     "SDMX Data Gateway",

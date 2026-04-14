@@ -49,6 +49,17 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
         },
         "references_support": ["none", "children", "parents", "all"],
     },
+    "FBOS": {
+        "name": "Fiji Bureau of Statistics",
+        "base_url": "https://data-sdmx-disseminate.statsfiji.gov.fj/rest",
+        "agency_id": "FBOS",
+        "description": "Fiji official national statistics",
+        "constraints": {
+            "single_flow": "availableconstraint",
+            "bulk": "contentconstraint",
+        },
+        "references_support": ["none", "children", "parents", "all"],
+    },
     "ECB": {
         "name": "European Central Bank",
         "base_url": "https://data-api.ecb.europa.eu/service",

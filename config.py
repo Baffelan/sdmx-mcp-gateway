@@ -60,6 +60,17 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
         },
         "references_support": ["none", "children", "parents", "all"],
     },
+    "SBS": {
+        "name": "Samoa Bureau of Statistics",
+        "base_url": "https://data-sdmx-disseminate.sbs.gov.ws/rest",
+        "agency_id": "SBS",
+        "description": "Samoa official national statistics",
+        "constraints": {
+            "single_flow": "availableconstraint",
+            "bulk": "contentconstraint",
+        },
+        "references_support": ["none", "children", "parents", "all"],
+    },
     "ECB": {
         "name": "European Central Bank",
         "base_url": "https://data-api.ecb.europa.eu/service",

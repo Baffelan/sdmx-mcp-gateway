@@ -10,7 +10,7 @@ A Model Context Protocol (MCP) server that provides progressive discovery tools 
 - **Structured Outputs**: All tools return validated Pydantic models
 - **Multiple Transports**: STDIO (development) and Streamable HTTP (production)
 - **Interactive Elicitation**: User confirmation dialogs for endpoint switching
-- **Multi-Provider Support**: SPC, FBOS, ECB, UNICEF, IMF, OECD, ESTAT, ILO, ABS, BIS
+- **Multi-Provider Support**: SPC, FBOS, SBS, ECB, UNICEF, IMF, OECD, ESTAT, ILO, ABS, BIS
 
 ## Quick Start
 
@@ -110,6 +110,7 @@ sdmx-mcp-gateway/
 | -------- | -------------------------------- | ------------------------------------- | ------------------ |
 | `SPC`    | Pacific Data Hub                 | Pacific regional statistics (default) | Actual (single + bulk) |
 | `FBOS`   | Fiji Bureau of Statistics        | Fiji official national statistics     | Actual (single + bulk) |
+| `SBS`    | Samoa Bureau of Statistics       | Samoa official national statistics    | Actual (single + bulk) |
 | `ECB`    | European Central Bank            | European financial statistics         | Allowed (single + bulk) |
 | `UNICEF` | UNICEF                           | Children and youth statistics         | Actual (single + bulk) |
 | `IMF`    | International Monetary Fund      | Global financial statistics           | Actual (single) |

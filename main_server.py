@@ -132,7 +132,7 @@ mcp = FastMCP(
 # =============================================================================
 
 
-def get_session_client(ctx: Context[Any, Any, Any] | None) -> SDMXProgressiveClient:
+async def get_session_client(ctx: Context[Any, Any, Any] | None) -> SDMXProgressiveClient:
     """
     Get the SDMX client for the current session from lifespan context.
 
@@ -155,7 +155,7 @@ def get_session_client(ctx: Context[Any, Any, Any] | None) -> SDMXProgressiveCli
         # Get the lifespan context (AppContext)
         lifespan_ctx = ctx.request_context.lifespan_context
         if isinstance(lifespan_ctx, AppContext):
-            return lifespan_ctx.get_client(ctx)
+            return await lifespan_ctx.get_client(ctx)
         # Fallback to default
         from tools.sdmx_tools import get_default_client
 
@@ -235,7 +235,7 @@ async def list_dataflows(
     from tools.sdmx_tools import list_dataflows as list_dataflows_impl
 
     # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     user_provided_agency = agency_id is not None
     agency_id = agency_id or client.agency_id
     normalized_keywords = _normalise_keywords_input(keywords)
@@ -334,7 +334,7 @@ async def get_dataflow_structure(
     from tools.sdmx_tools import get_dataflow_structure as get_structure_impl
 
     # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency_id = agency_id or client.agency_id
 
     result = await get_structure_impl(client, dataflow_id, agency_id, ctx)
@@ -420,7 +420,7 @@ async def get_codelist(
         Dictionary with codelist information and codes
     """
     # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency_id = agency_id or client.agency_id
     result = await client.browse_codelist(codelist_id, agency_id, version, search_term)
     return result
@@ -454,7 +454,7 @@ async def get_dimension_codes(
     from tools.sdmx_tools import get_dimension_codes as get_codes_impl
 
     # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency_id = agency_id or client.agency_id
 
     result = await get_codes_impl(client, dataflow_id, dimension_id, agency_id, limit, offset, ctx)
@@ -598,7 +598,7 @@ async def get_code_usage(
         >>> get_code_usage("DF_SDG", dimension_id="INDICATOR")
         # Returns all indicator codes that actually have data
     """
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency = agency_id or client.agency_id
     ep_key = _get_session_endpoint_key(ctx)
     api_calls = 0
@@ -774,7 +774,7 @@ async def check_time_availability(
 
     from utils import classify_time_overlap, parse_query_period
 
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency = agency_id or client.agency_id
     ep_key = _get_session_endpoint_key(ctx)
     api_calls = 0
@@ -997,7 +997,7 @@ async def find_code_usage_across_dataflows(
     from config import get_constraint_strategy
     from utils import SDMX_NAMESPACES
 
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency = agency_id or client.agency_id
     ep_key = _get_session_endpoint_key(ctx)
     ns = SDMX_NAMESPACES
@@ -1523,7 +1523,7 @@ async def compare_dataflow_dimensions(
         DataflowDimensionComparisonResult with dimension comparison, overlap stats,
         and join column recommendations
     """
-    session_client = get_session_client(ctx)
+    session_client = await get_session_client(ctx)
     api_calls = 0
 
     # Determine current session endpoint key
@@ -1944,7 +1944,7 @@ async def get_data_availability(
     from tools.sdmx_tools import get_data_availability as get_availability_impl
 
     # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency_id = agency_id or client.agency_id
 
     result = await get_availability_impl(
@@ -2006,7 +2006,7 @@ async def validate_query(
     from tools.sdmx_tools import validate_query as validate_impl
 
     # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency_id = agency_id or client.agency_id
 
     result = await validate_impl(
@@ -2058,7 +2058,7 @@ async def build_key(
     from tools.sdmx_tools import build_sdmx_key
 
     # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency_id = agency_id or client.agency_id
 
     result = await build_sdmx_key(client, dataflow_id, filters or {}, agency_id, ctx)
@@ -2117,7 +2117,7 @@ async def build_data_url(
     from tools.sdmx_tools import build_data_url as build_url_impl
 
     # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency_id = agency_id or client.agency_id
 
     result = await build_url_impl(
@@ -2202,7 +2202,7 @@ async def probe_data_url(
     """
     from tools.probing_tools import probe_data_url as probe_impl
 
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
 
     result = await probe_impl(
         client=client,
@@ -2275,7 +2275,7 @@ async def suggest_nonempty_queries(
     """
     from tools.probing_tools import suggest_nonempty_queries as suggest_impl
 
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
 
     result = await suggest_impl(
         client=client,
@@ -2478,7 +2478,7 @@ async def get_structure_diagram(
 
     from utils import SDMX_NAMESPACES
 
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency = agency_id or client.agency_id
     ns = SDMX_NAMESPACES
 
@@ -4329,7 +4329,7 @@ async def compare_structures(
         # Compare two different DSDs
         >>> compare_structures("datastructure", "DSD_SDG", "DSD_EDUCATION")
     """
-    client = get_session_client(ctx)
+    client = await get_session_client(ctx)
     agency = agency_id or client.agency_id
 
     # If structure_id_b is not provided, compare versions of the same structure

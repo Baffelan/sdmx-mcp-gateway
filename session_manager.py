@@ -149,7 +149,12 @@ class SessionManager:
     per session. Each session has its own SDMX client instance.
 
     Thread Safety:
-        This implementation uses asyncio.Lock for critical sections.
+        Async-path mutations (switch_endpoint, close_session, close_all,
+        cleanup_expired_sessions) are serialised by an asyncio.Lock.
+        Sync-path mutations to the _sessions dict (get_session's
+        check-and-insert) use a threading.Lock so the race is safe under
+        both asyncio cooperative scheduling and real thread concurrency
+        (ASGI workers, background threads, etc.).
 
     Memory Management:
         Sessions are automatically cleaned up after SESSION_TIMEOUT_MINUTES
@@ -163,9 +168,14 @@ class SessionManager:
         Args:
             default_endpoint_key: Default endpoint for new sessions
         """
+        import threading
+
         self._sessions: dict[str, SessionState] = {}
         self._default_endpoint_key: str = default_endpoint_key
         self._lock: asyncio.Lock = asyncio.Lock()
+        # Guards the sync-path check-and-insert in get_session. Acquired for
+        # microseconds only; contention is vanishing.
+        self._sessions_lock: threading.Lock = threading.Lock()
 
     @property
     def active_session_count(self) -> int:
@@ -216,11 +226,17 @@ class SessionManager:
         """
         sid = session_id or DEFAULT_SESSION_ID
 
-        if sid not in self._sessions:
-            self._sessions[sid] = self._create_session(sid)
-            logger.debug("Created new session: %s", sid)
+        # Race-safe check-and-insert. Under contention, at most one caller
+        # invokes _create_session; the rest observe the winner. _create_session
+        # is cheap (no HTTP, no pool construction) so holding the lock across
+        # it is fine.
+        with self._sessions_lock:
+            session = self._sessions.get(sid)
+            if session is None:
+                session = self._create_session(sid)
+                self._sessions[sid] = session
+                logger.debug("Created new session: %s", sid)
 
-        session = self._sessions[sid]
         session.touch()
         return session
 

@@ -348,3 +348,97 @@ class TestClientConfiguration:
         """Test agency ID can be overridden."""
         client = SDMXProgressiveClient(base_url="https://api.org/rest", agency_id="CUSTOM_AGENCY")
         assert client.agency_id == "CUSTOM_AGENCY"
+
+
+class TestAuthHeaders:
+    """Subscription-key header injection for keyed endpoints (e.g. STATSNZ)."""
+
+    def test_no_endpoint_key_returns_empty(self):
+        client = SDMXProgressiveClient(base_url="https://api.org/rest", agency_id="X")
+        assert client._build_auth_headers() == {}
+
+    def test_endpoint_without_auth_returns_empty(self):
+        client = SDMXProgressiveClient(
+            base_url="https://stats-sdmx-disseminate.pacificdata.org/rest",
+            agency_id="SPC",
+            endpoint_key="SPC",
+        )
+        assert client._build_auth_headers() == {}
+
+    def test_keyed_endpoint_with_env_var_set(self, monkeypatch):
+        monkeypatch.setenv("SDMX_STATSNZ_KEY", "test-key-abc123")
+        client = SDMXProgressiveClient(
+            base_url="https://api.data.stats.govt.nz/rest",
+            agency_id="STATSNZ",
+            endpoint_key="STATSNZ",
+        )
+        headers = client._build_auth_headers()
+        assert headers == {"Ocp-Apim-Subscription-Key": "test-key-abc123"}
+
+    def test_keyed_endpoint_without_env_var_warns_and_returns_empty(
+        self, monkeypatch, caplog
+    ):
+        monkeypatch.delenv("SDMX_STATSNZ_KEY", raising=False)
+        client = SDMXProgressiveClient(
+            base_url="https://api.data.stats.govt.nz/rest",
+            agency_id="STATSNZ",
+            endpoint_key="STATSNZ",
+        )
+        with caplog.at_level("WARNING"):
+            headers = client._build_auth_headers()
+        assert headers == {}
+        assert any(
+            "SDMX_STATSNZ_KEY" in rec.message and rec.levelname == "WARNING"
+            for rec in caplog.records
+        )
+
+    def test_unknown_endpoint_key_returns_empty(self):
+        client = SDMXProgressiveClient(
+            base_url="https://api.org/rest",
+            agency_id="X",
+            endpoint_key="NOT_A_REAL_ENDPOINT",
+        )
+        assert client._build_auth_headers() == {}
+
+    @pytest.mark.asyncio
+    async def test_session_carries_auth_header_when_env_set(self, monkeypatch):
+        monkeypatch.setenv("SDMX_STATSNZ_KEY", "live-key-xyz")
+        client = SDMXProgressiveClient(
+            base_url="https://api.data.stats.govt.nz/rest",
+            agency_id="STATSNZ",
+            endpoint_key="STATSNZ",
+        )
+        session = await client._get_session()
+        try:
+            assert session.headers.get("Ocp-Apim-Subscription-Key") == "live-key-xyz"
+        finally:
+            await session.aclose()
+
+    @pytest.mark.asyncio
+    async def test_session_has_no_auth_header_for_non_keyed_endpoint(self):
+        client = SDMXProgressiveClient(
+            base_url="https://stats-sdmx-disseminate.pacificdata.org/rest",
+            agency_id="SPC",
+            endpoint_key="SPC",
+        )
+        session = await client._get_session()
+        try:
+            assert "Ocp-Apim-Subscription-Key" not in session.headers
+        finally:
+            await session.aclose()
+
+    def test_default_query_params_empty_for_non_statsnz(self):
+        client = SDMXProgressiveClient(
+            base_url="https://stats-sdmx-disseminate.pacificdata.org/rest",
+            agency_id="SPC",
+            endpoint_key="SPC",
+        )
+        assert client._build_default_query_params() == {}
+
+    def test_default_query_params_for_statsnz_forces_xml(self):
+        client = SDMXProgressiveClient(
+            base_url="https://api.data.stats.govt.nz/rest",
+            agency_id="STATSNZ",
+            endpoint_key="STATSNZ",
+        )
+        assert client._build_default_query_params() == {"format": "xml"}

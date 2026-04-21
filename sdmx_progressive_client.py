@@ -8,16 +8,16 @@ This client provides a layered approach to SDMX metadata discovery:
 """
 
 import logging
+import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-
 import httpx
 from mcp.server.fastmcp import Context
 
-from config import SDMX_AGENCY_ID, SDMX_BASE_URL
+from config import SDMX_AGENCY_ID, SDMX_BASE_URL, SDMX_ENDPOINTS
 from models.sdmx_types import (
     AttributeInfo,
     MaintainableRef,
@@ -140,11 +140,53 @@ class SDMXProgressiveClient:
             import ssl
 
             ssl_ctx = ssl.create_default_context()
+            default_headers = self._build_auth_headers()
+            default_params = self._build_default_query_params()
             self.session = httpx.AsyncClient(
                 timeout=30.0,
                 verify=ssl_ctx,
+                headers=default_headers or None,
+                params=default_params or None,
             )
         return self.session
+
+    def _build_default_query_params(self) -> dict[str, str]:
+        """Return per-endpoint query params merged into every request."""
+        if not self.endpoint_key:
+            return {}
+        ep = SDMX_ENDPOINTS.get(self.endpoint_key)
+        if ep is None:
+            return {}
+        params = ep.get("default_query_params")
+        if not params:
+            return {}
+        return dict(params)
+
+    def _build_auth_headers(self) -> dict[str, str]:
+        """Return subscription-key headers for endpoints that require them."""
+        if not self.endpoint_key:
+            return {}
+        ep = SDMX_ENDPOINTS.get(self.endpoint_key)
+        if ep is None:
+            return {}
+        auth = ep.get("auth")
+        if not auth:
+            return {}
+        header_name = auth.get("header")
+        env_name = auth.get("env")
+        if not header_name or not env_name:
+            return {}
+        key = os.getenv(env_name)
+        if not key:
+            logger.warning(
+                "Endpoint %s requires header %s but env var %s is unset; "
+                "requests will fail with 401",
+                self.endpoint_key,
+                header_name,
+                env_name,
+            )
+            return {}
+        return {header_name: key}
 
     async def close(self):
         """Close HTTP session."""

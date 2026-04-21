@@ -176,6 +176,34 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
         },
         "references_support": ["none", "children", "parents", "all"],
     },
+    "STATSNZ": {
+        "name": "Stats NZ (Aotearoa Data Explorer)",
+        "base_url": "https://api.data.stats.govt.nz/rest",
+        "agency_id": "STATSNZ",
+        "description": "New Zealand official statistics",
+        "constraints": {
+            # Live-probed 2026-04-21:
+            # - /availableconstraint/{flow}/all/all/all returns Actual
+            #   ContentConstraint with per-dimension KeyValues (~3.6KB).
+            # - /contentconstraint/STATSNZ/all/latest returns 50MB+ and times
+            #   out; wildcard /availableconstraint/all/all/all/all returns 500.
+            "single_flow": "availableconstraint",
+            "bulk": None,
+        },
+        "references_support": ["none", "children", "parents", "all"],
+        # Subscription-gated API. Client reads the env var and injects the
+        # header as a default on httpx.AsyncClient so every request carries it.
+        "auth": {
+            "header": "Ocp-Apim-Subscription-Key",
+            "env": "SDMX_STATSNZ_KEY",
+        },
+        # Stats NZ's APIM gateway ignores the SDMX Accept header and returns
+        # SDMX-JSON by default for structural metadata. The client parses XML,
+        # so force format=xml on every request via a default query param.
+        "default_query_params": {
+            "format": "xml",
+        },
+    },
 }
 
 

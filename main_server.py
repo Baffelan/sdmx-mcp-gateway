@@ -671,6 +671,7 @@ async def get_code_usage(
     codes: list[str] | None = None,
     dimension_id: str | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> CodeUsageResult:
     """
@@ -690,6 +691,9 @@ async def get_code_usage(
         codes: Optional list of specific codes to check. If empty, returns all used codes.
         dimension_id: Optional dimension to check. If empty, checks all dimensions.
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         CodeUsageResult with:
@@ -704,9 +708,8 @@ async def get_code_usage(
         >>> get_code_usage("DF_SDG", dimension_id="INDICATOR")
         # Returns all indicator codes that actually have data
     """
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
-    ep_key = _get_session_endpoint_key(ctx)
     api_calls = 0
 
     if ctx:
@@ -793,6 +796,7 @@ async def get_code_usage(
             for dim_id, dim_codes in sorted(all_used_codes.items()):
                 interpretation.append("  - " + dim_id + ": " + str(len(dim_codes)) + " codes")
 
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
         return CodeUsageResult(
             dataflow_id=dataflow_id,
             dimension_id=dimension_id,
@@ -849,6 +853,7 @@ async def check_time_availability(
     dataflow_id: str,
     query_period: str,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> TimeAvailabilityResult:
     """
@@ -872,6 +877,9 @@ async def check_time_availability(
         dataflow_id: The dataflow to check
         query_period: The period to check (e.g. "2010", "2010-Q1", "2010-01", "2010-W05")
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         TimeAvailabilityResult with availability classification and reasoning
@@ -880,9 +888,8 @@ async def check_time_availability(
 
     from utils import classify_time_overlap, parse_query_period
 
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
-    ep_key = _get_session_endpoint_key(ctx)
     api_calls = 0
 
     if ctx:
@@ -1016,6 +1023,7 @@ async def check_time_availability(
                 "Data spans this time window but at different granularity. Try a different frequency."
             )
 
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
         return TimeAvailabilityResult(
             dataflow_id=dataflow_id,
             query_period=query_period,
@@ -1054,6 +1062,7 @@ async def find_code_usage_across_dataflows(
     code: str,
     dimension_id: str | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> CrossDataflowCodeUsageResult:
     """
@@ -1092,6 +1101,9 @@ async def find_code_usage_across_dataflows(
             If provided, only matches in this dimension are returned.
             If omitted, all dimensions are searched.
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         CrossDataflowCodeUsageResult with:
@@ -1103,9 +1115,8 @@ async def find_code_usage_across_dataflows(
     from config import get_constraint_strategy
     from utils import SDMX_NAMESPACES
 
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
-    ep_key = _get_session_endpoint_key(ctx)
     ns = SDMX_NAMESPACES
     api_calls = 0
 
@@ -1169,6 +1180,11 @@ async def find_code_usage_across_dataflows(
         dataflows_with_data: list[CrossDataflowUsageInfo] = []
         constraints_searched = 0
         constraint_type_used = None
+
+        # Grab the session once so we can register each matched dataflow
+        # on the resolved endpoint without re-fetching per iteration.
+        _app_ctx = get_app_context(ctx)
+        _session = _app_ctx.get_session(ctx) if _app_ctx is not None else None
 
         # Two passes: first Actual, then Allowed (if no Actual found)
         for target_type in ("Actual", "Allowed"):
@@ -1248,6 +1264,8 @@ async def find_code_usage_across_dataflows(
                             is_used=True,
                         )
                     )
+                    if _session is not None:
+                        _session.register_dataflow(ep_key, dataflow_id_val)
 
             if found_any:
                 constraint_type_used = target_type

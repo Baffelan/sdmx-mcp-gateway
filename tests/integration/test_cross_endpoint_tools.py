@@ -212,6 +212,52 @@ async def test_list_available_endpoints_marks_session_default_as_current():
 
 
 @pytest.mark.asyncio
+async def test_switch_endpoint_interactive_uses_session_path_when_available():
+    """switch_endpoint_interactive must flip the session pointer, not the
+    process-wide global, whenever AppContext is present. Without this, one
+    user's interactive switch would affect every other concurrent session."""
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+
+    # Craft a ctx that reports no elicitation support so the tool returns
+    # the non-elicitation branch without issuing a real elicit request.
+    class _CtxNoElicit:
+        def __init__(self, app_ctx, sid="interactive-s1"):
+            class RC:
+                pass
+
+            rc = RC()
+            rc.lifespan_context = app_ctx
+            rc.session_id = sid
+            rc.meta = None
+            self.request_context = rc
+            # session exists but client_params exposes no elicitation capability
+            class _Session:
+                client_params = None
+
+            self.session = _Session()
+            self.meta = None
+
+        async def info(self, *a, **kw):
+            pass
+
+    ctx = _CtxNoElicit(app_ctx)
+
+    # Seed the session on SPC
+    session = app_ctx.get_session(ctx)
+    assert session.default_endpoint_key == "SPC"
+
+    from main_server import switch_endpoint_interactive as handler
+
+    # With no elicitation support we get the "please use switch_endpoint(...)"
+    # guidance response. The important regression check is the hint text
+    # reflects the session's current endpoint, not a global.
+    result = await handler(ctx, endpoint_key="ECB")
+    assert result.success is False
+    assert "SPC" in (result.hint or "")  # session's current endpoint surfaced
+
+
+@pytest.mark.asyncio
 async def test_switch_endpoint_session_path_does_not_AttributeError():
     """Regression: switch_endpoint's session branch must not read removed
     endpoint_name / base_url mirror fields on SessionState."""

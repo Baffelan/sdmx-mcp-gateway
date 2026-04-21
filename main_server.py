@@ -5199,14 +5199,23 @@ async def switch_endpoint_interactive(
     from sdmx_progressive_client import SDMXProgressiveClient
     from tools import sdmx_tools
 
-    current_config = get_current_config()
-
-    # Find current endpoint key
-    current_key = None
-    for key, cfg in SDMX_ENDPOINTS.items():
-        if cfg["base_url"] == current_config["base_url"]:
-            current_key = key
-            break
+    # Prefer the session's default endpoint when AppContext is available so
+    # the elicit prompt shows the caller's current endpoint, not a
+    # process-wide global. Falls back to global config for direct-call tests.
+    app_ctx = get_app_context(ctx)
+    if app_ctx is not None:
+        session = app_ctx.get_session(ctx)
+        current_key = session.default_endpoint_key
+        current_cfg = SDMX_ENDPOINTS.get(current_key, {})
+        current_display_name = current_cfg.get("name", current_key)
+    else:
+        current_config = get_current_config()
+        current_key = None
+        for key, cfg in SDMX_ENDPOINTS.items():
+            if cfg["base_url"] == current_config["base_url"]:
+                current_key = key
+                break
+        current_display_name = current_config.get("name", "Unknown")
 
     # Check if client supports elicitation by checking client_params capabilities
     client_supports_elicitation = False
@@ -5273,7 +5282,7 @@ async def switch_endpoint_interactive(
         # Default MCP timeout is too short for humans to read and respond
         message_text = (
             f"## Select SDMX Data Source\n\n"
-            f"**Current endpoint**: {current_config['name']}\n\n"
+            f"**Current endpoint**: {current_display_name}\n\n"
             f"### Available endpoints:\n{endpoint_list}\n\n"
             f"Enter the endpoint key and confirm to switch."
         )
@@ -5342,7 +5351,31 @@ async def switch_endpoint_interactive(
                 hint=f"Use one of: {', '.join(SDMX_ENDPOINTS.keys())}",
             )
 
-        # Perform the switch
+        # Perform the switch. Prefer the session-based path when AppContext
+        # is available: pointer flip on SessionState.default_endpoint_key,
+        # isolated from other users. Only fall back to the legacy global
+        # switch when AppContext is absent (direct-call tests, unlifespaned
+        # servers).
+        if app_ctx is not None:
+            switch_result = await app_ctx.switch_endpoint(selected_endpoint, ctx)
+            new_config = switch_result["new_endpoint"]
+            return EndpointSwitchResult(
+                success=True,
+                message=f"Switched to {new_config['name']} (session-specific)",
+                new_endpoint=EndpointInfo(
+                    key=selected_endpoint,
+                    name=new_config["name"],
+                    base_url=new_config["base_url"],
+                    agency_id=new_config["agency_id"],
+                    description=new_config.get("description", ""),
+                    status="Active",
+                    is_current=True,
+                ),
+                error=None,
+                available_endpoints=None,
+                hint="This change only affects your session.",
+            )
+
         new_config = set_endpoint(selected_endpoint)
 
         if sdmx_tools.sdmx_client.session:

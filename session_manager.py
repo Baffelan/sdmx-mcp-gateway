@@ -237,7 +237,7 @@ class SessionManager:
         """
         Flip the session's default endpoint pointer.
 
-        Does not tear down pooled clients — they stay warm for future calls.
+        Does not tear down pooled clients; they stay warm for future calls.
         Only mutates the `default_endpoint_key` scalar.
         """
         sid = session_id or DEFAULT_SESSION_ID

@@ -5564,6 +5564,10 @@ def main():
         mcp.settings.port = args.port
         mcp.settings.stateless_http = args.stateless
         mcp.settings.json_response = args.json_response
+        # Tell the session manager we're serving HTTP so missing
+        # Mcp-Session-Id falls back with a loud warning instead of silently.
+        from session_manager import mark_http_transport_active
+        mark_http_transport_active()
         logger.info("HTTP server listening on %s:%d", args.host, args.port)
         mcp.run(transport=transport)
     else:

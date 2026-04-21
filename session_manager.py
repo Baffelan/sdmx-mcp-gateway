@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
@@ -64,10 +65,9 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _new_threading_lock() -> "threading.Lock":
+def _new_threading_lock() -> threading.Lock:
     """Factory for per-SessionState threading locks (dataclass can't default
     to a function call directly in the field declaration)."""
-    import threading
     return threading.Lock()
 
 
@@ -100,7 +100,7 @@ class SessionState:
     created_at: datetime = field(default_factory=_now_utc)
     last_accessed: datetime = field(default_factory=_now_utc)
     # Guards concurrent mutations of known_dataflows and probe_cache.
-    _state_lock: "threading.Lock" = field(
+    _state_lock: threading.Lock = field(
         default_factory=_new_threading_lock, repr=False, compare=False
     )
 
@@ -224,8 +224,6 @@ class SessionManager:
         Args:
             default_endpoint_key: Default endpoint for new sessions
         """
-        import threading
-
         self._sessions: dict[str, SessionState] = {}
         self._default_endpoint_key: str = default_endpoint_key
         # Single lock guarding every read/write/iterate of _sessions. Acquired

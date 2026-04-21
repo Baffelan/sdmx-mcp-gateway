@@ -27,6 +27,10 @@ class _FakeCtx:
         self.session = None
         self.meta = None
 
+    async def info(self, *args, **kwargs):
+        # The real mcp.Context exposes async info() for progress logging.
+        pass
+
 
 @pytest.mark.asyncio
 async def test_parallel_cross_endpoint_hits_distinct_base_urls():
@@ -147,3 +151,72 @@ async def test_no_hint_when_error_is_not_a_404():
     # But no mismatch-hint phrasing (no "Pass endpoint=" suggestion on a network error)
     assert "Pass endpoint=" not in joined
     assert "Registered endpoints:" not in joined
+
+
+@pytest.mark.asyncio
+async def test_get_code_usage_soft_failure_emits_sharp_hint():
+    """When _fetch_constraint_info returns empty but the dataflow is known on
+    another endpoint, the soft-failure early-return should append the hint."""
+    from config import SDMX_ENDPOINTS
+
+    available = list(SDMX_ENDPOINTS.keys())
+    ep_b = "ECB" if "ECB" in available else next(k for k in available if k != "SPC")
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    # Pretend we've seen DF_ELSEWHERE on SPC
+    session = app_ctx.get_session(ctx)
+    session.register_dataflow("SPC", "DF_ELSEWHERE")
+
+    # Force _fetch_constraint_info to return an empty _ConstraintInfo
+    from main_server import _ConstraintInfo
+
+    async def empty_fetch(client, dataflow_id, agency, endpoint_key=None):
+        return _ConstraintInfo(), 1
+
+    with patch("main_server._fetch_constraint_info", side_effect=empty_fetch):
+        from main_server import get_code_usage as handler
+
+        result = await handler(
+            dataflow_id="DF_ELSEWHERE",
+            endpoint=ep_b,
+            ctx=ctx,
+        )
+
+    joined = "\n".join(result.interpretation)
+    # "No ContentConstraint found" stays so legitimate constraint-less cases are still clear
+    assert "No ContentConstraint found" in joined
+    # Sharp hint names the real endpoint
+    assert "SPC" in joined
+    assert "endpoint='SPC'" in joined
+
+
+@pytest.mark.asyncio
+async def test_get_code_usage_soft_failure_no_hint_when_unregistered():
+    """When a dataflow has simply no constraint and isn't known elsewhere,
+    the soft-failure return should NOT append a noisy generic hint."""
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    from main_server import _ConstraintInfo
+
+    async def empty_fetch(client, dataflow_id, agency, endpoint_key=None):
+        return _ConstraintInfo(), 1
+
+    with patch("main_server._fetch_constraint_info", side_effect=empty_fetch):
+        from main_server import get_code_usage as handler
+
+        result = await handler(
+            dataflow_id="DF_LEGITIMATELY_CONSTRAINTLESS",
+            endpoint="SPC",
+            ctx=ctx,
+        )
+
+    joined = "\n".join(result.interpretation)
+    assert "No ContentConstraint found" in joined
+    # No generic noise ("Registered endpoints: [...]") for a legitimately constraint-less dataflow
+    assert "Registered endpoints:" not in joined
+    assert "Pass endpoint=" not in joined

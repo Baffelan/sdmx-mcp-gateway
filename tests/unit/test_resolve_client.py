@@ -104,6 +104,23 @@ async def test_resolve_client_no_app_context_rejects_explicit_endpoint():
 
 
 @pytest.mark.asyncio
+async def test_resolve_client_no_app_context_reports_custom_when_base_url_set(monkeypatch):
+    """When SDMX_BASE_URL is set, the no-AppContext fallback reports ep_key='CUSTOM'.
+
+    Prevents downstream tools from applying a registry-specific constraint
+    strategy to an endpoint that is not in SDMX_ENDPOINTS.
+    """
+    from main_server import _resolve_client
+
+    monkeypatch.setenv("SDMX_BASE_URL", "https://custom-sdmx.example/rest")
+    # SDMX_ENDPOINT may still be set; SDMX_BASE_URL takes priority.
+    monkeypatch.setenv("SDMX_ENDPOINT", "SPC")
+
+    _, ep_key = await _resolve_client(None, endpoint=None)
+    assert ep_key == "CUSTOM"
+
+
+@pytest.mark.asyncio
 async def test_resolve_client_parallel_cross_endpoint_keeps_clients_distinct(app_ctx):
     """gather'd resolves for two endpoints produce two distinct clients, both cached."""
     from main_server import _resolve_client

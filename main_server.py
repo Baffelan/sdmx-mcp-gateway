@@ -222,12 +222,18 @@ async def _resolve_client(
             )
         # Legacy fallback: route through get_session_client so test patches
         # targeting main_server.get_session_client continue to work. Resolve
-        # the reported ep_key from the same env var the legacy client honours,
-        # so callers see a consistent pair when SDMX_ENDPOINT overrides SPC.
+        # the reported ep_key from the same env the legacy client honours:
+        # SDMX_BASE_URL takes priority (custom endpoint, not in the registry),
+        # otherwise SDMX_ENDPOINT names a registry key. Returning "CUSTOM" for
+        # the base-url case prevents downstream tools from applying a
+        # registry-specific constraint strategy to an unknown endpoint.
         import os
-        fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
-        if fallback_ep not in SDMX_ENDPOINTS:
-            fallback_ep = "SPC"
+        if os.getenv("SDMX_BASE_URL"):
+            fallback_ep = "CUSTOM"
+        else:
+            fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
+            if fallback_ep not in SDMX_ENDPOINTS:
+                fallback_ep = "SPC"
         return await get_session_client(ctx), fallback_ep
 
     session = app_ctx.get_session(ctx)
@@ -790,6 +796,16 @@ async def get_code_usage(
         api_calls += fetch_calls
 
         if not info.used_codes:
+            interpretation = [
+                "No ContentConstraint found for " + dataflow_id + ".",
+                "Cannot efficiently determine code usage.",
+            ]
+            # Empty message = only surface the sharp (known-elsewhere) hint;
+            # don't emit the generic "Registered endpoints: ..." text, which
+            # would fire on every legitimately constraint-less dataflow.
+            hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, "")
+            if hint:
+                interpretation.append(hint)
             return CodeUsageResult(
                 dataflow_id=dataflow_id,
                 dimension_id=dimension_id,
@@ -797,10 +813,7 @@ async def get_code_usage(
                 codes_checked=[],
                 summary={"total_checked": 0, "used": 0, "unused": 0},
                 all_used_codes=None,
-                interpretation=[
-                    "No ContentConstraint found for " + dataflow_id + ".",
-                    "Cannot efficiently determine code usage.",
-                ],
+                interpretation=interpretation,
                 api_calls_made=api_calls,
             )
 
@@ -992,6 +1005,16 @@ async def check_time_availability(
         api_calls += fetch_calls
 
         if not info.used_codes and info.time_start is None:
+            interpretation = [
+                "No ContentConstraint found for " + dataflow_id + ".",
+                "Cannot determine time availability from metadata alone.",
+            ]
+            # Empty message surfaces only the sharp hint if the dataflow is
+            # known on a different endpoint; no generic noise for plain
+            # constraint-less dataflows.
+            hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, "")
+            if hint:
+                interpretation.append(hint)
             return TimeAvailabilityResult(
                 dataflow_id=dataflow_id,
                 query_period=query_period,
@@ -1001,10 +1024,7 @@ async def check_time_availability(
                 availability="no",
                 available_frequencies=[],
                 overlap="none",
-                interpretation=[
-                    "No ContentConstraint found for " + dataflow_id + ".",
-                    "Cannot determine time availability from metadata alone.",
-                ],
+                interpretation=interpretation,
                 recommendation="No constraint available. Use get_data_availability() or query the data directly.",
                 api_calls_made=api_calls,
             )

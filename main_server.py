@@ -411,6 +411,7 @@ async def list_dataflows(
 async def get_dataflow_structure(
     dataflow_id: str,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataflowStructureResult:
     """
@@ -422,14 +423,16 @@ async def get_dataflow_structure(
     Args:
         dataflow_id: The dataflow identifier
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with dataflow metadata and structure definition
     """
     from tools.sdmx_tools import get_dataflow_structure as get_structure_impl
 
-    # Get session-specific client for multi-user support
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await get_structure_impl(client, dataflow_id, agency_id, ctx)
@@ -483,6 +486,7 @@ async def get_dataflow_structure(
         measure=struct_data.get("measure"),
     )
 
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
     return DataflowStructureResult(
         discovery_level=result.get("discovery_level", "structure"),
         dataflow=dataflow,
@@ -497,6 +501,7 @@ async def get_codelist(
     agency_id: str | None = None,
     version: str = "latest",
     search_term: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> dict[str, Any]:
     """
@@ -510,12 +515,14 @@ async def get_codelist(
         agency_id: The agency (uses session endpoint if not specified)
         version: Version (default: "latest")
         search_term: Optional search term to filter codes
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Dictionary with codelist information and codes
     """
-    # Get session-specific client for multi-user support
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
     result = await client.browse_codelist(codelist_id, agency_id, version, search_term)
     return result
@@ -528,6 +535,7 @@ async def get_dimension_codes(
     limit: int = 50,
     offset: int = 0,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DimensionCodesResult:
     """
@@ -542,14 +550,16 @@ async def get_dimension_codes(
         limit: Maximum codes to return (default: 50)
         offset: Number of codes to skip for pagination (default: 0)
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with codes for the dimension
     """
     from tools.sdmx_tools import get_dimension_codes as get_codes_impl
 
-    # Get session-specific client for multi-user support
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await get_codes_impl(client, dataflow_id, dimension_id, agency_id, limit, offset, ctx)
@@ -578,6 +588,7 @@ async def get_dimension_codes(
         for code in result.get("codes", [])
     ]
 
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
     return DimensionCodesResult(
         discovery_level=result.get("discovery_level", "codes"),
         dataflow_id=result.get("dataflow_id", dataflow_id),

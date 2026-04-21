@@ -2049,6 +2049,7 @@ async def get_data_availability(
     dataflow_id: str,
     filters: dict[str, str] | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataAvailabilityResult:
     """
@@ -2061,14 +2062,16 @@ async def get_data_availability(
         dataflow_id: The dataflow to check
         filters: Optional dict of dimension=value pairs to check
         agency_id: The agency ID
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Information about what data exists, including time ranges and suggestions
     """
     from tools.sdmx_tools import get_data_availability as get_availability_impl
 
-    # Get session-specific client for multi-user support
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await get_availability_impl(
@@ -2084,6 +2087,8 @@ async def get_data_availability(
     if result.get("time_range"):
         tr = result["time_range"]
         time_range = TimeRange(start=tr.get("start"), end=tr.get("end"))
+
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
 
     return DataAvailabilityResult(
         discovery_level=result.get("discovery_level", "availability"),
@@ -2108,6 +2113,7 @@ async def validate_query(
     start_period: str | None = None,
     end_period: str | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> ValidationResult:
     """
@@ -2123,14 +2129,16 @@ async def validate_query(
         start_period: Start of time range
         end_period: End of time range
         agency_id: The agency
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Validation results including any errors, warnings, and validated parameters
     """
     from tools.sdmx_tools import validate_query as validate_impl
 
-    # Get session-specific client for multi-user support
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await validate_impl(
@@ -2143,6 +2151,8 @@ async def validate_query(
         agency_id=agency_id,
         ctx=ctx,
     )
+
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
 
     return ValidationResult(
         valid=result.get("is_valid", False),
@@ -2160,6 +2170,7 @@ async def build_key(
     dataflow_id: str,
     filters: dict[str, str] | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> KeyBuildResult:
     """
@@ -2175,14 +2186,16 @@ async def build_key(
         dataflow_id: The dataflow identifier
         filters: Optional dict mapping dimension IDs to values
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with the constructed key and usage information
     """
     from tools.sdmx_tools import build_sdmx_key
 
-    # Get session-specific client for multi-user support
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await build_sdmx_key(client, dataflow_id, filters or {}, agency_id, ctx)
@@ -2197,6 +2210,8 @@ async def build_key(
             key_template="",
             usage=f"Error: {result['error']}",
         )
+
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
 
     return KeyBuildResult(
         dataflow_id=result.get("dataflow_id", dataflow_id),
@@ -2218,6 +2233,7 @@ async def build_data_url(
     end_period: str | None = None,
     format_type: str = "csv",
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataUrlResult:
     """
@@ -2234,14 +2250,16 @@ async def build_data_url(
         end_period: End of time range (optional)
         format_type: Output format (csv, json, xml)
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with the complete data URL and usage information
     """
     from tools.sdmx_tools import build_data_url as build_url_impl
 
-    # Get session-specific client for multi-user support
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await build_url_impl(
@@ -2275,6 +2293,8 @@ async def build_data_url(
     time_range = None
     if result.get("start_period") or result.get("end_period"):
         time_range = TimeRange(start=result.get("start_period"), end=result.get("end_period"))
+
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
 
     return DataUrlResult(
         dataflow_id=dataflow_id,

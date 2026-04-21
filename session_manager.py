@@ -43,6 +43,21 @@ DEFAULT_SESSION_ID = "default"
 # Session timeout for cleanup (30 minutes of inactivity)
 SESSION_TIMEOUT_MINUTES = 30
 
+# HTTP-transport marker. Set by main_server when starting streamable-http.
+# When True, silent fallback to DEFAULT_SESSION_ID in get_session_id_from_context
+# emits a rate-limited WARNING because it breaks per-user isolation.
+# STDIO legitimately uses DEFAULT_SESSION_ID; no warning there.
+_HTTP_TRANSPORT_ACTIVE: bool = False
+# Count of fallbacks; warnings fire at 1, 10, 100, 1000, ... (powers of 10).
+_fallback_count: int = 0
+
+
+def mark_http_transport_active() -> None:
+    """Called by main_server when serving streamable-http so the
+    session-id-fallback warning fires. Calling this is a no-op for STDIO."""
+    global _HTTP_TRANSPORT_ACTIVE
+    _HTTP_TRANSPORT_ACTIVE = True
+
 
 def _now_utc() -> datetime:
     """Get current UTC datetime (timezone-aware)."""
@@ -379,6 +394,32 @@ class SessionManager:
         return result
 
 
+def _fallback_to_default_session_id(reason: str) -> str:
+    """
+    Return DEFAULT_SESSION_ID and, under HTTP transport, emit a rate-limited
+    WARNING because falling back collapses every caller into a shared session.
+
+    Rate-limit strategy: warn at powers of 10 (1, 10, 100, 1000, ...) so first
+    occurrences are loud but a persistent misconfiguration doesn't flood the log.
+    Called from multiple sites so operators see one signal regardless of which
+    extraction path gave up.
+    """
+    if _HTTP_TRANSPORT_ACTIVE:
+        global _fallback_count
+        _fallback_count += 1
+        count = _fallback_count
+        if count == 10 ** (len(str(count)) - 1):
+            logger.warning(
+                "MCP session id could not be extracted from ctx (%s); falling back "
+                "to DEFAULT_SESSION_ID=%r. Under HTTP transport this collapses "
+                "every caller into a shared session and breaks per-user "
+                "isolation. Seen %d time(s). Check the transport layer's "
+                "Mcp-Session-Id handling.",
+                reason, DEFAULT_SESSION_ID, count,
+            )
+    return DEFAULT_SESSION_ID
+
+
 def get_session_id_from_context(ctx: Context[Any, Any, Any] | None) -> str:
     """
     Extract session ID from MCP context.
@@ -393,7 +434,7 @@ def get_session_id_from_context(ctx: Context[Any, Any, Any] | None) -> str:
         Session ID string
     """
     if ctx is None:
-        return DEFAULT_SESSION_ID
+        return _fallback_to_default_session_id("ctx is None")
 
     # Try various ways to get session ID
     # The exact method depends on SDK version and transport
@@ -438,5 +479,4 @@ def get_session_id_from_context(ctx: Context[Any, Any, Any] | None) -> str:
     except (AttributeError, TypeError):
         pass
 
-    # Fallback to default
-    return DEFAULT_SESSION_ID
+    return _fallback_to_default_session_id("no session-id found in ctx")

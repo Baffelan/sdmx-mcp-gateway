@@ -224,3 +224,72 @@ def test_get_session_is_race_safe_against_injected_create_delay():
         "got " + str(len({id(r) for r in results})) + " distinct instances. "
         "This is the H1 race condition: concurrent check-then-insert."
     )
+
+
+def test_session_id_fallback_silent_in_stdio_mode(caplog):
+    """Under STDIO (default), the session-id extraction fallback is normal
+    and should NOT log a WARNING. Every request legitimately uses
+    DEFAULT_SESSION_ID in STDIO."""
+    import logging
+    import session_manager
+
+    # Ensure we're in STDIO mode for this test
+    original = session_manager._HTTP_TRANSPORT_ACTIVE
+    session_manager._HTTP_TRANSPORT_ACTIVE = False
+    try:
+        caplog.set_level(logging.WARNING, logger="session_manager")
+        sid = session_manager.get_session_id_from_context(None)
+        assert sid == session_manager.DEFAULT_SESSION_ID
+        assert not any(
+            "DEFAULT_SESSION_ID" in r.message for r in caplog.records
+        ), "STDIO should not warn on fallback; got: " + str([r.message for r in caplog.records])
+    finally:
+        session_manager._HTTP_TRANSPORT_ACTIVE = original
+
+
+def test_session_id_fallback_warns_in_http_mode(caplog):
+    """Under HTTP transport, missing Mcp-Session-Id is a bug signal and must
+    log a WARNING on first occurrence so operators notice the isolation break."""
+    import logging
+    import session_manager
+
+    original_flag = session_manager._HTTP_TRANSPORT_ACTIVE
+    original_count = session_manager._fallback_count
+    session_manager._HTTP_TRANSPORT_ACTIVE = True
+    session_manager._fallback_count = 0
+    try:
+        caplog.set_level(logging.WARNING, logger="session_manager")
+        sid = session_manager.get_session_id_from_context(None)
+        assert sid == session_manager.DEFAULT_SESSION_ID
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert warnings, "Expected a WARNING on first HTTP fallback"
+        assert "DEFAULT_SESSION_ID" in warnings[0].message
+        assert "isolation" in warnings[0].message.lower()
+    finally:
+        session_manager._HTTP_TRANSPORT_ACTIVE = original_flag
+        session_manager._fallback_count = original_count
+
+
+def test_session_id_fallback_rate_limited_to_powers_of_ten(caplog):
+    """The warning must fire at counts 1, 10, 100 — not on every single call.
+    A persistent misconfiguration should be noticed, not flood the log."""
+    import logging
+    import session_manager
+
+    original_flag = session_manager._HTTP_TRANSPORT_ACTIVE
+    original_count = session_manager._fallback_count
+    session_manager._HTTP_TRANSPORT_ACTIVE = True
+    session_manager._fallback_count = 0
+    try:
+        caplog.set_level(logging.WARNING, logger="session_manager")
+        # Call 100 times; expect warnings only at counts 1, 10, 100 = 3 total.
+        for _ in range(100):
+            session_manager.get_session_id_from_context(None)
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 3, (
+            "Expected 3 warnings (at counts 1, 10, 100); got "
+            + str(len(warnings)) + ": " + str([r.message for r in warnings])
+        )
+    finally:
+        session_manager._HTTP_TRANSPORT_ACTIVE = original_flag
+        session_manager._fallback_count = original_count

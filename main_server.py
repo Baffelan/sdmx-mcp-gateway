@@ -5348,8 +5348,13 @@ async def switch_endpoint_interactive(
         if sdmx_tools.sdmx_client.session:
             await sdmx_tools.sdmx_client.close()
 
+        # Stamp endpoint_key so _resolve_client's no-AppContext fallback
+        # reports the current key after the interactive switch, matching
+        # the non-interactive legacy branch.
         sdmx_tools.sdmx_client = SDMXProgressiveClient(
-            base_url=new_config["base_url"], agency_id=new_config["agency_id"]
+            base_url=new_config["base_url"],
+            agency_id=new_config["agency_id"],
+            endpoint_key=selected_endpoint,
         )
 
         return EndpointSwitchResult(

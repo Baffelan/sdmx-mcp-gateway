@@ -208,6 +208,18 @@ async def _resolve_client(
 
     app_ctx = get_app_context(ctx)
     if app_ctx is None:
+        if endpoint is not None:
+            # Caller explicitly asked for a specific endpoint but the session
+            # infrastructure isn't available. Silently routing to the legacy
+            # default would misroute the request (wrong base_url, wrong agency).
+            # Surface the misconfiguration instead.
+            raise ValueError(
+                "endpoint='" + endpoint + "' was requested but no AppContext "
+                "is available. Explicit endpoints require the server lifespan "
+                "to have initialised the SessionManager. If you are calling "
+                "a tool handler directly in a test, construct an AppContext "
+                "(see tests/integration/test_cross_endpoint_tools.py)."
+            )
         # Legacy fallback: route through get_session_client so test patches
         # targeting main_server.get_session_client continue to work. Resolve
         # the reported ep_key from the same env var the legacy client honours,

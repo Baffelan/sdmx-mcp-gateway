@@ -92,6 +92,18 @@ async def test_resolve_client_no_app_context_falls_back_to_default_client():
 
 
 @pytest.mark.asyncio
+async def test_resolve_client_no_app_context_rejects_explicit_endpoint():
+    """Explicit endpoint= with no AppContext must raise rather than silently misroute."""
+    from main_server import _resolve_client
+
+    with pytest.raises(ValueError) as exc:
+        await _resolve_client(None, endpoint="ECB")
+    msg = str(exc.value)
+    assert "ECB" in msg
+    assert "AppContext" in msg or "appcontext" in msg.lower()
+
+
+@pytest.mark.asyncio
 async def test_resolve_client_parallel_cross_endpoint_keeps_clients_distinct(app_ctx):
     """gather'd resolves for two endpoints produce two distinct clients, both cached."""
     from main_server import _resolve_client

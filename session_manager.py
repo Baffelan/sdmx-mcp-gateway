@@ -18,8 +18,8 @@ Usage:
     # Switch endpoint for a specific session
     await manager.switch_session_endpoint("session-123", "ECB")
 
-    # Get session's current client
-    client = state.client
+    # Get or create a pooled client for the session's default endpoint
+    client = await state.get_or_create_client(state.default_endpoint_key)
 """
 
 from __future__ import annotations
@@ -191,33 +191,14 @@ class SessionManager:
         return config
 
     def _create_session(self, session_id: str, endpoint_key: str | None = None) -> SessionState:
-        """
-        Create a new session with the specified or default endpoint.
-
-        Args:
-            session_id: Unique session identifier
-            endpoint_key: Optional endpoint key (uses default if not specified)
-
-        Returns:
-            New SessionState instance
-        """
+        """Create a new session with the given default endpoint key."""
         key = endpoint_key or self._default_endpoint_key
-        config = self._get_endpoint_config(key)
-
-        client = SDMXProgressiveClient(
-            base_url=config["base_url"],
-            agency_id=config["agency_id"],
-            endpoint_key=key,
-        )
-
+        # Validate up front so a bad default fails loudly at session creation,
+        # not on first tool call.
+        self._get_endpoint_config(key)
         return SessionState(
             session_id=session_id,
-            endpoint_key=key,
-            endpoint_name=config["name"],
-            base_url=config["base_url"],
-            agency_id=config["agency_id"],
-            description=config.get("description", ""),
-            client=client,
+            default_endpoint_key=key,
         )
 
     def get_session(self, session_id: str | None = None) -> SessionState:
@@ -279,7 +260,7 @@ class SessionManager:
             old_endpoint: str | None = None
             if sid in self._sessions:
                 old_session = self._sessions[sid]
-                old_endpoint = old_session.endpoint_key
+                old_endpoint = old_session.default_endpoint_key
 
                 # Close old client
                 await old_session.close()
@@ -362,30 +343,23 @@ class SessionManager:
         logger.debug("Closed all sessions")
 
     def get_session_info(self, session_id: str | None = None) -> dict[str, Any] | None:
-        """
-        Get information about a session.
-
-        Args:
-            session_id: Session to query (None uses default)
-
-        Returns:
-            Session information dict, or None if session doesn't exist
-        """
+        """Get information about a session."""
         sid = session_id or DEFAULT_SESSION_ID
-
         if sid not in self._sessions:
             return None
 
         session = self._sessions[sid]
+        cfg = self._get_endpoint_config(session.default_endpoint_key)
         return {
             "session_id": session.session_id,
-            "endpoint_key": session.endpoint_key,
-            "endpoint_name": session.endpoint_name,
-            "base_url": session.base_url,
-            "agency_id": session.agency_id,
+            "endpoint_key": session.default_endpoint_key,
+            "endpoint_name": cfg["name"],
+            "base_url": cfg["base_url"],
+            "agency_id": cfg["agency_id"],
             "created_at": session.created_at.isoformat(),
             "last_accessed": session.last_accessed.isoformat(),
             "is_expired": session.is_expired(),
+            "pool_endpoints": sorted(session.clients.keys()),
         }
 
     def list_sessions(self) -> list[dict[str, Any]]:

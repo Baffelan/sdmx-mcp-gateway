@@ -1144,24 +1144,30 @@ class TestEndpointKeyThreading:
         )
         assert client.endpoint_key is None
 
-    def test_session_manager_passes_endpoint_key(self):
-        """SessionManager should pass endpoint_key to client."""
+    @pytest.mark.asyncio
+    async def test_session_manager_passes_endpoint_key(self):
+        """SessionManager should seed session with default endpoint key."""
         from session_manager import SessionManager
 
         manager = SessionManager()
         session = manager.get_session("test-session")
-        assert session.client.endpoint_key == "SPC"  # Default endpoint
+        assert session.default_endpoint_key == "SPC"  # Default endpoint
+        client = await session.get_or_create_client(session.default_endpoint_key)
+        assert client.endpoint_key == "SPC"
+        await manager.close_all()
 
     @pytest.mark.asyncio
     async def test_session_switch_updates_endpoint_key(self):
-        """Switching endpoint should update client's endpoint_key."""
+        """Switching endpoint should update the session's default endpoint."""
         from session_manager import SessionManager
 
         manager = SessionManager()
         await manager.switch_endpoint("ECB", session_id="test-session")
         session = manager.get_session("test-session")
-        assert session.client.endpoint_key == "ECB"
-        assert session.client.agency_id == "ECB"
+        assert session.default_endpoint_key == "ECB"
+        client = await session.get_or_create_client(session.default_endpoint_key)
+        assert client.endpoint_key == "ECB"
+        assert client.agency_id == "ECB"
         await manager.close_all()
 
 

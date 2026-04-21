@@ -301,7 +301,17 @@ def get_current_config() -> dict[str, Any]:
 
 def set_endpoint(endpoint_key: str) -> dict[str, Any]:
     """
-    Switch to a different SDMX endpoint.
+    Switch the process-wide SDMX endpoint.
+
+    .. deprecated::
+        Process-wide mutation is not multi-user safe. Each call rewrites
+        the module globals SDMX_BASE_URL and SDMX_AGENCY_ID, which
+        SDMXProgressiveClient silently reads as defaults — so a switch
+        issued by one caller changes the endpoint every unlifespaned
+        client sees afterwards. Use ``AppContext.switch_endpoint(ctx)``
+        for the session-scoped pointer flip instead. This function is
+        retained only for the legacy no-AppContext fallback paths in
+        main_server.switch_endpoint / switch_endpoint_interactive.
 
     Args:
         endpoint_key: Key from SDMX_ENDPOINTS dict
@@ -309,6 +319,16 @@ def set_endpoint(endpoint_key: str) -> dict[str, Any]:
     Returns:
         The new configuration dict
     """
+    import warnings
+
+    warnings.warn(
+        "config.set_endpoint() mutates process-wide globals and is not "
+        "multi-user safe. Use AppContext.switch_endpoint() for the "
+        "session-scoped pointer flip instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     global _current_endpoint_key, SDMX_BASE_URL, SDMX_AGENCY_ID
 
     if endpoint_key not in SDMX_ENDPOINTS:

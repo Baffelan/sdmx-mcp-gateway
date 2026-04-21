@@ -263,6 +263,20 @@ def _build_mismatch_hint(
     )
 
 
+def _register_dataflow_if_possible(
+    ctx: Context[Any, Any, Any] | None,
+    endpoint_key: str,
+    dataflow_id: str | None,
+) -> None:
+    """Record that dataflow_id exists on endpoint_key for future mismatch hints."""
+    if dataflow_id is None:
+        return
+    app_ctx = get_app_context(ctx)
+    if app_ctx is None:
+        return
+    app_ctx.get_session(ctx).register_dataflow(endpoint_key, dataflow_id)
+
+
 # =============================================================================
 # Discovery Tools
 # =============================================================================

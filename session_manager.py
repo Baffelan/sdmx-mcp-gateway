@@ -235,38 +235,24 @@ class SessionManager:
         session_id: str | None = None,
     ) -> dict[str, Any]:
         """
-        Switch endpoint for a specific session.
+        Flip the session's default endpoint pointer.
 
-        This closes the old client and creates a new one configured
-        for the new endpoint. Only affects the specified session.
-
-        Args:
-            endpoint_key: Target endpoint key (e.g., "ECB", "UNICEF")
-            session_id: Session to switch (None uses default)
-
-        Returns:
-            Dictionary with switch result information
-
-        Raises:
-            ValueError: If endpoint_key is not recognized
+        Does not tear down pooled clients — they stay warm for future calls.
+        Only mutates the `default_endpoint_key` scalar.
         """
         sid = session_id or DEFAULT_SESSION_ID
-
-        # Validate endpoint first
-        config = self._get_endpoint_config(endpoint_key)
+        cfg = self._get_endpoint_config(endpoint_key)
 
         async with self._lock:
-            # Get or create session
-            old_endpoint: str | None = None
-            if sid in self._sessions:
-                old_session = self._sessions[sid]
-                old_endpoint = old_session.default_endpoint_key
-
-                # Close old client
-                await old_session.close()
-
-            # Create new session with new endpoint
-            self._sessions[sid] = self._create_session(sid, endpoint_key)
+            session = self._sessions.get(sid)
+            if session is None:
+                session = self._create_session(sid, endpoint_key)
+                self._sessions[sid] = session
+                old_endpoint = None
+            else:
+                old_endpoint = session.default_endpoint_key
+                session.default_endpoint_key = endpoint_key
+                session.touch()
 
         logger.info("Session %s: switched from %s to %s", sid, old_endpoint, endpoint_key)
 
@@ -276,10 +262,10 @@ class SessionManager:
             "previous_endpoint": old_endpoint,
             "new_endpoint": {
                 "key": endpoint_key,
-                "name": config["name"],
-                "base_url": config["base_url"],
-                "agency_id": config["agency_id"],
-                "description": config.get("description", ""),
+                "name": cfg["name"],
+                "base_url": cfg["base_url"],
+                "agency_id": cfg["agency_id"],
+                "description": cfg.get("description", ""),
             },
         }
 

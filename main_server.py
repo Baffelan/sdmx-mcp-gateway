@@ -4936,7 +4936,13 @@ async def switch_endpoint(
                 ),
                 error=None,
                 available_endpoints=None,
-                hint="This change only affects your session",
+                hint=(
+                    "This change only affects your session. "
+                    "Note: most endpoint-scoped tools now accept an "
+                    "`endpoint` parameter directly, so `switch_endpoint` is "
+                    "only needed when you want to change the session default "
+                    "for subsequent calls."
+                ),
             )
         else:
             # Fallback to global switching (legacy behavior)
@@ -4969,7 +4975,10 @@ async def switch_endpoint(
                 ),
                 error=None,
                 available_endpoints=None,
-                hint="Warning: Session management not available, this affects all users",
+                hint=(
+                    "Warning: Session management not available, this affects all users. "
+                    "Note: most endpoint-scoped tools now accept an `endpoint` parameter directly."
+                ),
             )
 
     except ValueError as e:

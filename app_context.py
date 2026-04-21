@@ -11,11 +11,10 @@ Usage:
 
     @mcp.tool()
     async def my_tool(ctx: Context) -> str:
-        # Get session-specific client
+        # Get session-specific client for the default endpoint
         app_ctx = get_app_context_from_ctx(ctx)
         if app_ctx:
-            session = app_ctx.get_session(ctx)
-            client = session.client
+            client = await app_ctx.get_client(ctx)
         # Use client...
 
 Note: Logging is intentionally minimal in this module to avoid

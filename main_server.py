@@ -209,8 +209,14 @@ async def _resolve_client(
     app_ctx = get_app_context(ctx)
     if app_ctx is None:
         # Legacy fallback: route through get_session_client so test patches
-        # targeting main_server.get_session_client continue to work.
-        return await get_session_client(ctx), "SPC"
+        # targeting main_server.get_session_client continue to work. Resolve
+        # the reported ep_key from the same env var the legacy client honours,
+        # so callers see a consistent pair when SDMX_ENDPOINT overrides SPC.
+        import os
+        fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
+        if fallback_ep not in SDMX_ENDPOINTS:
+            fallback_ep = "SPC"
+        return await get_session_client(ctx), fallback_ep
 
     session = app_ctx.get_session(ctx)
     key = endpoint or session.default_endpoint_key
@@ -238,6 +244,14 @@ def _build_mismatch_hint(
 
     If the registry has seen `dataflow_id` on a different endpoint, name it.
     Otherwise return a generic hint listing all valid endpoint keys.
+
+    NOTE: this helper is not yet called from any tool's error branch; the
+    per-call `endpoint=` migration populated the `known_dataflows` registry
+    and introduced this helper but left the 16 tool-specific error paths
+    untouched. Wiring each tool's empty/404 result to prepend this hint to
+    its `next_step` / `interpretation` / `error` field is a follow-up slice.
+    The helper and registry are correct and covered by unit tests; only
+    the caller-side wiring is pending.
     """
     from config import SDMX_ENDPOINTS
 

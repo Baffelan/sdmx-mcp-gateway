@@ -1013,11 +1013,27 @@ async def get_discovery_guide(
                 "description": "Generate the final data retrieval URL",
                 "example": "build_data_url('DF_POP', filters={'GEO': 'FJ'})",
             },
+            {
+                "step": 6,
+                "name": "Probe Exact Query",
+                "tool": "probe_data_url",
+                "description": "Confirm the exact URL is non-empty before consuming it",
+                "example": "probe_data_url(data_url='https://example.org/rest/data/DF_POP/A.FJ')",
+            },
+            {
+                "step": 7,
+                "name": "Recover from Empty Results",
+                "tool": "suggest_nonempty_queries",
+                "description": "Suggest nearby non-empty relaxations when the exact query is empty",
+                "example": "suggest_nonempty_queries(data_url='https://example.org/rest/data/DF_POP/A.FJ')",
+            },
         ],
         "tips": [
             "Use keywords to filter dataflows by topic",
             "Start with overview, then drill down progressively",
             "Check availability before building final URLs",
+            "Probe exact URLs before downstream rendering or dashboard updates",
+            "Use suggest_nonempty_queries() instead of guessing which filter to relax",
             "Use pagination for large result sets",
         ],
     }
@@ -1107,18 +1123,22 @@ async def build_sdmx_key(
         return {"error": str(e), "dataflow_id": dataflow_id}
 
 
+# Legacy global client for backward compatibility during migration.
+# This is a singleton; get_default_client() returns it so every caller
+# shares one httpx session and cleanup_sdmx_client() can reach it.
+# Will be removed when the no-AppContext code paths are retired.
+sdmx_client = SDMXProgressiveClient()
+
+
 def get_default_client() -> SDMXProgressiveClient:
     """
-    Get a default SDMX client for backward compatibility.
+    Return the module-level singleton SDMX client.
 
-    DEPRECATED: Use session-based clients instead.
+    DEPRECATED: Use session-based clients instead. Returning a singleton
+    (not a fresh instance) ensures any httpx session the client opens is
+    tracked and can be closed by cleanup_sdmx_client().
     """
-    return SDMXProgressiveClient()
-
-
-# Legacy global client for backward compatibility during migration
-# Will be removed in future versions
-sdmx_client = get_default_client()
+    return sdmx_client
 
 
 async def cleanup_sdmx_client() -> None:

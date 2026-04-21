@@ -40,17 +40,14 @@ from models.schemas import (
     CodeOverlap,
     ComparisonSummary,
     ComponentInfo,
-    ConceptChange,
     ConceptRef,
     DataAvailabilityResult,
-    DataflowDiagramResult,
     DataflowDimensionComparisonResult,
     DataflowInfo,
     DataflowListResult,
     DataflowStructureResult,
     DataflowSummary,
     DataUrlResult,
-    DimensionChange,
     DimensionCodesResult,
     DimensionComparison,
     DimensionInfo,
@@ -66,8 +63,8 @@ from models.schemas import (
     QuerySuggestion,
     ReferenceChange,
     RepresentationInfo,
-    StructureComparisonResult,
     SampleObservation,
+    StructureComparisonResult,
     StructureDiagramResult,
     StructureEdge,
     StructureInfo,
@@ -93,6 +90,7 @@ from resources.sdmx_resources import (
     list_known_agencies,
 )
 from sdmx_progressive_client import SDMXProgressiveClient
+from session_manager import SessionState
 
 # Logger - configured lazily in main() to avoid early writes
 logger = logging.getLogger(__name__)
@@ -132,7 +130,7 @@ mcp = FastMCP(
 # =============================================================================
 
 
-def get_session_client(ctx: Context[Any, Any, Any] | None) -> SDMXProgressiveClient:
+async def get_session_client(ctx: Context[Any, Any, Any] | None) -> SDMXProgressiveClient:
     """
     Get the SDMX client for the current session from lifespan context.
 
@@ -155,7 +153,7 @@ def get_session_client(ctx: Context[Any, Any, Any] | None) -> SDMXProgressiveCli
         # Get the lifespan context (AppContext)
         lifespan_ctx = ctx.request_context.lifespan_context
         if isinstance(lifespan_ctx, AppContext):
-            return lifespan_ctx.get_client(ctx)
+            return await lifespan_ctx.get_client(ctx)
         # Fallback to default
         from tools.sdmx_tools import get_default_client
 
@@ -189,6 +187,185 @@ def get_app_context(ctx: Context[Any, Any, Any] | None) -> AppContext | None:
         return None
 
 
+async def _resolve_client(
+    ctx: Context[Any, Any, Any] | None,
+    endpoint: str | None,
+) -> tuple[SDMXProgressiveClient, str]:
+    """
+    Resolve the SDMX client + endpoint key for a tool call.
+
+    Precedence:
+      1. Explicit `endpoint` argument (validated against SDMX_ENDPOINTS).
+      2. Session default endpoint (set via switch_endpoint or server init).
+      3. Falls back to the legacy default client when no AppContext exists.
+
+    Raises ValueError for unknown endpoints or when no default is set.
+    """
+    from config import SDMX_ENDPOINTS
+
+    app_ctx = get_app_context(ctx)
+    if app_ctx is None:
+        if endpoint is not None:
+            # Caller explicitly asked for a specific endpoint but the session
+            # infrastructure isn't available. Silently routing to the legacy
+            # default would misroute the request (wrong base_url, wrong agency).
+            # Surface the misconfiguration instead.
+            raise ValueError(
+                "endpoint='" + endpoint + "' was requested but no AppContext "
+                "is available. Explicit endpoints require the server lifespan "
+                "to have initialised the SessionManager. If you are calling "
+                "a tool handler directly in a test, construct an AppContext "
+                "(see tests/integration/test_cross_endpoint_tools.py)."
+            )
+        # Legacy fallback: route through get_session_client so test patches
+        # targeting main_server.get_session_client continue to work.
+        client = await get_session_client(ctx)
+        # Prefer the client's own endpoint_key when set (the legacy global
+        # switch_endpoint() path stamps this on the new singleton, so reads
+        # stay in sync after a runtime switch). Fall back to env vars for
+        # the startup-only case.
+        client_ep = getattr(client, "endpoint_key", None)
+        if client_ep and (client_ep == "CUSTOM" or client_ep in SDMX_ENDPOINTS):
+            return client, client_ep
+        import os
+        if os.getenv("SDMX_BASE_URL"):
+            fallback_ep = "CUSTOM"
+        else:
+            fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
+            if fallback_ep not in SDMX_ENDPOINTS:
+                fallback_ep = "SPC"
+        return client, fallback_ep
+
+    session = app_ctx.get_session(ctx)
+    key = endpoint or session.default_endpoint_key
+    if not key:
+        raise ValueError(
+            "No endpoint specified and no session default is set. "
+            "Pass endpoint=<key> or call switch_endpoint first."
+        )
+    if key not in SDMX_ENDPOINTS:
+        raise ValueError(
+            "Unknown endpoint '" + key + "'. Valid: "
+            + ", ".join(SDMX_ENDPOINTS.keys())
+        )
+    client = await session.get_or_create_client(key)
+    return client, key
+
+
+def _build_mismatch_hint(
+    session: SessionState,
+    resolved_endpoint: str,
+    dataflow_id: str | None,
+) -> str:
+    """
+    Build a self-correcting hint for an LLM that hit an empty/404 result.
+
+    If the registry has seen `dataflow_id` on a different endpoint, name it.
+    Otherwise return a generic hint listing all valid endpoint keys.
+
+    Most callers should use `_maybe_mismatch_hint`, which decides whether
+    emitting a hint is warranted based on the error signature.
+    """
+    from config import SDMX_ENDPOINTS
+
+    if dataflow_id is not None:
+        known_elsewhere = [
+            ep for ep, flows in session.known_dataflows.items()
+            if ep != resolved_endpoint and dataflow_id in flows
+        ]
+        if known_elsewhere:
+            target = known_elsewhere[0]
+            return (
+                "Dataflow '" + dataflow_id + "' not found on endpoint '"
+                + resolved_endpoint + "'. Known on: " + str(known_elsewhere)
+                + ". Pass endpoint='" + target
+                + "' to target it directly."
+            )
+
+    valid = list(SDMX_ENDPOINTS.keys())
+    return (
+        "Not found on endpoint '" + resolved_endpoint
+        + "'. Registered endpoints: " + str(valid)
+        + ". Pass endpoint=<key> to target a different provider, "
+        + "or call switch_endpoint(<key>)."
+    )
+
+
+def _register_dataflow_if_possible(
+    ctx: Context[Any, Any, Any] | None,
+    endpoint_key: str,
+    dataflow_id: str | None,
+) -> None:
+    """Record that dataflow_id exists on endpoint_key for future mismatch hints."""
+    if dataflow_id is None:
+        return
+    app_ctx = get_app_context(ctx)
+    if app_ctx is None:
+        return
+    app_ctx.get_session(ctx).register_dataflow(endpoint_key, dataflow_id)
+
+
+_NOT_FOUND_SIGNALS = ("404", "not found", "no such", "unknown dataflow", "204")
+
+
+def _extend_with_pair_hints(
+    bucket: list[str],
+    ctx: Context[Any, Any, Any] | None,
+    endpoint_a: str,
+    dataflow_id_a: str | None,
+    endpoint_b: str,
+    dataflow_id_b: str | None,
+    error_message: str,
+) -> None:
+    """
+    Append per-dataflow mismatch hints for two-dataflow tools like
+    compare_dataflow_dimensions. Each side is evaluated independently;
+    only sides with a usable hint contribute a line.
+    """
+    hint_a = _maybe_mismatch_hint(ctx, endpoint_a, dataflow_id_a, error_message)
+    if hint_a:
+        bucket.append("A: " + hint_a)
+    hint_b = _maybe_mismatch_hint(ctx, endpoint_b, dataflow_id_b, error_message)
+    if hint_b:
+        bucket.append("B: " + hint_b)
+
+
+def _maybe_mismatch_hint(
+    ctx: Context[Any, Any, Any] | None,
+    resolved_endpoint: str,
+    dataflow_id: str | None,
+    error_message: str,
+) -> str | None:
+    """
+    Return a mismatch hint when an error looks like a wrong-endpoint mishap.
+
+    Emits a hint in two cases:
+      1. The dataflow is registered on a different endpoint in this session
+         (we can confidently point the caller at the right provider).
+      2. The error message contains a not-found signal (404, "not found", etc.)
+         and we have session context — the generic hint is still useful.
+
+    Returns None when no hint is warranted (network errors, auth failures,
+    unknown dataflow never seen on any endpoint, etc.) to avoid misleading
+    the caller.
+    """
+    if dataflow_id is None:
+        return None
+    app_ctx = get_app_context(ctx)
+    if app_ctx is None:
+        return None
+    session = app_ctx.get_session(ctx)
+    known_elsewhere = any(
+        ep != resolved_endpoint and dataflow_id in flows
+        for ep, flows in session.known_dataflows.items()
+    )
+    low = (error_message or "").lower()
+    looks_like_not_found = any(s in low for s in _NOT_FOUND_SIGNALS)
+    if known_elsewhere or looks_like_not_found:
+        return _build_mismatch_hint(session, resolved_endpoint, dataflow_id)
+    return None
+
+
 # =============================================================================
 # Discovery Tools
 # =============================================================================
@@ -210,6 +387,7 @@ async def list_dataflows(
     agency_id: str | None = None,
     limit: int = 10,
     offset: int = 0,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataflowListResult:
     """
@@ -227,6 +405,9 @@ async def list_dataflows(
         agency_id: The agency to query (uses session endpoint if not specified)
         limit: Number of results to return (default: 10)
         offset: Number of results to skip for pagination (default: 0)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with dataflows, pagination info, and navigation hints
@@ -234,16 +415,12 @@ async def list_dataflows(
     from config import get_dataflow_agency
     from tools.sdmx_tools import list_dataflows as list_dataflows_impl
 
-    # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     user_provided_agency = agency_id is not None
     agency_id = agency_id or client.agency_id
     normalized_keywords = _normalise_keywords_input(keywords)
 
-    # When user didn't explicitly provide agency_id, check for dataflow listing override
-    # (e.g. OECD publishes under sub-agencies, requiring "all" for listing)
     if not user_provided_agency:
-        ep_key = _get_session_endpoint_key(ctx)
         df_agency = get_dataflow_agency(ep_key)
         if df_agency:
             agency_id = df_agency
@@ -279,6 +456,12 @@ async def list_dataflows(
         )
         for df in result.get("dataflows", [])
     ]
+
+    app_ctx = get_app_context(ctx)
+    if app_ctx is not None:
+        session = app_ctx.get_session(ctx)
+        for df in result.get("dataflows", []):
+            session.register_dataflow(ep_key, df["id"])
 
     pagination = PaginationInfo(
         has_more=result.get("pagination", {}).get("has_more", False),
@@ -316,6 +499,7 @@ async def list_dataflows(
 async def get_dataflow_structure(
     dataflow_id: str,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataflowStructureResult:
     """
@@ -327,20 +511,26 @@ async def get_dataflow_structure(
     Args:
         dataflow_id: The dataflow identifier
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with dataflow metadata and structure definition
     """
     from tools.sdmx_tools import get_dataflow_structure as get_structure_impl
 
-    # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await get_structure_impl(client, dataflow_id, agency_id, ctx)
 
     if "error" in result:
         # Return minimal structure on error
+        next_steps = [f"Error: {result['error']}"]
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, result["error"])
+        if hint:
+            next_steps.append(hint)
         return DataflowStructureResult(
             discovery_level="structure",
             dataflow=DataflowInfo(
@@ -357,7 +547,7 @@ async def get_dataflow_structure(
                 attributes=[],
                 measure=None,
             ),
-            next_steps=[f"Error: {result['error']}"],
+            next_steps=next_steps,
         )
 
     # Build structured result from simplified response
@@ -388,6 +578,7 @@ async def get_dataflow_structure(
         measure=struct_data.get("measure"),
     )
 
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
     return DataflowStructureResult(
         discovery_level=result.get("discovery_level", "structure"),
         dataflow=dataflow,
@@ -402,6 +593,7 @@ async def get_codelist(
     agency_id: str | None = None,
     version: str = "latest",
     search_term: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> dict[str, Any]:
     """
@@ -415,12 +607,14 @@ async def get_codelist(
         agency_id: The agency (uses session endpoint if not specified)
         version: Version (default: "latest")
         search_term: Optional search term to filter codes
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Dictionary with codelist information and codes
     """
-    # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
     result = await client.browse_codelist(codelist_id, agency_id, version, search_term)
     return result
@@ -433,6 +627,7 @@ async def get_dimension_codes(
     limit: int = 50,
     offset: int = 0,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DimensionCodesResult:
     """
@@ -447,19 +642,25 @@ async def get_dimension_codes(
         limit: Maximum codes to return (default: 50)
         offset: Number of codes to skip for pagination (default: 0)
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with codes for the dimension
     """
     from tools.sdmx_tools import get_dimension_codes as get_codes_impl
 
-    # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await get_codes_impl(client, dataflow_id, dimension_id, agency_id, limit, offset, ctx)
 
     if "error" in result:
+        usage = f"Error: {result['error']}"
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, result["error"])
+        if hint:
+            usage = usage + "\n" + hint
         return DimensionCodesResult(
             discovery_level="codes",
             dataflow_id=dataflow_id,
@@ -470,7 +671,7 @@ async def get_dimension_codes(
             showing=0,
             search_term=None,
             codes=[],
-            usage=f"Error: {result['error']}",
+            usage=usage,
             example_keys=[],
         )
 
@@ -483,6 +684,7 @@ async def get_dimension_codes(
         for code in result.get("codes", [])
     ]
 
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
     return DimensionCodesResult(
         discovery_level=result.get("discovery_level", "codes"),
         dataflow_id=result.get("dataflow_id", dataflow_id),
@@ -565,6 +767,7 @@ async def get_code_usage(
     codes: list[str] | None = None,
     dimension_id: str | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> CodeUsageResult:
     """
@@ -584,6 +787,9 @@ async def get_code_usage(
         codes: Optional list of specific codes to check. If empty, returns all used codes.
         dimension_id: Optional dimension to check. If empty, checks all dimensions.
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         CodeUsageResult with:
@@ -598,9 +804,8 @@ async def get_code_usage(
         >>> get_code_usage("DF_SDG", dimension_id="INDICATOR")
         # Returns all indicator codes that actually have data
     """
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
-    ep_key = _get_session_endpoint_key(ctx)
     api_calls = 0
 
     if ctx:
@@ -613,6 +818,16 @@ async def get_code_usage(
         api_calls += fetch_calls
 
         if not info.used_codes:
+            interpretation = [
+                "No ContentConstraint found for " + dataflow_id + ".",
+                "Cannot efficiently determine code usage.",
+            ]
+            # Empty message = only surface the sharp (known-elsewhere) hint;
+            # don't emit the generic "Registered endpoints: ..." text, which
+            # would fire on every legitimately constraint-less dataflow.
+            hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, "")
+            if hint:
+                interpretation.append(hint)
             return CodeUsageResult(
                 dataflow_id=dataflow_id,
                 dimension_id=dimension_id,
@@ -620,10 +835,7 @@ async def get_code_usage(
                 codes_checked=[],
                 summary={"total_checked": 0, "used": 0, "unused": 0},
                 all_used_codes=None,
-                interpretation=[
-                    "No ContentConstraint found for " + dataflow_id + ".",
-                    "Cannot efficiently determine code usage.",
-                ],
+                interpretation=interpretation,
                 api_calls_made=api_calls,
             )
 
@@ -687,6 +899,7 @@ async def get_code_usage(
             for dim_id, dim_codes in sorted(all_used_codes.items()):
                 interpretation.append("  - " + dim_id + ": " + str(len(dim_codes)) + " codes")
 
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
         return CodeUsageResult(
             dataflow_id=dataflow_id,
             dimension_id=dimension_id,
@@ -700,6 +913,10 @@ async def get_code_usage(
 
     except Exception as e:
         logger.exception("Failed to check code usage")
+        interpretation = ["Error: " + str(e)]
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, str(e))
+        if hint:
+            interpretation.append(hint)
         return CodeUsageResult(
             dataflow_id=dataflow_id,
             dimension_id=dimension_id,
@@ -707,7 +924,7 @@ async def get_code_usage(
             codes_checked=[],
             summary={"total_checked": 0, "used": 0, "unused": 0},
             all_used_codes=None,
-            interpretation=["Error: " + str(e)],
+            interpretation=interpretation,
             api_calls_made=api_calls,
         )
 
@@ -743,6 +960,7 @@ async def check_time_availability(
     dataflow_id: str,
     query_period: str,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> TimeAvailabilityResult:
     """
@@ -766,6 +984,9 @@ async def check_time_availability(
         dataflow_id: The dataflow to check
         query_period: The period to check (e.g. "2010", "2010-Q1", "2010-01", "2010-W05")
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         TimeAvailabilityResult with availability classification and reasoning
@@ -774,9 +995,8 @@ async def check_time_availability(
 
     from utils import classify_time_overlap, parse_query_period
 
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
-    ep_key = _get_session_endpoint_key(ctx)
     api_calls = 0
 
     if ctx:
@@ -807,6 +1027,16 @@ async def check_time_availability(
         api_calls += fetch_calls
 
         if not info.used_codes and info.time_start is None:
+            interpretation = [
+                "No ContentConstraint found for " + dataflow_id + ".",
+                "Cannot determine time availability from metadata alone.",
+            ]
+            # Empty message surfaces only the sharp hint if the dataflow is
+            # known on a different endpoint; no generic noise for plain
+            # constraint-less dataflows.
+            hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, "")
+            if hint:
+                interpretation.append(hint)
             return TimeAvailabilityResult(
                 dataflow_id=dataflow_id,
                 query_period=query_period,
@@ -816,10 +1046,7 @@ async def check_time_availability(
                 availability="no",
                 available_frequencies=[],
                 overlap="none",
-                interpretation=[
-                    "No ContentConstraint found for " + dataflow_id + ".",
-                    "Cannot determine time availability from metadata alone.",
-                ],
+                interpretation=interpretation,
                 recommendation="No constraint available. Use get_data_availability() or query the data directly.",
                 api_calls_made=api_calls,
             )
@@ -910,6 +1137,7 @@ async def check_time_availability(
                 "Data spans this time window but at different granularity. Try a different frequency."
             )
 
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
         return TimeAvailabilityResult(
             dataflow_id=dataflow_id,
             query_period=query_period,
@@ -928,6 +1156,10 @@ async def check_time_availability(
 
     except Exception as e:
         logger.exception("Failed to check time availability")
+        interpretation = ["Error: " + str(e)]
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, str(e))
+        if hint:
+            interpretation.append(hint)
         return TimeAvailabilityResult(
             dataflow_id=dataflow_id,
             query_period=query_period,
@@ -937,7 +1169,7 @@ async def check_time_availability(
             availability="no",
             available_frequencies=[],
             overlap="none",
-            interpretation=["Error: " + str(e)],
+            interpretation=interpretation,
             recommendation="Error checking time availability. Try get_data_availability() instead.",
             api_calls_made=api_calls,
         )
@@ -948,6 +1180,7 @@ async def find_code_usage_across_dataflows(
     code: str,
     dimension_id: str | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> CrossDataflowCodeUsageResult:
     """
@@ -986,6 +1219,9 @@ async def find_code_usage_across_dataflows(
             If provided, only matches in this dimension are returned.
             If omitted, all dimensions are searched.
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         CrossDataflowCodeUsageResult with:
@@ -997,9 +1233,8 @@ async def find_code_usage_across_dataflows(
     from config import get_constraint_strategy
     from utils import SDMX_NAMESPACES
 
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
-    ep_key = _get_session_endpoint_key(ctx)
     ns = SDMX_NAMESPACES
     api_calls = 0
 
@@ -1063,6 +1298,11 @@ async def find_code_usage_across_dataflows(
         dataflows_with_data: list[CrossDataflowUsageInfo] = []
         constraints_searched = 0
         constraint_type_used = None
+
+        # Grab the session once so we can register each matched dataflow
+        # on the resolved endpoint without re-fetching per iteration.
+        _app_ctx = get_app_context(ctx)
+        _session = _app_ctx.get_session(ctx) if _app_ctx is not None else None
 
         # Two passes: first Actual, then Allowed (if no Actual found)
         for target_type in ("Actual", "Allowed"):
@@ -1142,6 +1382,8 @@ async def find_code_usage_across_dataflows(
                             is_used=True,
                         )
                     )
+                    if _session is not None:
+                        _session.register_dataflow(ep_key, dataflow_id_val)
 
             if found_any:
                 constraint_type_used = target_type
@@ -1238,50 +1480,9 @@ async def find_code_usage_across_dataflows(
         )
 
 
-def _get_session_endpoint_key(ctx: Context[Any, Any, Any] | None) -> str:
-    """Return the endpoint key for the current MCP session, or 'SPC' as default."""
-    app_ctx = get_app_context(ctx)
-    if app_ctx is not None:
-        session = app_ctx.get_session(ctx)
-        return session.endpoint_key
-    return "SPC"
-
-
 # =============================================================================
 # Cross-Dataflow Dimension Comparison
 # =============================================================================
-
-
-def _get_client_for_endpoint(
-    endpoint_key: str | None,
-    session_client: SDMXProgressiveClient,
-    session_endpoint_key: str,
-) -> tuple[SDMXProgressiveClient, str, bool]:
-    """
-    Get an SDMX client for the given endpoint key.
-
-    Returns (client, endpoint_key, is_temporary).
-    If endpoint_key is None, returns the session client.
-    If endpoint_key matches the session, returns the session client.
-    Otherwise creates a temporary client that must be closed by the caller.
-    """
-    from config import SDMX_ENDPOINTS
-
-    if endpoint_key is None or endpoint_key == session_endpoint_key:
-        return session_client, session_endpoint_key, False
-
-    if endpoint_key not in SDMX_ENDPOINTS:
-        available = ", ".join(SDMX_ENDPOINTS.keys())
-        raise ValueError(
-            "Unknown endpoint: " + endpoint_key + ". Available: " + available
-        )
-
-    config = SDMX_ENDPOINTS[endpoint_key]
-    client = SDMXProgressiveClient(
-        base_url=config["base_url"],
-        agency_id=config["agency_id"],
-    )
-    return client, endpoint_key, True
 
 
 class _ConstraintInfo:
@@ -1523,26 +1724,15 @@ async def compare_dataflow_dimensions(
         DataflowDimensionComparisonResult with dimension comparison, overlap stats,
         and join column recommendations
     """
-    session_client = get_session_client(ctx)
+    # Default session endpoint for error-branch display when endpoint_a/b aren't provided
+    app_ctx = get_app_context(ctx)
+    session_endpoint_key = (
+        app_ctx.get_session(ctx).default_endpoint_key if app_ctx is not None else "SPC"
+    )
     api_calls = 0
-
-    # Determine current session endpoint key
-    session_endpoint_key = _get_session_endpoint_key(ctx)
-
-    # Resolve clients
-    temp_clients: list[SDMXProgressiveClient] = []
     try:
-        client_a, ep_key_a, is_temp_a = _get_client_for_endpoint(
-            endpoint_a, session_client, session_endpoint_key
-        )
-        if is_temp_a:
-            temp_clients.append(client_a)
-
-        client_b, ep_key_b, is_temp_b = _get_client_for_endpoint(
-            endpoint_b, session_client, session_endpoint_key
-        )
-        if is_temp_b:
-            temp_clients.append(client_b)
+        client_a, ep_key_a = await _resolve_client(ctx, endpoint_a)
+        client_b, ep_key_b = await _resolve_client(ctx, endpoint_b)
 
         agency_a = client_a.agency_id
         agency_b = client_b.agency_id
@@ -1872,6 +2062,9 @@ async def compare_dataflow_dimensions(
             )
         next_steps.append("Use build_data_url() to fetch data from each dataflow")
 
+        _register_dataflow_if_possible(ctx, ep_key_a, dataflow_id_a)
+        _register_dataflow_if_possible(ctx, ep_key_b, dataflow_id_b)
+
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
@@ -1891,33 +2084,40 @@ async def compare_dataflow_dimensions(
 
     except ValueError as e:
         # Invalid endpoint key
+        interp = ["Error: " + str(e)]
+        _extend_with_pair_hints(
+            interp, ctx,
+            endpoint_a or session_endpoint_key, dataflow_id_a,
+            endpoint_b or session_endpoint_key, dataflow_id_b,
+            str(e),
+        )
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
             endpoint_a=endpoint_a or session_endpoint_key,
             endpoint_b=endpoint_b or session_endpoint_key,
             dimensions=[],
-            interpretation=["Error: " + str(e)],
+            interpretation=interp,
         )
 
     except Exception as e:
         logger.exception("Failed to compare dataflow dimensions")
+        interp = ["Error: " + str(e)]
+        _extend_with_pair_hints(
+            interp, ctx,
+            endpoint_a or session_endpoint_key, dataflow_id_a,
+            endpoint_b or session_endpoint_key, dataflow_id_b,
+            str(e),
+        )
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
             endpoint_a=endpoint_a or session_endpoint_key,
             endpoint_b=endpoint_b or session_endpoint_key,
             dimensions=[],
-            interpretation=["Error: " + str(e)],
+            interpretation=interp,
             api_calls_made=api_calls,
         )
-
-    finally:
-        for temp_client in temp_clients:
-            try:
-                await temp_client.close()
-            except Exception:
-                pass
 
 
 @mcp.tool()
@@ -1925,6 +2125,7 @@ async def get_data_availability(
     dataflow_id: str,
     filters: dict[str, str] | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataAvailabilityResult:
     """
@@ -1937,14 +2138,16 @@ async def get_data_availability(
         dataflow_id: The dataflow to check
         filters: Optional dict of dimension=value pairs to check
         agency_id: The agency ID
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Information about what data exists, including time ranges and suggestions
     """
     from tools.sdmx_tools import get_data_availability as get_availability_impl
 
-    # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await get_availability_impl(
@@ -1961,6 +2164,15 @@ async def get_data_availability(
         tr = result["time_range"]
         time_range = TimeRange(start=tr.get("start"), end=tr.get("end"))
 
+    interpretation = list(result.get("interpretation", []))
+    if "error" in result:
+        interpretation.insert(0, "Error: " + str(result["error"]))
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, str(result["error"]))
+        if hint:
+            interpretation.append(hint)
+    else:
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+
     return DataAvailabilityResult(
         discovery_level=result.get("discovery_level", "availability"),
         dataflow_id=result.get("dataflow_id", dataflow_id),
@@ -1968,7 +2180,7 @@ async def get_data_availability(
         constraint_id=result.get("constraint_id"),
         time_range=time_range,
         cube_regions=result.get("cube_regions", []),
-        interpretation=result.get("interpretation", []),
+        interpretation=interpretation,
         dimension_values_checked=result.get("dimension_values_checked"),
         data_exists=result.get("data_exists"),
         observation_count=result.get("observation_count"),
@@ -1984,6 +2196,7 @@ async def validate_query(
     start_period: str | None = None,
     end_period: str | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> ValidationResult:
     """
@@ -1999,14 +2212,16 @@ async def validate_query(
         start_period: Start of time range
         end_period: End of time range
         agency_id: The agency
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Validation results including any errors, warnings, and validated parameters
     """
     from tools.sdmx_tools import validate_query as validate_impl
 
-    # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await validate_impl(
@@ -2020,14 +2235,25 @@ async def validate_query(
         ctx=ctx,
     )
 
+    is_valid = result.get("is_valid", False)
+    errors = result.get("errors", [])
+    suggestion = None
+    if is_valid:
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+    else:
+        # Concatenate error text so _maybe_mismatch_hint can detect
+        # not-found signatures inside the validation errors.
+        error_text = " ".join(str(e) for e in errors)
+        suggestion = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, error_text)
+
     return ValidationResult(
-        valid=result.get("is_valid", False),
+        valid=is_valid,
         dataflow_id=dataflow_id,
         key=key or "",
-        errors=result.get("errors", []),
+        errors=errors,
         warnings=result.get("warnings", []),
         invalid_codes=[],
-        suggestion=None,
+        suggestion=suggestion,
     )
 
 
@@ -2036,6 +2262,7 @@ async def build_key(
     dataflow_id: str,
     filters: dict[str, str] | None = None,
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> KeyBuildResult:
     """
@@ -2051,19 +2278,25 @@ async def build_key(
         dataflow_id: The dataflow identifier
         filters: Optional dict mapping dimension IDs to values
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with the constructed key and usage information
     """
     from tools.sdmx_tools import build_sdmx_key
 
-    # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await build_sdmx_key(client, dataflow_id, filters or {}, agency_id, ctx)
 
     if "error" in result:
+        usage = f"Error: {result['error']}"
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, result["error"])
+        if hint:
+            usage = usage + "\n" + hint
         return KeyBuildResult(
             dataflow_id=dataflow_id,
             version="latest",
@@ -2071,8 +2304,10 @@ async def build_key(
             dimensions_used=filters or {},
             dimensions_wildcard=[],
             key_template="",
-            usage=f"Error: {result['error']}",
+            usage=usage,
         )
+
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
 
     return KeyBuildResult(
         dataflow_id=result.get("dataflow_id", dataflow_id),
@@ -2094,6 +2329,7 @@ async def build_data_url(
     end_period: str | None = None,
     format_type: str = "csv",
     agency_id: str | None = None,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataUrlResult:
     """
@@ -2110,14 +2346,16 @@ async def build_data_url(
         end_period: End of time range (optional)
         format_type: Output format (csv, json, xml)
         agency_id: The agency (uses session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with the complete data URL and usage information
     """
     from tools.sdmx_tools import build_data_url as build_url_impl
 
-    # Get session-specific client for multi-user support
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency_id = agency_id or client.agency_id
 
     result = await build_url_impl(
@@ -2134,6 +2372,10 @@ async def build_data_url(
     )
 
     if "error" in result:
+        usage = f"Error: {result['error']}"
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, result["error"])
+        if hint:
+            usage = usage + "\n" + hint
         return DataUrlResult(
             dataflow_id=dataflow_id,
             version="latest",
@@ -2142,7 +2384,7 @@ async def build_data_url(
             url="",
             dimension_at_observation="AllDimensions",
             time_range=None,
-            usage=f"Error: {result['error']}",
+            usage=usage,
             formats_available=["csv", "json", "xml"],
             note=result.get("hint"),
         )
@@ -2151,6 +2393,8 @@ async def build_data_url(
     time_range = None
     if result.get("start_period") or result.get("end_period"):
         time_range = TimeRange(start=result.get("start_period"), end=result.get("end_period"))
+
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
 
     return DataUrlResult(
         dataflow_id=dataflow_id,
@@ -2176,6 +2420,7 @@ async def probe_data_url(
     sample_observations_limit: int = 5,
     max_distinct_values_per_dimension: int = 10,
     timeout_ms: int = 10000,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> ProbeResult:
     """
@@ -2196,13 +2441,16 @@ async def probe_data_url(
         sample_observations_limit: Max sample observations to return
         max_distinct_values_per_dimension: Max distinct values per dimension summary
         timeout_ms: Probe timeout in milliseconds
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Probe result with status, observation count, shape, and sample data
     """
     from tools.probing_tools import probe_data_url as probe_impl
 
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
 
     result = await probe_impl(
         client=client,
@@ -2231,8 +2479,20 @@ async def probe_data_url(
         for obs in result.get("sample_observations", [])
     ]
 
+    status = result.get("status", "error")
+    notes = list(result.get("notes", []))
+    if status == "nonempty":
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+    else:
+        # Notes carry probe diagnostics (HTTP status, timeout reason, etc.).
+        # Feed the concatenated text so the helper's not-found heuristic can fire.
+        note_text = " ".join(str(n) for n in notes)
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, note_text)
+        if hint:
+            notes.append(hint)
+
     return ProbeResult(
-        status=result.get("status", "error"),
+        status=status,
         observation_count=result.get("observation_count", 0),
         series_count=result.get("series_count", 0),
         time_period_count=result.get("time_period_count", 0),
@@ -2241,7 +2501,7 @@ async def probe_data_url(
         geo_dimension_id=result.get("geo_dimension_id"),
         sample_observations=sample_obs,
         query_fingerprint=result.get("query_fingerprint", ""),
-        notes=result.get("notes", []),
+        notes=notes,
     )
 
 
@@ -2253,6 +2513,7 @@ async def suggest_nonempty_queries(
     max_probes: int = 20,
     strategy: str = "least_change",
     intent_hint: str = "generic",
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> SuggestionResult:
     """
@@ -2269,13 +2530,16 @@ async def suggest_nonempty_queries(
         max_probes: Maximum HTTP probes to make (budget)
         strategy: Recovery strategy (currently only least_change)
         intent_hint: One of generic, kpi, timeseries, ranking, map
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Suggestion result with ranked non-empty alternatives
     """
     from tools.probing_tools import suggest_nonempty_queries as suggest_impl
 
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
 
     result = await suggest_impl(
         client=client,
@@ -2415,6 +2679,7 @@ async def get_structure_diagram(
     version: str = "latest",
     direction: str = "both",
     show_versions: bool = False,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> StructureDiagramResult:
     """
@@ -2454,6 +2719,9 @@ async def get_structure_diagram(
             - "children": Show structures this one REFERENCES
             - "both": Show both directions (default)
         show_versions: If True, display version numbers on each node
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         StructureDiagramResult with:
@@ -2472,15 +2740,8 @@ async def get_structure_diagram(
         >>> get_structure_diagram("dsd", "DSD_POP", direction="children")
         # Shows codelists and concept schemes used by DSD_POP
     """
-    import xml.etree.ElementTree as ET
-
-    import httpx
-
-    from utils import SDMX_NAMESPACES
-
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
-    ns = SDMX_NAMESPACES
 
     # ==========================================================================
     # DATAFLOW: Generate full SDMX hierarchy diagram
@@ -2525,6 +2786,14 @@ async def get_structure_diagram(
             name=f"Error: {result['error']}",
             is_target=True,
         )
+        interpretation = [f"Error: {result['error']}"]
+        # Only hint when the structure is a dataflow — other structure types
+        # (codelist, DSD, concept scheme) share id spaces with dataflows but
+        # the mismatch hint would be misleading.
+        if structure_type.lower() == "dataflow":
+            hint = _maybe_mismatch_hint(ctx, ep_key, structure_id, str(result["error"]))
+            if hint:
+                interpretation.append(hint)
         return StructureDiagramResult(
             discovery_level="structure_relationships",
             target=error_node,
@@ -2533,7 +2802,7 @@ async def get_structure_diagram(
             nodes=[error_node],
             edges=[],
             mermaid_diagram=f'graph TD\n    error["❌ Error: {result["error"]}"]',
-            interpretation=[f"Error: {result['error']}"],
+            interpretation=interpretation,
             api_calls_made=1,
             note=result.get("details"),
         )
@@ -3538,7 +3807,7 @@ async def _generate_dataflow_hierarchy_diagram(
         # Add categorisation info
         if categorisations:
             interpretation.append("")
-            interpretation.append(f"**Categorised under:**")
+            interpretation.append("**Categorised under:**")
             for cat in categorisations:
                 interpretation.append(f"  - {cat['category_name']} (from {cat['category_scheme']})")
 
@@ -4274,6 +4543,7 @@ async def compare_structures(
     version_b: str = "latest",
     agency_id: str | None = None,
     show_diagram: bool = True,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> StructureComparisonResult:
     """
@@ -4307,6 +4577,9 @@ async def compare_structures(
         version_b: Version of second structure (default "latest")
         agency_id: Agency ID (uses current endpoint's default if not specified)
         show_diagram: Generate a Mermaid diff diagram (default True)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         StructureComparisonResult with type-specific changes:
@@ -4329,7 +4602,7 @@ async def compare_structures(
         # Compare two different DSDs
         >>> compare_structures("datastructure", "DSD_SDG", "DSD_EDUCATION")
     """
-    client = get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
 
     # If structure_id_b is not provided, compare versions of the same structure
@@ -4341,9 +4614,9 @@ async def compare_structures(
 
     if ctx:
         if comparison_type == "version_comparison":
-            ctx.info(f"Comparing {structure_type}/{structure_id_a} v{version_a} vs v{version_b}...")
+            await ctx.info(f"Comparing {structure_type}/{structure_id_a} v{version_a} vs v{version_b}...")
         else:
-            ctx.info(f"Comparing {structure_type}/{structure_id_a} vs {structure_id_b}...")
+            await ctx.info(f"Comparing {structure_type}/{structure_id_a} vs {structure_id_b}...")
 
     # Dispatch to specialized comparison based on structure type
     if structure_type.lower() == "codelist":
@@ -4383,6 +4656,11 @@ async def compare_structures(
             name=f"Error: {result_a['error']}",
             is_target=True,
         )
+        interpretation = [f"Error fetching structure A: {result_a['error']}"]
+        if structure_type.lower() == "dataflow":
+            hint = _maybe_mismatch_hint(ctx, ep_key, structure_id_a, str(result_a["error"]))
+            if hint:
+                interpretation.append(hint)
         return StructureComparisonResult(
             structure_a=error_node,
             structure_b=error_node,
@@ -4390,7 +4668,7 @@ async def compare_structures(
             changes=[],
             summary=ComparisonSummary(),
             mermaid_diff_diagram=None,
-            interpretation=[f"Error fetching structure A: {result_a['error']}"],
+            interpretation=interpretation,
             api_calls_made=api_calls,
             note="Comparison failed due to error fetching first structure",
         )
@@ -4426,6 +4704,11 @@ async def compare_structures(
             name=f"Error: {result_b['error']}",
             is_target=False,
         )
+        interpretation = [f"Error fetching structure B: {result_b['error']}"]
+        if structure_type.lower() == "dataflow":
+            hint = _maybe_mismatch_hint(ctx, ep_key, structure_id_b, str(result_b["error"]))
+            if hint:
+                interpretation.append(hint)
         return StructureComparisonResult(
             structure_a=node_a,
             structure_b=error_node,
@@ -4433,7 +4716,7 @@ async def compare_structures(
             changes=[],
             summary=ComparisonSummary(),
             mermaid_diff_diagram=None,
-            interpretation=[f"Error fetching structure B: {result_b['error']}"],
+            interpretation=interpretation,
             api_calls_made=api_calls,
             note="Comparison failed due to error fetching second structure",
         )
@@ -4692,7 +4975,7 @@ async def list_available_endpoints(ctx: Context[Any, Any, Any] | None = None) ->
 
     if app_ctx is not None:
         session = app_ctx.get_session(ctx)
-        current_key = session.endpoint_key
+        current_key = session.default_endpoint_key
     else:
         # Fallback to global config
         from config import get_current_config
@@ -4774,8 +5057,9 @@ async def switch_endpoint(
     if app_ctx is not None:
         # Use session-based endpoint switching (multi-user safe)
         current_session = app_ctx.get_session(ctx)
-        current_name = current_session.endpoint_name
-        current_url = current_session.base_url
+        current_cfg = SDMX_ENDPOINTS.get(current_session.default_endpoint_key, {})
+        current_name = current_cfg.get("name", current_session.default_endpoint_key)
+        current_url = current_cfg.get("base_url", "")
     else:
         # Fallback to global config
         from config import get_current_config
@@ -4830,7 +5114,13 @@ async def switch_endpoint(
                 ),
                 error=None,
                 available_endpoints=None,
-                hint="This change only affects your session",
+                hint=(
+                    "This change only affects your session. "
+                    "Note: most endpoint-scoped tools now accept an "
+                    "`endpoint` parameter directly, so `switch_endpoint` is "
+                    "only needed when you want to change the session default "
+                    "for subsequent calls."
+                ),
             )
         else:
             # Fallback to global switching (legacy behavior)
@@ -4844,9 +5134,13 @@ async def switch_endpoint(
             if sdmx_tools.sdmx_client.session:
                 await sdmx_tools.sdmx_client.close()
 
-            # Create new client with updated endpoint
+            # Create new client with updated endpoint. Passing endpoint_key
+            # ensures _resolve_client's no-AppContext fallback reports the
+            # current key, not the startup-time env value.
             sdmx_tools.sdmx_client = SDMXProgressiveClient(
-                base_url=new_config["base_url"], agency_id=new_config["agency_id"]
+                base_url=new_config["base_url"],
+                agency_id=new_config["agency_id"],
+                endpoint_key=endpoint_key,
             )
 
             return EndpointSwitchResult(
@@ -4863,7 +5157,10 @@ async def switch_endpoint(
                 ),
                 error=None,
                 available_endpoints=None,
-                hint="Warning: Session management not available, this affects all users",
+                hint=(
+                    "Warning: Session management not available, this affects all users. "
+                    "Note: most endpoint-scoped tools now accept an `endpoint` parameter directly."
+                ),
             )
 
     except ValueError as e:
@@ -4902,14 +5199,23 @@ async def switch_endpoint_interactive(
     from sdmx_progressive_client import SDMXProgressiveClient
     from tools import sdmx_tools
 
-    current_config = get_current_config()
-
-    # Find current endpoint key
-    current_key = None
-    for key, cfg in SDMX_ENDPOINTS.items():
-        if cfg["base_url"] == current_config["base_url"]:
-            current_key = key
-            break
+    # Prefer the session's default endpoint when AppContext is available so
+    # the elicit prompt shows the caller's current endpoint, not a
+    # process-wide global. Falls back to global config for direct-call tests.
+    app_ctx = get_app_context(ctx)
+    if app_ctx is not None:
+        session = app_ctx.get_session(ctx)
+        current_key = session.default_endpoint_key
+        current_cfg = SDMX_ENDPOINTS.get(current_key, {})
+        current_display_name = current_cfg.get("name", current_key)
+    else:
+        current_config = get_current_config()
+        current_key = None
+        for key, cfg in SDMX_ENDPOINTS.items():
+            if cfg["base_url"] == current_config["base_url"]:
+                current_key = key
+                break
+        current_display_name = current_config.get("name", "Unknown")
 
     # Check if client supports elicitation by checking client_params capabilities
     client_supports_elicitation = False
@@ -4976,7 +5282,7 @@ async def switch_endpoint_interactive(
         # Default MCP timeout is too short for humans to read and respond
         message_text = (
             f"## Select SDMX Data Source\n\n"
-            f"**Current endpoint**: {current_config['name']}\n\n"
+            f"**Current endpoint**: {current_display_name}\n\n"
             f"### Available endpoints:\n{endpoint_list}\n\n"
             f"Enter the endpoint key and confirm to switch."
         )
@@ -5045,14 +5351,43 @@ async def switch_endpoint_interactive(
                 hint=f"Use one of: {', '.join(SDMX_ENDPOINTS.keys())}",
             )
 
-        # Perform the switch
+        # Perform the switch. Prefer the session-based path when AppContext
+        # is available: pointer flip on SessionState.default_endpoint_key,
+        # isolated from other users. Only fall back to the legacy global
+        # switch when AppContext is absent (direct-call tests, unlifespaned
+        # servers).
+        if app_ctx is not None:
+            switch_result = await app_ctx.switch_endpoint(selected_endpoint, ctx)
+            new_config = switch_result["new_endpoint"]
+            return EndpointSwitchResult(
+                success=True,
+                message=f"Switched to {new_config['name']} (session-specific)",
+                new_endpoint=EndpointInfo(
+                    key=selected_endpoint,
+                    name=new_config["name"],
+                    base_url=new_config["base_url"],
+                    agency_id=new_config["agency_id"],
+                    description=new_config.get("description", ""),
+                    status="Active",
+                    is_current=True,
+                ),
+                error=None,
+                available_endpoints=None,
+                hint="This change only affects your session.",
+            )
+
         new_config = set_endpoint(selected_endpoint)
 
         if sdmx_tools.sdmx_client.session:
             await sdmx_tools.sdmx_client.close()
 
+        # Stamp endpoint_key so _resolve_client's no-AppContext fallback
+        # reports the current key after the interactive switch, matching
+        # the non-interactive legacy branch.
         sdmx_tools.sdmx_client = SDMXProgressiveClient(
-            base_url=new_config["base_url"], agency_id=new_config["agency_id"]
+            base_url=new_config["base_url"],
+            agency_id=new_config["agency_id"],
+            endpoint_key=selected_endpoint,
         )
 
         return EndpointSwitchResult(

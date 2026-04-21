@@ -6,7 +6,7 @@ SDMX-specific MCP prompts for guided query construction.
 def sdmx_discovery_guide(query_description: str) -> str:
     """
     Guide for discovering SDMX data step-by-step.
-    
+
     Provides a structured approach to finding and accessing SDMX statistical data.
     """
     return f"""
@@ -22,7 +22,7 @@ list_dataflows(keywords=["keyword1", "keyword2"])
 ```
 This shows you what statistical domains (dataflows) are available that match your interests.
 
-## Step 2: Explore Data Structure  
+## Step 2: Explore Data Structure
 ```
 get_dataflow_structure(dataflow_id="SELECTED_DATAFLOW_ID")
 ```
@@ -30,15 +30,18 @@ This reveals the dimensions, measures, and organization of the data.
 
 ## Step 3: Browse Dimension Codes
 ```
-explore_codelist(codelist_id="DIMENSION_CODELIST", search_term="search_term")
+get_dimension_codes(
+    dataflow_id="SELECTED_DATAFLOW_ID",
+    dimension_id="DIMENSION_ID"
+)
 ```
 This helps you find the exact codes for countries, indicators, time periods, etc.
 
 ## Step 4: Validate Your Query
 ```
-validate_query_syntax(
+validate_query(
     dataflow_id="DATAFLOW_ID",
-    key="dimension1_code.dimension2_code.dimension3_code", 
+    key="dimension1_code.dimension2_code.dimension3_code",
     start_period="2020",
     end_period="2023"
 )
@@ -46,18 +49,35 @@ validate_query_syntax(
 
 ## Step 5: Build Data URLs
 ```
-build_data_query(
+build_data_url(
     dataflow_id="DATAFLOW_ID",
     key="your_validated_key",
     format_type="csv"
 )
 ```
 
+## Step 6: Probe the Exact Query
+```
+probe_data_url(
+    data_url="BUILT_DATA_URL"
+)
+```
+Use this before downstream rendering or dashboard updates to confirm the query is non-empty and to inspect the result shape.
+
+## Step 7: Recover from Empty Results
+```
+suggest_nonempty_queries(
+    data_url="EMPTY_OR_TOO_NARROW_URL"
+)
+```
+If the exact query is empty, this suggests nearby non-empty relaxations.
+
 ## Tips:
 - Start broad, then narrow down your search
 - Use the "all" keyword for dimensions you want to include everything
 - Consider time constraints to limit data size
-- CSV format is often easiest for analysis
+- Probe exact queries before assuming they will render correctly
+- Use `suggest_nonempty_queries()` instead of guessing which filter to relax
 
 Would you like help with any specific step?
 """
@@ -80,18 +100,19 @@ Details: {error_details}
 - Verify agency ID is correct (SPC, ECB, OECD, etc.)
 - Try version "latest" instead of specific version
 - Use list_dataflows() to see available dataflows
+- If the wrong provider may be selected, retry with `endpoint=<key>` or call `switch_endpoint()`
 
-### 2. HTTP 400 - Bad Request  
-- Validate key syntax with validate_query_syntax()
+### 2. HTTP 400 - Bad Request
+- Validate key syntax with validate_query()
 - Check period format (use YYYY, YYYY-MM, or YYYY-Q1)
 - Ensure dimension codes exist in codelists
-- Use explore_codelist() to find valid codes
+- Use get_dimension_codes() to find valid codes
 
 ### 3. Empty Results
-- Try broader key (use "all" or wildcards)
+- Run `probe_data_url()` on the exact data URL before rendering
+- Use `suggest_nonempty_queries()` to relax one filter at a time
 - Check time period constraints
-- Verify data availability with different providers
-- Use different dimensionAtObservation values
+- Verify data availability with different providers or `endpoint=<key>`
 
 ### 4. Large Dataset Issues
 - Add time constraints (startPeriod, endPeriod)
@@ -107,9 +128,10 @@ Details: {error_details}
 ## Debugging Steps:
 1. Start with list_dataflows() to verify dataflow exists
 2. Use get_dataflow_structure() to understand dimensions
-3. Use explore_codelist() to find valid codes
-4. Use validate_query_syntax() before building final query
-5. Test with small time periods first
+3. Use get_dimension_codes() to find valid codes
+4. Use validate_query() before building the final URL
+5. Use probe_data_url() on the exact URL before consuming the data
+6. If the query is empty, call suggest_nonempty_queries()
 
 ## Need Help?
 - Check agency documentation
@@ -151,7 +173,7 @@ def sdmx_best_practices(use_case: str) -> str:
 - Use appropriate data formats (CSV for analysis, JSON for web)
 - Consider data update frequencies for automation
 """,
-        
+
         "dashboard": """
 # SDMX Best Practices for Dashboards
 
@@ -196,7 +218,7 @@ def sdmx_best_practices(use_case: str) -> str:
 - Document any data transformations
 """
     }
-    
+
     return guides.get(use_case.lower(), f"Best practices guide for '{use_case}' not available. Available guides: research, dashboard, automation")
 
 
@@ -206,7 +228,7 @@ def sdmx_query_builder(dataflow_info: dict, user_requirements: str) -> str:
     """
     dataflow_id = dataflow_info.get('id', 'UNKNOWN')
     dataflow_name = dataflow_info.get('name', 'Unknown Dataflow')
-    
+
     return f"""
 # SDMX Query Builder
 
@@ -222,7 +244,7 @@ Based on the dataflow structure, construct your key by specifying values for eac
 
 ```
 # Key format: dimension1.dimension2.dimension3...
-# Use explore_codelist() to find valid codes for each dimension
+# Use get_dimension_codes() to find valid codes for each dimension
 
 key = "FREQ.REF_AREA.INDICATOR.UNIT"
 ```
@@ -250,7 +272,7 @@ detail = "serieskeysonly" # Just series identifiers
 ### 5. Validate and Build
 ```
 # First validate your parameters
-validate_query_syntax(
+validate_query(
     dataflow_id="{dataflow_id}",
     key=your_key,
     start_period=your_start,
@@ -258,20 +280,26 @@ validate_query_syntax(
 )
 
 # Then build the final query
-build_data_query(
+build_data_url(
     dataflow_id="{dataflow_id}",
     key=your_key,
     start_period=your_start,
     end_period=your_end,
     format_type="csv"
 )
+
+# Probe the exact URL before using it
+probe_data_url(
+    data_url=your_built_url
+)
 ```
 
 ## Tips for This Dataflow:
-- Use explore_codelist() to see available countries, indicators, etc.
+- Use get_dimension_codes() to see available countries, indicators, etc.
 - Start with a specific country/indicator to test
 - Consider using "all" for dimensions you want all values
-- CSV format is recommended for analysis
+- Probe exact queries before assuming the result is renderable
+- If the query comes back empty, use suggest_nonempty_queries()
 
 Ready to start building your query?
 """

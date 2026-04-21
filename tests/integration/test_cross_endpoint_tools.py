@@ -194,6 +194,95 @@ async def test_get_code_usage_soft_failure_emits_sharp_hint():
 
 
 @pytest.mark.asyncio
+async def test_validate_query_populates_suggestion_with_mismatch_hint():
+    """A failed validation where the dataflow is registered elsewhere should
+    put the sharp hint into ValidationResult.suggestion."""
+    from config import SDMX_ENDPOINTS
+
+    available = list(SDMX_ENDPOINTS.keys())
+    ep_b = "ECB" if "ECB" in available else next(k for k in available if k != "SPC")
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    session = app_ctx.get_session(ctx)
+    session.register_dataflow("SPC", "DF_ELSEWHERE")
+
+    async def failing_validate(client, dataflow_id, key=None, filters=None,
+                                start_period=None, end_period=None,
+                                agency_id=None, ctx=None):
+        return {
+            "is_valid": False,
+            "errors": [
+                {
+                    "type": "error",
+                    "field": "dataflow_id",
+                    "message": "Dataflow not found on this endpoint (404)",
+                }
+            ],
+            "warnings": [],
+        }
+
+    with patch("tools.sdmx_tools.validate_query", side_effect=failing_validate):
+        from main_server import validate_query as handler
+
+        result = await handler(
+            dataflow_id="DF_ELSEWHERE",
+            key="A.B.C",
+            endpoint=ep_b,
+            ctx=ctx,
+        )
+
+    assert result.valid is False
+    assert result.suggestion is not None
+    assert "SPC" in result.suggestion
+    assert "endpoint='SPC'" in result.suggestion
+
+
+@pytest.mark.asyncio
+async def test_compare_dataflow_dimensions_pair_hints():
+    """Error in compare_dataflow_dimensions emits per-dataflow hints for whichever
+    side is known on a different endpoint."""
+    from config import SDMX_ENDPOINTS
+
+    available = list(SDMX_ENDPOINTS.keys())
+    ep_b = "ECB" if "ECB" in available else next(k for k in available if k != "SPC")
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    session = app_ctx.get_session(ctx)
+    # Only DF_A is registered on SPC; DF_B is unknown.
+    session.register_dataflow("SPC", "DF_A")
+
+    # Simulate a 404 inside the try by forcing get_structure_summary to raise.
+    from sdmx_progressive_client import SDMXProgressiveClient
+
+    async def raise_404(*args, **kwargs):
+        raise RuntimeError("404 not found")
+
+    with patch.object(SDMXProgressiveClient, "get_structure_summary", side_effect=raise_404):
+        from main_server import compare_dataflow_dimensions as handler
+
+        result = await handler(
+            dataflow_id_a="DF_A",
+            dataflow_id_b="DF_B",
+            endpoint_a=ep_b,
+            endpoint_b=ep_b,
+            ctx=ctx,
+        )
+
+    interp = "\n".join(result.interpretation)
+    # Side A should get the sharp hint (DF_A known on SPC)
+    assert "A:" in interp
+    assert "endpoint='SPC'" in interp
+    # Side B should get the generic not-found hint (DF_B unseen; error text has "404")
+    assert "B:" in interp
+
+
+@pytest.mark.asyncio
 async def test_get_code_usage_soft_failure_no_hint_when_unregistered():
     """When a dataflow has simply no constraint and isn't known elsewhere,
     the soft-failure return should NOT append a noisy generic hint."""

@@ -40,17 +40,14 @@ from models.schemas import (
     CodeOverlap,
     ComparisonSummary,
     ComponentInfo,
-    ConceptChange,
     ConceptRef,
     DataAvailabilityResult,
-    DataflowDiagramResult,
     DataflowDimensionComparisonResult,
     DataflowInfo,
     DataflowListResult,
     DataflowStructureResult,
     DataflowSummary,
     DataUrlResult,
-    DimensionChange,
     DimensionCodesResult,
     DimensionComparison,
     DimensionInfo,
@@ -66,8 +63,8 @@ from models.schemas import (
     QuerySuggestion,
     ReferenceChange,
     RepresentationInfo,
-    StructureComparisonResult,
     SampleObservation,
+    StructureComparisonResult,
     StructureDiagramResult,
     StructureEdge,
     StructureInfo,
@@ -306,6 +303,28 @@ def _register_dataflow_if_possible(
 
 
 _NOT_FOUND_SIGNALS = ("404", "not found", "no such", "unknown dataflow", "204")
+
+
+def _extend_with_pair_hints(
+    bucket: list[str],
+    ctx: Context[Any, Any, Any] | None,
+    endpoint_a: str,
+    dataflow_id_a: str | None,
+    endpoint_b: str,
+    dataflow_id_b: str | None,
+    error_message: str,
+) -> None:
+    """
+    Append per-dataflow mismatch hints for two-dataflow tools like
+    compare_dataflow_dimensions. Each side is evaluated independently;
+    only sides with a usable hint contribute a line.
+    """
+    hint_a = _maybe_mismatch_hint(ctx, endpoint_a, dataflow_id_a, error_message)
+    if hint_a:
+        bucket.append("A: " + hint_a)
+    hint_b = _maybe_mismatch_hint(ctx, endpoint_b, dataflow_id_b, error_message)
+    if hint_b:
+        bucket.append("B: " + hint_b)
 
 
 def _maybe_mismatch_hint(
@@ -2062,24 +2081,38 @@ async def compare_dataflow_dimensions(
 
     except ValueError as e:
         # Invalid endpoint key
+        interp = ["Error: " + str(e)]
+        _extend_with_pair_hints(
+            interp, ctx,
+            endpoint_a or session_endpoint_key, dataflow_id_a,
+            endpoint_b or session_endpoint_key, dataflow_id_b,
+            str(e),
+        )
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
             endpoint_a=endpoint_a or session_endpoint_key,
             endpoint_b=endpoint_b or session_endpoint_key,
             dimensions=[],
-            interpretation=["Error: " + str(e)],
+            interpretation=interp,
         )
 
     except Exception as e:
         logger.exception("Failed to compare dataflow dimensions")
+        interp = ["Error: " + str(e)]
+        _extend_with_pair_hints(
+            interp, ctx,
+            endpoint_a or session_endpoint_key, dataflow_id_a,
+            endpoint_b or session_endpoint_key, dataflow_id_b,
+            str(e),
+        )
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
             endpoint_a=endpoint_a or session_endpoint_key,
             endpoint_b=endpoint_b or session_endpoint_key,
             dimensions=[],
-            interpretation=["Error: " + str(e)],
+            interpretation=interp,
             api_calls_made=api_calls,
         )
 
@@ -2199,16 +2232,25 @@ async def validate_query(
         ctx=ctx,
     )
 
-    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+    is_valid = result.get("is_valid", False)
+    errors = result.get("errors", [])
+    suggestion = None
+    if is_valid:
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+    else:
+        # Concatenate error text so _maybe_mismatch_hint can detect
+        # not-found signatures inside the validation errors.
+        error_text = " ".join(str(e) for e in errors)
+        suggestion = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, error_text)
 
     return ValidationResult(
-        valid=result.get("is_valid", False),
+        valid=is_valid,
         dataflow_id=dataflow_id,
         key=key or "",
-        errors=result.get("errors", []),
+        errors=errors,
         warnings=result.get("warnings", []),
         invalid_codes=[],
-        suggestion=None,
+        suggestion=suggestion,
     )
 
 
@@ -2434,10 +2476,20 @@ async def probe_data_url(
         for obs in result.get("sample_observations", [])
     ]
 
-    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+    status = result.get("status", "error")
+    notes = list(result.get("notes", []))
+    if status == "ok":
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+    else:
+        # Notes carry probe diagnostics (HTTP status, timeout reason, etc.).
+        # Feed the concatenated text so the helper's not-found heuristic can fire.
+        note_text = " ".join(str(n) for n in notes)
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, note_text)
+        if hint:
+            notes.append(hint)
 
     return ProbeResult(
-        status=result.get("status", "error"),
+        status=status,
         observation_count=result.get("observation_count", 0),
         series_count=result.get("series_count", 0),
         time_period_count=result.get("time_period_count", 0),
@@ -2446,7 +2498,7 @@ async def probe_data_url(
         geo_dimension_id=result.get("geo_dimension_id"),
         sample_observations=sample_obs,
         query_fingerprint=result.get("query_fingerprint", ""),
-        notes=result.get("notes", []),
+        notes=notes,
     )
 
 
@@ -2685,15 +2737,8 @@ async def get_structure_diagram(
         >>> get_structure_diagram("dsd", "DSD_POP", direction="children")
         # Shows codelists and concept schemes used by DSD_POP
     """
-    import xml.etree.ElementTree as ET
-
-    import httpx
-
-    from utils import SDMX_NAMESPACES
-
     client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
-    ns = SDMX_NAMESPACES
 
     # ==========================================================================
     # DATAFLOW: Generate full SDMX hierarchy diagram
@@ -2738,6 +2783,14 @@ async def get_structure_diagram(
             name=f"Error: {result['error']}",
             is_target=True,
         )
+        interpretation = [f"Error: {result['error']}"]
+        # Only hint when the structure is a dataflow — other structure types
+        # (codelist, DSD, concept scheme) share id spaces with dataflows but
+        # the mismatch hint would be misleading.
+        if structure_type.lower() == "dataflow":
+            hint = _maybe_mismatch_hint(ctx, ep_key, structure_id, str(result["error"]))
+            if hint:
+                interpretation.append(hint)
         return StructureDiagramResult(
             discovery_level="structure_relationships",
             target=error_node,
@@ -2746,7 +2799,7 @@ async def get_structure_diagram(
             nodes=[error_node],
             edges=[],
             mermaid_diagram=f'graph TD\n    error["❌ Error: {result["error"]}"]',
-            interpretation=[f"Error: {result['error']}"],
+            interpretation=interpretation,
             api_calls_made=1,
             note=result.get("details"),
         )
@@ -3751,7 +3804,7 @@ async def _generate_dataflow_hierarchy_diagram(
         # Add categorisation info
         if categorisations:
             interpretation.append("")
-            interpretation.append(f"**Categorised under:**")
+            interpretation.append("**Categorised under:**")
             for cat in categorisations:
                 interpretation.append(f"  - {cat['category_name']} (from {cat['category_scheme']})")
 
@@ -4600,6 +4653,11 @@ async def compare_structures(
             name=f"Error: {result_a['error']}",
             is_target=True,
         )
+        interpretation = [f"Error fetching structure A: {result_a['error']}"]
+        if structure_type.lower() == "dataflow":
+            hint = _maybe_mismatch_hint(ctx, ep_key, structure_id_a, str(result_a["error"]))
+            if hint:
+                interpretation.append(hint)
         return StructureComparisonResult(
             structure_a=error_node,
             structure_b=error_node,
@@ -4607,7 +4665,7 @@ async def compare_structures(
             changes=[],
             summary=ComparisonSummary(),
             mermaid_diff_diagram=None,
-            interpretation=[f"Error fetching structure A: {result_a['error']}"],
+            interpretation=interpretation,
             api_calls_made=api_calls,
             note="Comparison failed due to error fetching first structure",
         )
@@ -4643,6 +4701,11 @@ async def compare_structures(
             name=f"Error: {result_b['error']}",
             is_target=False,
         )
+        interpretation = [f"Error fetching structure B: {result_b['error']}"]
+        if structure_type.lower() == "dataflow":
+            hint = _maybe_mismatch_hint(ctx, ep_key, structure_id_b, str(result_b["error"]))
+            if hint:
+                interpretation.append(hint)
         return StructureComparisonResult(
             structure_a=node_a,
             structure_b=error_node,
@@ -4650,7 +4713,7 @@ async def compare_structures(
             changes=[],
             summary=ComparisonSummary(),
             mermaid_diff_diagram=None,
-            interpretation=[f"Error fetching structure B: {result_b['error']}"],
+            interpretation=interpretation,
             api_calls_made=api_calls,
             note="Comparison failed due to error fetching second structure",
         )

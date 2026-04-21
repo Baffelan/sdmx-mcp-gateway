@@ -2454,6 +2454,16 @@ async def probe_data_url(
 
     client, ep_key = await _resolve_client(ctx, endpoint)
 
+    # Session-scope the probe cache (audit M1): one session's cached probe
+    # results must never surface on another session's probe call.
+    session_probe_cache = None
+    session_probe_cache_lock = None
+    app_ctx = get_app_context(ctx)
+    if app_ctx is not None:
+        session = app_ctx.get_session(ctx)
+        session_probe_cache = session.probe_cache
+        session_probe_cache_lock = session._state_lock
+
     result = await probe_impl(
         client=client,
         data_url=data_url,
@@ -2464,6 +2474,8 @@ async def probe_data_url(
         sample_limit=sample_observations_limit,
         max_distinct_per_dim=max_distinct_values_per_dimension,
         timeout_ms=timeout_ms,
+        probe_cache=session_probe_cache,
+        probe_cache_lock=session_probe_cache_lock,
     )
 
     dim_summaries: dict[str, DimensionSummary] = {}

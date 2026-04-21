@@ -2320,6 +2320,7 @@ async def probe_data_url(
     sample_observations_limit: int = 5,
     max_distinct_values_per_dimension: int = 10,
     timeout_ms: int = 10000,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> ProbeResult:
     """
@@ -2340,13 +2341,16 @@ async def probe_data_url(
         sample_observations_limit: Max sample observations to return
         max_distinct_values_per_dimension: Max distinct values per dimension summary
         timeout_ms: Probe timeout in milliseconds
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Probe result with status, observation count, shape, and sample data
     """
     from tools.probing_tools import probe_data_url as probe_impl
 
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
 
     result = await probe_impl(
         client=client,
@@ -2375,6 +2379,8 @@ async def probe_data_url(
         for obs in result.get("sample_observations", [])
     ]
 
+    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+
     return ProbeResult(
         status=result.get("status", "error"),
         observation_count=result.get("observation_count", 0),
@@ -2397,6 +2403,7 @@ async def suggest_nonempty_queries(
     max_probes: int = 20,
     strategy: str = "least_change",
     intent_hint: str = "generic",
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> SuggestionResult:
     """
@@ -2413,13 +2420,16 @@ async def suggest_nonempty_queries(
         max_probes: Maximum HTTP probes to make (budget)
         strategy: Recovery strategy (currently only least_change)
         intent_hint: One of generic, kpi, timeseries, ranking, map
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Suggestion result with ranked non-empty alternatives
     """
     from tools.probing_tools import suggest_nonempty_queries as suggest_impl
 
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
 
     result = await suggest_impl(
         client=client,
@@ -2559,6 +2569,7 @@ async def get_structure_diagram(
     version: str = "latest",
     direction: str = "both",
     show_versions: bool = False,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> StructureDiagramResult:
     """
@@ -2598,6 +2609,9 @@ async def get_structure_diagram(
             - "children": Show structures this one REFERENCES
             - "both": Show both directions (default)
         show_versions: If True, display version numbers on each node
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         StructureDiagramResult with:
@@ -2622,7 +2636,7 @@ async def get_structure_diagram(
 
     from utils import SDMX_NAMESPACES
 
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
     ns = SDMX_NAMESPACES
 
@@ -4418,6 +4432,7 @@ async def compare_structures(
     version_b: str = "latest",
     agency_id: str | None = None,
     show_diagram: bool = True,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> StructureComparisonResult:
     """
@@ -4451,6 +4466,9 @@ async def compare_structures(
         version_b: Version of second structure (default "latest")
         agency_id: Agency ID (uses current endpoint's default if not specified)
         show_diagram: Generate a Mermaid diff diagram (default True)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         StructureComparisonResult with type-specific changes:
@@ -4473,7 +4491,7 @@ async def compare_structures(
         # Compare two different DSDs
         >>> compare_structures("datastructure", "DSD_SDG", "DSD_EDUCATION")
     """
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     agency = agency_id or client.agency_id
 
     # If structure_id_b is not provided, compare versions of the same structure

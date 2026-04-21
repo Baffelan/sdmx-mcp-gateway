@@ -1362,15 +1362,6 @@ async def find_code_usage_across_dataflows(
         )
 
 
-def _get_session_endpoint_key(ctx: Context[Any, Any, Any] | None) -> str:
-    """Return the endpoint key for the current MCP session, or 'SPC' as default."""
-    app_ctx = get_app_context(ctx)
-    if app_ctx is not None:
-        session = app_ctx.get_session(ctx)
-        return session.endpoint_key
-    return "SPC"
-
-
 # =============================================================================
 # Cross-Dataflow Dimension Comparison
 # =============================================================================
@@ -1615,6 +1606,11 @@ async def compare_dataflow_dimensions(
         DataflowDimensionComparisonResult with dimension comparison, overlap stats,
         and join column recommendations
     """
+    # Default session endpoint for error-branch display when endpoint_a/b aren't provided
+    app_ctx = get_app_context(ctx)
+    session_endpoint_key = (
+        app_ctx.get_session(ctx).default_endpoint_key if app_ctx is not None else "SPC"
+    )
     api_calls = 0
     try:
         client_a, ep_key_a = await _resolve_client(ctx, endpoint_a)
@@ -1973,8 +1969,8 @@ async def compare_dataflow_dimensions(
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
-            endpoint_a=endpoint_a or _get_session_endpoint_key(ctx),
-            endpoint_b=endpoint_b or _get_session_endpoint_key(ctx),
+            endpoint_a=endpoint_a or session_endpoint_key,
+            endpoint_b=endpoint_b or session_endpoint_key,
             dimensions=[],
             interpretation=["Error: " + str(e)],
         )
@@ -1984,8 +1980,8 @@ async def compare_dataflow_dimensions(
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
-            endpoint_a=endpoint_a or _get_session_endpoint_key(ctx),
-            endpoint_b=endpoint_b or _get_session_endpoint_key(ctx),
+            endpoint_a=endpoint_a or session_endpoint_key,
+            endpoint_b=endpoint_b or session_endpoint_key,
             dimensions=[],
             interpretation=["Error: " + str(e)],
             api_calls_made=api_calls,

@@ -155,7 +155,15 @@ class SDMXProgressiveClient:
         self.agency_id = agency_id or SDMX_AGENCY_ID
         self.endpoint_key = endpoint_key
         self.session = None
-        self._cache = {}  # Simple cache for repeated requests
+        # Per-instance caches. Under the session-pool model each (session,
+        # endpoint) owns one client, and async tool handlers don't yield
+        # between cache-miss and cache-write for the same key, so the
+        # read-then-write pattern is effectively single-flight per client.
+        # If future code introduces a genuine compute-then-cache pattern
+        # across an await boundary, or if a client instance is ever shared
+        # across threads, add an instance-level Lock guarding these dicts.
+        # (Audit L2.)
+        self._cache = {}
         # Cache for dataflow versions to avoid repeated lookups
         # Format: {(agency_id, dataflow_id): version}
         self.version_cache = {}

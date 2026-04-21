@@ -1133,7 +1133,10 @@ async def build_sdmx_key(
 # (the singleton is a process-wide fallback, not a per-session client).
 # Passing explicit kwargs also silences the H3 no-kwargs warning, which
 # would otherwise fire on every import of this module.
-from config import SDMX_AGENCY_ID as _startup_agency, SDMX_BASE_URL as _startup_base_url
+from config import (  # noqa: E402, I001  (deliberately late — used only below)
+    SDMX_AGENCY_ID as _startup_agency,
+    SDMX_BASE_URL as _startup_base_url,
+)
 
 sdmx_client = SDMXProgressiveClient(
     base_url=_startup_base_url,

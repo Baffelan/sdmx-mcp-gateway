@@ -569,3 +569,62 @@ def test_register_dataflow_concurrent_with_snapshot_is_atomic():
             "EP_" + prefix + ": expected " + str(len(expected))
             + " entries, got " + str(len(got))
         )
+
+
+def test_legacy_singleton_swap_warns_in_http_mode(caplog):
+    """Audit L1: if the legacy global-singleton-swap branch of
+    switch_endpoint / switch_endpoint_interactive ever runs in an HTTP
+    deployment, it mutates process-wide state that affects every other
+    concurrent session. Emit a one-shot WARNING so operators notice.
+    """
+    import logging
+
+    import main_server
+    import session_manager
+
+    # Reset one-shot + enable HTTP mode
+    original_flag = session_manager._HTTP_TRANSPORT_ACTIVE
+    original_warned = main_server._warned_legacy_switch_in_http
+    session_manager._HTTP_TRANSPORT_ACTIVE = True
+    main_server._warned_legacy_switch_in_http = False
+    try:
+        caplog.set_level(logging.WARNING, logger="main_server")
+        main_server._warn_legacy_switch_in_http_mode("switch_endpoint")
+        main_server._warn_legacy_switch_in_http_mode("switch_endpoint")  # 2nd: no-op
+
+        warns = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "Legacy singleton swap" in r.message
+        ]
+        assert len(warns) == 1, (
+            "Expected one one-shot warning across two calls; got "
+            + str(len(warns))
+        )
+    finally:
+        session_manager._HTTP_TRANSPORT_ACTIVE = original_flag
+        main_server._warned_legacy_switch_in_http = original_warned
+
+
+def test_legacy_singleton_swap_silent_in_stdio_mode(caplog):
+    """STDIO legitimately takes the legacy path (no AppContext), so the L1
+    warning should stay silent there."""
+    import logging
+
+    import main_server
+    import session_manager
+
+    original_flag = session_manager._HTTP_TRANSPORT_ACTIVE
+    original_warned = main_server._warned_legacy_switch_in_http
+    session_manager._HTTP_TRANSPORT_ACTIVE = False
+    main_server._warned_legacy_switch_in_http = False
+    try:
+        caplog.set_level(logging.WARNING, logger="main_server")
+        main_server._warn_legacy_switch_in_http_mode("switch_endpoint")
+        warns = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "Legacy singleton swap" in r.message
+        ]
+        assert not warns, "STDIO must not warn on legacy path"
+    finally:
+        session_manager._HTTP_TRANSPORT_ACTIVE = original_flag
+        main_server._warned_legacy_switch_in_http = original_warned

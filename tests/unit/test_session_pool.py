@@ -169,3 +169,58 @@ async def test_close_all_partial_failure_does_not_raise():
 
     assert set(closed) == {"SPC", "ECB"}
     assert session.clients == {}
+
+
+def test_get_session_is_race_safe_against_injected_create_delay():
+    """Concurrent first-touch requests for the same session_id must all
+    resolve to the same SessionState instance; no double-create.
+
+    The audit's H1 failure mode: two threads both see `sid not in _sessions`,
+    both call `_create_session`, and the second insert overwrites the first.
+    The losing SessionState's future register_dataflow / get_or_create_client
+    writes leak into an orphaned object.
+
+    We expose the race deterministically by wrapping `_create_session` with a
+    sleep that's longer than the context switch, so threads reliably interleave
+    between the membership check and the insert. Without a lock on that
+    critical section the test fails; with one, all callers see the same
+    SessionState.
+    """
+    import threading
+    import time
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+
+    # Wrap _create_session with a sleep long enough to guarantee interleaving.
+    original_create = mgr._create_session
+
+    def slow_create(sid: str, endpoint_key: str | None = None):
+        time.sleep(0.05)
+        return original_create(sid, endpoint_key)
+
+    mgr._create_session = slow_create  # type: ignore[method-assign]
+
+    n_threads = 6
+    barrier = threading.Barrier(n_threads)
+    results: list[SessionState] = []
+    results_lock = threading.Lock()
+
+    def worker() -> None:
+        barrier.wait()
+        session = mgr.get_session("race-session")
+        with results_lock:
+            results.append(session)
+
+    threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == n_threads
+    winner = mgr._sessions["race-session"]
+    assert all(r is winner for r in results), (
+        "Expected all threads to observe the same SessionState instance; "
+        "got " + str(len({id(r) for r in results})) + " distinct instances. "
+        "This is the H1 race condition: concurrent check-then-insert."
+    )

@@ -18,8 +18,8 @@ Usage:
     # Switch endpoint for a specific session
     await manager.switch_session_endpoint("session-123", "ECB")
 
-    # Get session's current client
-    client = state.client
+    # Get or create a pooled client for the session's default endpoint
+    client = await state.get_or_create_client(state.default_endpoint_key)
 """
 
 from __future__ import annotations
@@ -54,19 +54,15 @@ class SessionState:
     """
     State for a single user session.
 
-    Each session maintains its own:
-    - SDMX client instance
-    - Endpoint configuration
-    - Cache for expensive operations
+    Holds a pool of SDMX clients keyed by endpoint and a default endpoint
+    pointer. Clients are lazily created on first use per endpoint.
     """
 
     session_id: str
-    endpoint_key: str
-    endpoint_name: str
-    base_url: str
-    agency_id: str
-    description: str
-    client: SDMXProgressiveClient
+    default_endpoint_key: str
+    clients: dict[str, SDMXProgressiveClient] = field(default_factory=dict)
+    pending: dict[str, asyncio.Task[SDMXProgressiveClient]] = field(default_factory=dict)
+    known_dataflows: dict[str, set[str]] = field(default_factory=dict)
     cache: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=_now_utc)
     last_accessed: datetime = field(default_factory=_now_utc)
@@ -81,20 +77,68 @@ class SessionState:
         return self.last_accessed < cutoff
 
     def clear_cache(self) -> None:
-        """Clear session-specific cache."""
+        """Clear session-specific cache and every pool client's caches."""
         self.cache.clear()
-        # Also clear the client's internal caches if they exist
-        client_cache = getattr(self.client, "_cache", None)
-        if isinstance(client_cache, dict):
-            client_cache.clear()
-        version_cache = getattr(self.client, "version_cache", None)
-        if isinstance(version_cache, dict):
-            version_cache.clear()
+        for client in self.clients.values():
+            client_cache = getattr(client, "_cache", None)
+            if isinstance(client_cache, dict):
+                client_cache.clear()
+            version_cache = getattr(client, "version_cache", None)
+            if isinstance(version_cache, dict):
+                version_cache.clear()
+
+    async def get_or_create_client(
+        self, endpoint_key: str
+    ) -> SDMXProgressiveClient:
+        """
+        Return the pool client for endpoint_key, creating one if needed.
+
+        Safe under concurrent callers: the first one starts creation,
+        subsequent concurrent callers await the same Task.
+        """
+        if endpoint_key in self.clients:
+            return self.clients[endpoint_key]
+        if endpoint_key in self.pending:
+            return await self.pending[endpoint_key]
+
+        from config import SDMX_ENDPOINTS
+
+        cfg = SDMX_ENDPOINTS[endpoint_key]
+
+        async def _build() -> SDMXProgressiveClient:
+            return SDMXProgressiveClient(
+                base_url=cfg["base_url"],
+                agency_id=cfg["agency_id"],
+                endpoint_key=endpoint_key,
+            )
+
+        task = asyncio.create_task(_build())
+        self.pending[endpoint_key] = task
+        try:
+            client = await task
+            self.clients[endpoint_key] = client
+            return client
+        finally:
+            self.pending.pop(endpoint_key, None)
+
+    def register_dataflow(self, endpoint_key: str, dataflow_id: str) -> None:
+        """Record that dataflow_id is known to exist on endpoint_key."""
+        self.known_dataflows.setdefault(endpoint_key, set()).add(dataflow_id)
 
     async def close(self) -> None:
-        """Close the session's SDMX client."""
-        if self.client and self.client.session is not None:
-            await self.client.close()
+        """Close every client whose httpx session was opened."""
+        targets = [c for c in self.clients.values() if c.session is not None]
+        if not targets:
+            self.clients.clear()
+            return
+        results = await asyncio.gather(
+            *(c.close() for c in targets),
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, BaseException):
+                logger.warning("client.close() failed: %s", r)
+        self.clients.clear()
 
 
 class SessionManager:
@@ -147,33 +191,14 @@ class SessionManager:
         return config
 
     def _create_session(self, session_id: str, endpoint_key: str | None = None) -> SessionState:
-        """
-        Create a new session with the specified or default endpoint.
-
-        Args:
-            session_id: Unique session identifier
-            endpoint_key: Optional endpoint key (uses default if not specified)
-
-        Returns:
-            New SessionState instance
-        """
+        """Create a new session with the given default endpoint key."""
         key = endpoint_key or self._default_endpoint_key
-        config = self._get_endpoint_config(key)
-
-        client = SDMXProgressiveClient(
-            base_url=config["base_url"],
-            agency_id=config["agency_id"],
-            endpoint_key=key,
-        )
-
+        # Validate up front so a bad default fails loudly at session creation,
+        # not on first tool call.
+        self._get_endpoint_config(key)
         return SessionState(
             session_id=session_id,
-            endpoint_key=key,
-            endpoint_name=config["name"],
-            base_url=config["base_url"],
-            agency_id=config["agency_id"],
-            description=config.get("description", ""),
-            client=client,
+            default_endpoint_key=key,
         )
 
     def get_session(self, session_id: str | None = None) -> SessionState:
@@ -210,38 +235,24 @@ class SessionManager:
         session_id: str | None = None,
     ) -> dict[str, Any]:
         """
-        Switch endpoint for a specific session.
+        Flip the session's default endpoint pointer.
 
-        This closes the old client and creates a new one configured
-        for the new endpoint. Only affects the specified session.
-
-        Args:
-            endpoint_key: Target endpoint key (e.g., "ECB", "UNICEF")
-            session_id: Session to switch (None uses default)
-
-        Returns:
-            Dictionary with switch result information
-
-        Raises:
-            ValueError: If endpoint_key is not recognized
+        Does not tear down pooled clients; they stay warm for future calls.
+        Only mutates the `default_endpoint_key` scalar.
         """
         sid = session_id or DEFAULT_SESSION_ID
-
-        # Validate endpoint first
-        config = self._get_endpoint_config(endpoint_key)
+        cfg = self._get_endpoint_config(endpoint_key)
 
         async with self._lock:
-            # Get or create session
-            old_endpoint: str | None = None
-            if sid in self._sessions:
-                old_session = self._sessions[sid]
-                old_endpoint = old_session.endpoint_key
-
-                # Close old client
-                await old_session.close()
-
-            # Create new session with new endpoint
-            self._sessions[sid] = self._create_session(sid, endpoint_key)
+            session = self._sessions.get(sid)
+            if session is None:
+                session = self._create_session(sid, endpoint_key)
+                self._sessions[sid] = session
+                old_endpoint = None
+            else:
+                old_endpoint = session.default_endpoint_key
+                session.default_endpoint_key = endpoint_key
+                session.touch()
 
         logger.info("Session %s: switched from %s to %s", sid, old_endpoint, endpoint_key)
 
@@ -251,10 +262,10 @@ class SessionManager:
             "previous_endpoint": old_endpoint,
             "new_endpoint": {
                 "key": endpoint_key,
-                "name": config["name"],
-                "base_url": config["base_url"],
-                "agency_id": config["agency_id"],
-                "description": config.get("description", ""),
+                "name": cfg["name"],
+                "base_url": cfg["base_url"],
+                "agency_id": cfg["agency_id"],
+                "description": cfg.get("description", ""),
             },
         }
 
@@ -318,30 +329,23 @@ class SessionManager:
         logger.debug("Closed all sessions")
 
     def get_session_info(self, session_id: str | None = None) -> dict[str, Any] | None:
-        """
-        Get information about a session.
-
-        Args:
-            session_id: Session to query (None uses default)
-
-        Returns:
-            Session information dict, or None if session doesn't exist
-        """
+        """Get information about a session."""
         sid = session_id or DEFAULT_SESSION_ID
-
         if sid not in self._sessions:
             return None
 
         session = self._sessions[sid]
+        cfg = self._get_endpoint_config(session.default_endpoint_key)
         return {
             "session_id": session.session_id,
-            "endpoint_key": session.endpoint_key,
-            "endpoint_name": session.endpoint_name,
-            "base_url": session.base_url,
-            "agency_id": session.agency_id,
+            "endpoint_key": session.default_endpoint_key,
+            "endpoint_name": cfg["name"],
+            "base_url": cfg["base_url"],
+            "agency_id": cfg["agency_id"],
             "created_at": session.created_at.isoformat(),
             "last_accessed": session.last_accessed.isoformat(),
             "is_expired": session.is_expired(),
+            "pool_endpoints": sorted(session.clients.keys()),
         }
 
     def list_sessions(self) -> list[dict[str, Any]]:

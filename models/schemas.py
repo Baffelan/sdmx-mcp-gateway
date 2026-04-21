@@ -7,9 +7,14 @@ enabling automatic validation and JSON Schema generation for the MCP protocol.
 Following MCP SDK v2 best practices for structured output support.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+# Valid probe_data_url() status values. The tool only ever emits one of these;
+# callers (SuggestionResult.original_status, SuggestionProbeResult.status) pass
+# them through unchanged.
+ProbeStatus = Literal["nonempty", "empty", "error"]
 
 # =============================================================================
 # Common/Shared Schemas
@@ -803,8 +808,10 @@ class SampleObservation(BaseModel):
 class ProbeResult(BaseModel):
     """Result from probe_data_url() tool."""
 
-    status: str = Field(
-        description="One of: nonempty, empty, partial, error"
+    status: ProbeStatus = Field(
+        description="Probe outcome: 'nonempty' if observations were returned, "
+        "'empty' if the query resolved to zero observations, 'error' if the "
+        "probe failed (HTTP error, parse failure, etc.)"
     )
     observation_count: int = Field(
         default=0, description="Number of actual observations returned"
@@ -844,7 +851,7 @@ class ProbeResult(BaseModel):
 class SuggestionProbeResult(BaseModel):
     """Compact probe result embedded in a suggestion."""
 
-    status: str = Field(description="nonempty or empty")
+    status: ProbeStatus = Field(description="Probe outcome for the suggested query")
     observation_count: int = Field(default=0)
     series_count: int = Field(default=0)
     time_period_count: int = Field(default=0)
@@ -863,7 +870,7 @@ class QuerySuggestion(BaseModel):
 class SuggestionResult(BaseModel):
     """Result from suggest_nonempty_queries() tool."""
 
-    original_status: str = Field(description="Probe status of the original query")
+    original_status: ProbeStatus = Field(description="Probe status of the original query")
     original_query_fingerprint: str = Field(default="", description="Fingerprint of original")
     suggestions: list[QuerySuggestion] = Field(
         default_factory=list, description="Ranked non-empty alternatives"

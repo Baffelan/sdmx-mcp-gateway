@@ -218,12 +218,15 @@ async def _resolve_client(
                 "(see tests/integration/test_cross_endpoint_tools.py)."
             )
         # Legacy fallback: route through get_session_client so test patches
-        # targeting main_server.get_session_client continue to work. Resolve
-        # the reported ep_key from the same env the legacy client honours:
-        # SDMX_BASE_URL takes priority (custom endpoint, not in the registry),
-        # otherwise SDMX_ENDPOINT names a registry key. Returning "CUSTOM" for
-        # the base-url case prevents downstream tools from applying a
-        # registry-specific constraint strategy to an unknown endpoint.
+        # targeting main_server.get_session_client continue to work.
+        client = await get_session_client(ctx)
+        # Prefer the client's own endpoint_key when set (the legacy global
+        # switch_endpoint() path stamps this on the new singleton, so reads
+        # stay in sync after a runtime switch). Fall back to env vars for
+        # the startup-only case.
+        client_ep = getattr(client, "endpoint_key", None)
+        if client_ep and (client_ep == "CUSTOM" or client_ep in SDMX_ENDPOINTS):
+            return client, client_ep
         import os
         if os.getenv("SDMX_BASE_URL"):
             fallback_ep = "CUSTOM"
@@ -231,7 +234,7 @@ async def _resolve_client(
             fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
             if fallback_ep not in SDMX_ENDPOINTS:
                 fallback_ep = "SPC"
-        return await get_session_client(ctx), fallback_ep
+        return client, fallback_ep
 
     session = app_ctx.get_session(ctx)
     key = endpoint or session.default_endpoint_key
@@ -4972,7 +4975,7 @@ async def list_available_endpoints(ctx: Context[Any, Any, Any] | None = None) ->
 
     if app_ctx is not None:
         session = app_ctx.get_session(ctx)
-        current_key = session.endpoint_key
+        current_key = session.default_endpoint_key
     else:
         # Fallback to global config
         from config import get_current_config
@@ -5054,8 +5057,9 @@ async def switch_endpoint(
     if app_ctx is not None:
         # Use session-based endpoint switching (multi-user safe)
         current_session = app_ctx.get_session(ctx)
-        current_name = current_session.endpoint_name
-        current_url = current_session.base_url
+        current_cfg = SDMX_ENDPOINTS.get(current_session.default_endpoint_key, {})
+        current_name = current_cfg.get("name", current_session.default_endpoint_key)
+        current_url = current_cfg.get("base_url", "")
     else:
         # Fallback to global config
         from config import get_current_config
@@ -5130,9 +5134,13 @@ async def switch_endpoint(
             if sdmx_tools.sdmx_client.session:
                 await sdmx_tools.sdmx_client.close()
 
-            # Create new client with updated endpoint
+            # Create new client with updated endpoint. Passing endpoint_key
+            # ensures _resolve_client's no-AppContext fallback reports the
+            # current key, not the startup-time env value.
             sdmx_tools.sdmx_client = SDMXProgressiveClient(
-                base_url=new_config["base_url"], agency_id=new_config["agency_id"]
+                base_url=new_config["base_url"],
+                agency_id=new_config["agency_id"],
+                endpoint_key=endpoint_key,
             )
 
             return EndpointSwitchResult(

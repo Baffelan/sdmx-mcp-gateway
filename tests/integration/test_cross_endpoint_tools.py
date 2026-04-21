@@ -194,6 +194,45 @@ async def test_get_code_usage_soft_failure_emits_sharp_hint():
 
 
 @pytest.mark.asyncio
+async def test_list_available_endpoints_marks_session_default_as_current():
+    """Regression: list_available_endpoints must not AttributeError on the
+    removed session.endpoint_key mirror field."""
+    mgr = SessionManager(default_endpoint_key="ECB")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    from main_server import list_available_endpoints as handler
+
+    result = await handler(ctx=ctx)
+
+    assert result.current == "ECB"
+    current_flags = [ep for ep in result.endpoints if ep.is_current]
+    assert len(current_flags) == 1
+    assert current_flags[0].key == "ECB"
+
+
+@pytest.mark.asyncio
+async def test_switch_endpoint_session_path_does_not_AttributeError():
+    """Regression: switch_endpoint's session branch must not read removed
+    endpoint_name / base_url mirror fields on SessionState."""
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    from main_server import switch_endpoint as handler
+
+    # require_confirmation=False skips the elicit() prompt that reads
+    # current_name/current_url, but the preamble still constructs them.
+    result = await handler(endpoint_key="ECB", require_confirmation=False, ctx=ctx)
+
+    assert result.success is True
+    assert result.new_endpoint is not None
+    assert result.new_endpoint.key == "ECB"
+    # Session pointer flipped on the underlying SessionState
+    assert app_ctx.get_session(ctx).default_endpoint_key == "ECB"
+
+
+@pytest.mark.asyncio
 async def test_validate_query_populates_suggestion_with_mismatch_hint():
     """A failed validation where the dataflow is registered elsewhere should
     put the sharp hint into ValidationResult.suggestion."""

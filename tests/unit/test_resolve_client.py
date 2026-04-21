@@ -121,6 +121,33 @@ async def test_resolve_client_no_app_context_reports_custom_when_base_url_set(mo
 
 
 @pytest.mark.asyncio
+async def test_resolve_client_no_app_context_prefers_client_endpoint_key():
+    """After the legacy switch_endpoint() replaces the singleton with a client
+    carrying endpoint_key=ECB, _resolve_client must report ECB — not the
+    startup-time env value."""
+    from unittest.mock import patch
+
+    from main_server import _resolve_client
+    from sdmx_progressive_client import SDMXProgressiveClient
+
+    # Simulate a client produced by the legacy global switch: base_url is
+    # whatever, but endpoint_key has been stamped.
+    fake_client = SDMXProgressiveClient(
+        base_url="https://fake/rest",
+        agency_id="FAKE",
+        endpoint_key="ECB",
+    )
+
+    async def _fake_get_session_client(ctx):
+        return fake_client
+
+    with patch("main_server.get_session_client", side_effect=_fake_get_session_client):
+        _, ep_key = await _resolve_client(None, endpoint=None)
+
+    assert ep_key == "ECB"
+
+
+@pytest.mark.asyncio
 async def test_resolve_client_parallel_cross_endpoint_keeps_clients_distinct(app_ctx):
     """gather'd resolves for two endpoints produce two distinct clients, both cached."""
     from main_server import _resolve_client

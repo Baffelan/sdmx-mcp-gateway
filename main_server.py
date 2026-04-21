@@ -93,6 +93,7 @@ from resources.sdmx_resources import (
     list_known_agencies,
 )
 from sdmx_progressive_client import SDMXProgressiveClient
+from session_manager import SessionState
 
 # Logger - configured lazily in main() to avoid early writes
 logger = logging.getLogger(__name__)
@@ -224,6 +225,42 @@ async def _resolve_client(
         )
     client = await session.get_or_create_client(key)
     return client, key
+
+
+def _build_mismatch_hint(
+    session: SessionState,
+    resolved_endpoint: str,
+    dataflow_id: str | None,
+) -> str:
+    """
+    Build a self-correcting hint for an LLM that hit an empty/404 result.
+
+    If the registry has seen `dataflow_id` on a different endpoint, name it.
+    Otherwise return a generic hint listing all valid endpoint keys.
+    """
+    from config import SDMX_ENDPOINTS
+
+    if dataflow_id is not None:
+        known_elsewhere = [
+            ep for ep, flows in session.known_dataflows.items()
+            if ep != resolved_endpoint and dataflow_id in flows
+        ]
+        if known_elsewhere:
+            target = known_elsewhere[0]
+            return (
+                "Dataflow '" + dataflow_id + "' not found on endpoint '"
+                + resolved_endpoint + "'. Known on: " + str(known_elsewhere)
+                + ". Pass endpoint='" + target
+                + "' to target it directly."
+            )
+
+    valid = list(SDMX_ENDPOINTS.keys())
+    return (
+        "Not found on endpoint '" + resolved_endpoint
+        + "'. Registered endpoints: " + str(valid)
+        + ". Pass endpoint=<key> to target a different provider, "
+        + "or call switch_endpoint(<key>)."
+    )
 
 
 # =============================================================================

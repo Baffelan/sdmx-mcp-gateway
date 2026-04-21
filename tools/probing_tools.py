@@ -270,10 +270,11 @@ def _empty_shape() -> dict[str, Any]:
     }
 
 
-# Probe result cache: fingerprint -> result dict
-# Module-level cache shared across sessions. Fingerprints include the full URL
-# (scheme + host + path), so different endpoints produce different entries.
-# Capped at _PROBE_CACHE_MAX to prevent unbounded growth in long-running processes.
+# Legacy module-level probe cache. This is a **fallback** for callers that
+# don't pass an explicit probe_cache; session-scoped callers (the MCP
+# handler in main_server) now pass their SessionState.probe_cache so one
+# session's probe results never leak to another. The module-level cache
+# stays for tests and direct-call paths.
 _probe_cache: dict[str, dict[str, Any]] = {}
 _PROBE_CACHE_MAX = 1000
 
@@ -288,6 +289,8 @@ async def probe_data_url(
     sample_limit: int = 5,
     max_distinct_per_dim: int = 10,
     timeout_ms: int = 10000,
+    probe_cache: dict[str, dict[str, Any]] | None = None,
+    probe_cache_lock: Any | None = None,
 ) -> dict[str, Any]:
     """Probe an exact SDMX query and return shape metadata.
 
@@ -295,8 +298,20 @@ async def probe_data_url(
     If structured input is provided and data_url is None, the URL is built
     from the client's base_url.
 
+    Args:
+        probe_cache: Optional explicit cache dict. Session-scoped callers
+            should pass their SessionState.probe_cache so results never
+            leak across sessions (audit M1). Defaults to the legacy
+            module-level cache, preserving behaviour for tests and
+            direct-call paths.
+        probe_cache_lock: Optional lock guarding probe_cache. Callers
+            threading the SessionState should pass state._state_lock
+            here; then every cache read/write is serialised. Safe to
+            leave None (legacy callers don't bother).
+
     Returns a dict matching the ProbeResult schema.
     """
+    cache = probe_cache if probe_cache is not None else _probe_cache
     # Build URL from structured input if needed
     if data_url is None:
         if dataflow_id is None:
@@ -317,8 +332,10 @@ async def probe_data_url(
     )
 
     # Check cache
-    if cache_key in _probe_cache:
-        return _probe_cache[cache_key]
+    with _maybe_lock(probe_cache_lock):
+        cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     availability = await _preflight_with_availableconstraint(
         client=client,
@@ -331,7 +348,7 @@ async def probe_data_url(
         result["observation_count"] = availability.get("observation_count", 0)
         result["query_fingerprint"] = fingerprint
         result["notes"] = availability.get("notes", [])
-        _cache_put(cache_key, result)
+        _cache_put(cache, cache_key, result, probe_cache_lock)
         return result
 
     shape = await _probe_via_csv(
@@ -355,7 +372,7 @@ async def probe_data_url(
 
     shape["query_fingerprint"] = fingerprint
 
-    _cache_put(cache_key, shape)
+    _cache_put(cache, cache_key, shape, probe_cache_lock)
     return shape
 
 
@@ -423,13 +440,32 @@ def _make_probe_cache_key(
     )
 
 
-def _cache_put(cache_key: str, result: dict[str, Any]) -> None:
-    """Store a probe result, evicting oldest entries if cache is full."""
-    if len(_probe_cache) >= _PROBE_CACHE_MAX:
-        # Evict oldest entry (first key in insertion order — Python 3.7+)
-        oldest = next(iter(_probe_cache))
-        del _probe_cache[oldest]
-    _probe_cache[cache_key] = result
+def _maybe_lock(lock: Any | None):
+    """Context manager that locks if non-None, else no-ops.
+
+    Session-scoped callers pass a threading.Lock guarding their
+    SessionState.probe_cache; module-cache callers pass None.
+    """
+    import contextlib
+
+    if lock is None:
+        return contextlib.nullcontext()
+    return lock
+
+
+def _cache_put(
+    cache: dict[str, dict[str, Any]],
+    cache_key: str,
+    result: dict[str, Any],
+    lock: Any | None,
+) -> None:
+    """Store a probe result into `cache`, evicting oldest entries if full."""
+    with _maybe_lock(lock):
+        if len(cache) >= _PROBE_CACHE_MAX:
+            # Evict oldest entry (first key in insertion order — Python 3.7+)
+            oldest = next(iter(cache))
+            del cache[oldest]
+        cache[cache_key] = result
 
 
 async def _build_url_from_parts(

@@ -64,6 +64,13 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _new_threading_lock() -> "threading.Lock":
+    """Factory for per-SessionState threading locks (dataclass can't default
+    to a function call directly in the field declaration)."""
+    import threading
+    return threading.Lock()
+
+
 @dataclass
 class SessionState:
     """
@@ -71,6 +78,13 @@ class SessionState:
 
     Holds a pool of SDMX clients keyed by endpoint and a default endpoint
     pointer. Clients are lazily created on first use per endpoint.
+
+    Thread safety:
+        known_dataflows and probe_cache mutations go through _state_lock,
+        which makes register_dataflow's setdefault+add and probe-cache
+        put/get race-free under real thread concurrency. Client-pool
+        operations (clients / pending) are serialised by the async-only
+        asyncio.Task dance in get_or_create_client.
     """
 
     session_id: str
@@ -78,9 +92,17 @@ class SessionState:
     clients: dict[str, SDMXProgressiveClient] = field(default_factory=dict)
     pending: dict[str, asyncio.Task[SDMXProgressiveClient]] = field(default_factory=dict)
     known_dataflows: dict[str, set[str]] = field(default_factory=dict)
+    # Session-scoped probe_data_url result cache. Previously module-level
+    # and shared across sessions — a real data-exposure path for any
+    # endpoint that returns session-sensitive data (audit M1).
+    probe_cache: dict[str, dict[str, Any]] = field(default_factory=dict)
     cache: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=_now_utc)
     last_accessed: datetime = field(default_factory=_now_utc)
+    # Guards concurrent mutations of known_dataflows and probe_cache.
+    _state_lock: "threading.Lock" = field(
+        default_factory=_new_threading_lock, repr=False, compare=False
+    )
 
     def touch(self) -> None:
         """Update last accessed time."""
@@ -137,8 +159,26 @@ class SessionState:
             self.pending.pop(endpoint_key, None)
 
     def register_dataflow(self, endpoint_key: str, dataflow_id: str) -> None:
-        """Record that dataflow_id is known to exist on endpoint_key."""
-        self.known_dataflows.setdefault(endpoint_key, set()).add(dataflow_id)
+        """Record that dataflow_id is known to exist on endpoint_key.
+
+        Atomic under concurrent writers: setdefault+add is two byte-code
+        operations with a yield window between them, so two concurrent
+        calls for a missing endpoint_key could each create a fresh set and
+        one loses its addition. The lock serialises both steps.
+        """
+        with self._state_lock:
+            self.known_dataflows.setdefault(endpoint_key, set()).add(dataflow_id)
+
+    def snapshot_known_dataflows(self) -> dict[str, frozenset[str]]:
+        """Return a shallow copy of known_dataflows with frozen values.
+
+        Readers iterating to build mismatch hints should use this rather
+        than `known_dataflows.items()` directly, to avoid
+        `RuntimeError: dictionary changed size during iteration` when a
+        concurrent register_dataflow lands on a missing key.
+        """
+        with self._state_lock:
+            return {ep: frozenset(flows) for ep, flows in self.known_dataflows.items()}
 
     async def close(self) -> None:
         """Close every client whose httpx session was opened."""

@@ -494,3 +494,78 @@ def test_get_session_concurrent_with_iteration_does_not_raise():
         "list_sessions. Got " + str(len(errors)) + ": "
         + repr([type(e).__name__ + ": " + str(e) for e in errors[:3]])
     )
+
+
+def test_register_dataflow_concurrent_with_snapshot_is_atomic():
+    """Audit M3: register_dataflow's setdefault+add is two operations
+    with a yield window between them. Concurrent writers for a previously-
+    unseen endpoint key could each create a fresh set and one's addition
+    gets lost. Concurrent readers iterating known_dataflows.items() could
+    also raise "dictionary changed size during iteration".
+
+    The _state_lock + snapshot_known_dataflows helper close both windows.
+    This stress test races 4 writers on distinct (previously-missing)
+    endpoint keys against 4 snapshot readers and asserts:
+      a. every written dataflow id ends up in the registry
+      b. readers never raise
+    """
+    import threading
+    import time
+
+    from session_manager import SessionState
+
+    state = SessionState(session_id="m3", default_endpoint_key="SPC")
+
+    n_writers = 4
+    n_readers = 4
+    per_writer = 200
+    stop = threading.Event()
+    reader_errors: list[BaseException] = []
+    reader_errors_lock = threading.Lock()
+
+    def writer(prefix: str) -> None:
+        # Each writer uses its own endpoint key so the setdefault race
+        # on missing-key is triggered repeatedly across writers.
+        for i in range(per_writer):
+            state.register_dataflow("EP_" + prefix, "DF_" + prefix + "_" + str(i))
+
+    def reader() -> None:
+        while not stop.is_set():
+            try:
+                snap = state.snapshot_known_dataflows()
+                # Consume to expose any laziness
+                sum(len(v) for v in snap.values())
+            except BaseException as e:
+                with reader_errors_lock:
+                    reader_errors.append(e)
+                return
+
+    writers = [
+        threading.Thread(target=writer, args=(chr(ord("A") + i),))
+        for i in range(n_writers)
+    ]
+    readers = [threading.Thread(target=reader) for _ in range(n_readers)]
+
+    for t in readers:
+        t.start()
+    for t in writers:
+        t.start()
+    for t in writers:
+        t.join()
+    stop.set()
+    for t in readers:
+        t.join(timeout=2.0)
+
+    assert not reader_errors, (
+        "Expected zero reader exceptions; got " + str(len(reader_errors))
+        + ": " + repr([type(e).__name__ + ": " + str(e) for e in reader_errors[:3]])
+    )
+    # Every written entry must be present. No race-swallowed additions.
+    for i in range(n_writers):
+        prefix = chr(ord("A") + i)
+        got = state.known_dataflows["EP_" + prefix]
+        expected = {"DF_" + prefix + "_" + str(j) for j in range(per_writer)}
+        assert got == expected, (
+            "EP_" + prefix + ": expected " + str(len(expected))
+            + " entries, got " + str(len(got))
+        )

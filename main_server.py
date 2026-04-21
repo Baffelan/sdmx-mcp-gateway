@@ -269,8 +269,9 @@ def _build_mismatch_hint(
     from config import SDMX_ENDPOINTS
 
     if dataflow_id is not None:
+        snapshot = session.snapshot_known_dataflows()
         known_elsewhere = [
-            ep for ep, flows in session.known_dataflows.items()
+            ep for ep, flows in snapshot.items()
             if ep != resolved_endpoint and dataflow_id in flows
         ]
         if known_elsewhere:
@@ -355,9 +356,10 @@ def _maybe_mismatch_hint(
     if app_ctx is None:
         return None
     session = app_ctx.get_session(ctx)
+    snapshot = session.snapshot_known_dataflows()
     known_elsewhere = any(
         ep != resolved_endpoint and dataflow_id in flows
-        for ep, flows in session.known_dataflows.items()
+        for ep, flows in snapshot.items()
     )
     low = (error_message or "").lower()
     looks_like_not_found = any(s in low for s in _NOT_FOUND_SIGNALS)

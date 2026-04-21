@@ -1127,7 +1127,18 @@ async def build_sdmx_key(
 # This is a singleton; get_default_client() returns it so every caller
 # shares one httpx session and cleanup_sdmx_client() can reach it.
 # Will be removed when the no-AppContext code paths are retired.
-sdmx_client = SDMXProgressiveClient()
+#
+# Explicit kwargs intentionally match the startup-time config globals: this
+# is the one place where pinning to startup values is the correct behaviour
+# (the singleton is a process-wide fallback, not a per-session client).
+# Passing explicit kwargs also silences the H3 no-kwargs warning, which
+# would otherwise fire on every import of this module.
+from config import SDMX_AGENCY_ID as _startup_agency, SDMX_BASE_URL as _startup_base_url
+
+sdmx_client = SDMXProgressiveClient(
+    base_url=_startup_base_url,
+    agency_id=_startup_agency,
+)
 
 
 def get_default_client() -> SDMXProgressiveClient:

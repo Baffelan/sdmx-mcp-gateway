@@ -318,8 +318,9 @@ def test_config_set_endpoint_emits_deprecation_warning():
 
 def test_client_construction_without_kwargs_warns_once(caplog):
     """Audit H3: constructing SDMXProgressiveClient without explicit
-    base_url/agency_id silently uses module globals that set_endpoint
-    mutates. Log a WARNING on first occurrence per process."""
+    base_url/agency_id silently uses startup-time module globals that
+    do NOT track config.set_endpoint() calls at runtime. Log a WARNING
+    on first occurrence per process."""
     import logging
 
     import sdmx_progressive_client as spc_mod
@@ -367,3 +368,129 @@ def test_client_construction_with_kwargs_does_not_warn(caplog):
         )
     finally:
         spc_mod._warned_client_global_default = original
+
+
+def test_client_default_does_not_follow_set_endpoint():
+    """Regression for review of H3: `from config import SDMX_BASE_URL`
+    captures the value at import time, so config.set_endpoint() later does
+    NOT update what SDMXProgressiveClient() reads by default. The H3
+    warning text must describe this correctly (startup-time pinned, not
+    mutated at runtime)."""
+    import warnings as _warnings
+
+    import config
+    import sdmx_progressive_client as spc_mod
+    from sdmx_progressive_client import SDMXProgressiveClient
+
+    original_key = config._current_endpoint_key
+    try:
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            config.set_endpoint("ECB")
+            # The client-side module's imported value did NOT track the switch.
+            assert spc_mod.SDMX_BASE_URL != config.SDMX_BASE_URL, (
+                "Expected spc_mod.SDMX_BASE_URL to stay on the import-time "
+                "value while config.SDMX_BASE_URL follows set_endpoint — "
+                "this divergence is why the H3 warning text was reframed."
+            )
+            bare = SDMXProgressiveClient()
+            # Bare client reads the frozen spc_mod default, not the new config value.
+            assert bare.base_url == spc_mod.SDMX_BASE_URL.rstrip("/")
+            assert bare.base_url != config.SDMX_BASE_URL.rstrip("/")
+    finally:
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            config.set_endpoint(original_key)
+
+
+def test_legacy_singleton_import_does_not_emit_h3_warning(caplog):
+    """Review of H3: `tools.sdmx_tools` eagerly constructs `sdmx_client`
+    at module import time. Before the fix, that construction fired the H3
+    no-kwargs warning on every normal import — healthy AppContext
+    deployments saw it too, which made the warning noise. The singleton
+    now passes explicit kwargs so the warning stays quiet for the
+    deliberate process-wide default."""
+    import importlib
+    import logging
+
+    import sdmx_progressive_client as spc_mod
+
+    original = spc_mod._warned_client_global_default
+    spc_mod._warned_client_global_default = False
+    try:
+        caplog.set_level(logging.WARNING, logger="sdmx_progressive_client")
+        import tools.sdmx_tools as sdmx_tools_mod
+        importlib.reload(sdmx_tools_mod)
+        warnings = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "SDMX_BASE_URL" in r.message
+        ]
+        assert not warnings, (
+            "Legacy singleton import must not fire H3 warning; got: "
+            + str([r.message for r in warnings])
+        )
+    finally:
+        spc_mod._warned_client_global_default = original
+
+
+def test_get_session_concurrent_with_iteration_does_not_raise():
+    """Audit H1 follow-up: the _sessions dict is accessed from multiple
+    paths (get_session, list_sessions, cleanup_expired_sessions,
+    get_session_info). The H1 fix only locked get_session's check-and-insert;
+    a concurrent iterator in another thread still raises
+    `RuntimeError: dictionary changed size during iteration`.
+
+    This test reproduces the reviewer's failure mode: one thread calls
+    get_session() repeatedly to grow the dict, another iterates it via
+    list_sessions(). Under unified locking, neither raises.
+    """
+    import threading
+    import time
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    # Pre-seed so the iterator has something to see immediately.
+    for i in range(50):
+        mgr.get_session("pre-" + str(i))
+
+    stop = threading.Event()
+    errors: list[BaseException] = []
+    errors_lock = threading.Lock()
+
+    def creator() -> None:
+        i = 0
+        while not stop.is_set():
+            try:
+                mgr.get_session("live-" + str(i))
+            except BaseException as e:
+                with errors_lock:
+                    errors.append(e)
+                return
+            i += 1
+
+    def iterator() -> None:
+        while not stop.is_set():
+            try:
+                mgr.list_sessions()
+            except BaseException as e:
+                with errors_lock:
+                    errors.append(e)
+                return
+
+    workers = [
+        threading.Thread(target=creator),
+        threading.Thread(target=creator),
+        threading.Thread(target=iterator),
+        threading.Thread(target=iterator),
+    ]
+    for w in workers:
+        w.start()
+    time.sleep(0.3)
+    stop.set()
+    for w in workers:
+        w.join(timeout=2.0)
+
+    assert not errors, (
+        "Expected zero exceptions under concurrent get_session / "
+        "list_sessions. Got " + str(len(errors)) + ": "
+        + repr([type(e).__name__ + ": " + str(e) for e in errors[:3]])
+    )

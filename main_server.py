@@ -2481,7 +2481,7 @@ async def probe_data_url(
 
     status = result.get("status", "error")
     notes = list(result.get("notes", []))
-    if status == "ok":
+    if status == "nonempty":
         _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
     else:
         # Notes carry probe diagnostics (HTTP status, timeout reason, etc.).

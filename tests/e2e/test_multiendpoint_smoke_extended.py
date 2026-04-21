@@ -382,10 +382,11 @@ class TestToolCoverage:
             pytest.skip("SPC unreachable mid-test: " + str(e))
 
         assert isinstance(result, ProbeResult)
-        # Known probe statuses: ok / nonempty / empty / error / timeout.
-        # Accept any of these; the smoke test cares only that a status is
-        # reported and observation_count is a clean int.
-        assert result.status in ("ok", "nonempty", "empty", "error", "timeout"), (
+        # ProbeStatus Literal contract: only nonempty / empty / error.
+        # If a real probe ever returns something else, Pydantic would have
+        # raised before we got here — but asserting explicitly guards against
+        # a schema loosening.
+        assert result.status in ("nonempty", "empty", "error"), (
             "Unexpected probe status: " + repr(result.status)
         )
         assert isinstance(result.observation_count, int)

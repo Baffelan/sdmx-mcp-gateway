@@ -394,3 +394,56 @@ async def test_get_code_usage_soft_failure_no_hint_when_unregistered():
     # No generic noise ("Registered endpoints: [...]") for a legitimately constraint-less dataflow
     assert "Registered endpoints:" not in joined
     assert "Pass endpoint=" not in joined
+
+
+@pytest.mark.asyncio
+async def test_probe_data_url_registers_dataflow_on_nonempty_success():
+    """Successful probe must register the dataflow for future mismatch hints.
+
+    Regression guard for a drift where the handler checked status == "ok"
+    while the impl emits status == "nonempty" (ProbeStatus Literal).
+    """
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def nonempty_probe(
+        client,
+        data_url=None,
+        dataflow_id=None,
+        filters=None,
+        start_period=None,
+        end_period=None,
+        sample_limit=5,
+        max_distinct_per_dim=10,
+        timeout_ms=10000,
+    ):
+        return {
+            "status": "nonempty",
+            "observation_count": 3,
+            "series_count": 1,
+            "time_period_count": 3,
+            "dimensions": {},
+            "has_time_dimension": True,
+            "geo_dimension_id": None,
+            "sample_observations": [],
+            "query_fingerprint": "test-fp",
+            "notes": [],
+        }
+
+    with patch("tools.probing_tools.probe_data_url", side_effect=nonempty_probe):
+        from main_server import probe_data_url as handler
+
+        result = await handler(
+            dataflow_id="DF_PROBED",
+            filters={"X": "A"},
+            endpoint="SPC",
+            ctx=ctx,
+        )
+
+    assert result.status == "nonempty"
+    session = app_ctx.get_session(ctx)
+    assert "DF_PROBED" in session.known_dataflows.get("SPC", set()), (
+        "Expected probe_data_url to register DF_PROBED on SPC after a "
+        "nonempty success; registry has: " + repr(session.known_dataflows)
+    )

@@ -4614,9 +4614,9 @@ async def compare_structures(
 
     if ctx:
         if comparison_type == "version_comparison":
-            ctx.info(f"Comparing {structure_type}/{structure_id_a} v{version_a} vs v{version_b}...")
+            await ctx.info(f"Comparing {structure_type}/{structure_id_a} v{version_a} vs v{version_b}...")
         else:
-            ctx.info(f"Comparing {structure_type}/{structure_id_a} vs {structure_id_b}...")
+            await ctx.info(f"Comparing {structure_type}/{structure_id_a} vs {structure_id_b}...")
 
     # Dispatch to specialized comparison based on structure type
     if structure_type.lower() == "codelist":

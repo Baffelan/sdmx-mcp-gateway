@@ -310,7 +310,7 @@ class TestSDMXProgressiveClient:
     async def test_context_integration(self, client, mock_dataflow_response):
         """Test MCP Context integration with progress reporting."""
         mock_context = Mock()
-        mock_context.info = Mock()
+        mock_context.info = AsyncMock()
         mock_context.report_progress = AsyncMock()
 
         mock_response = Mock()

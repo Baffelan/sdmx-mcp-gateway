@@ -249,12 +249,12 @@ class SDMXProgressiveClient:
         # Check cache first
         if cache_key in self.version_cache:
             if ctx:
-                ctx.info(f"Using cached version for {dataflow_id}: {self.version_cache[cache_key]}")
+                await ctx.info(f"Using cached version for {dataflow_id}: {self.version_cache[cache_key]}")
             return self.version_cache[cache_key]
 
         # Fetch the actual version
         if ctx:
-            ctx.info(f"Resolving 'latest' version for {dataflow_id}...")
+            await ctx.info(f"Resolving 'latest' version for {dataflow_id}...")
 
         session = await self._get_session()
         url = f"{self.base_url}/dataflow/{agency_id}/{dataflow_id}/latest"
@@ -281,7 +281,7 @@ class SDMXProgressiveClient:
             self.version_cache[cache_key] = actual_version
 
             if ctx:
-                ctx.info(f"Resolved 'latest' to version {actual_version}")
+                await ctx.info(f"Resolved 'latest' to version {actual_version}")
 
             return actual_version
 
@@ -310,7 +310,7 @@ class SDMXProgressiveClient:
         url = f"{self.base_url}/dataflow/{agency}/{dataflow_id}/{version}?references=none"
 
         if ctx:
-            ctx.info(f"Getting dataflow overview for {dataflow_id}...")
+            await ctx.info(f"Getting dataflow overview for {dataflow_id}...")
 
         try:
             session = await self._get_session()
@@ -389,7 +389,7 @@ class SDMXProgressiveClient:
         dsd_url = f"{self.base_url}/datastructure/{overview.dsd_ref['agency']}/{overview.dsd_ref['id']}/{overview.dsd_ref['version']}?references=children&detail=full"
 
         if ctx:
-            ctx.info(f"Getting structure summary for {overview.dsd_ref['id']}...")
+            await ctx.info(f"Getting structure summary for {overview.dsd_ref['id']}...")
 
         try:
             session = await self._get_session()
@@ -584,7 +584,7 @@ class SDMXProgressiveClient:
         cl_url = f"{self.base_url}/codelist/{cl_ref['agency']}/{cl_ref['id']}/{cl_ref['version']}"
 
         if ctx:
-            ctx.info(f"Fetching codes for dimension {dimension_id} from codelist {cl_ref['id']}...")
+            await ctx.info(f"Fetching codes for dimension {dimension_id} from codelist {cl_ref['id']}...")
 
         try:
             session = await self._get_session()
@@ -643,7 +643,7 @@ class SDMXProgressiveClient:
         Endpoint: GET /dataflow/{agencyID}/{resourceID}/{version}
         """
         if ctx:
-            ctx.info("Starting dataflow discovery...")
+            await ctx.info("Starting dataflow discovery...")
             await ctx.report_progress(0, 100)
 
         agency = agency_id or self.agency_id
@@ -662,7 +662,7 @@ class SDMXProgressiveClient:
 
         try:
             if ctx:
-                ctx.info(f"Fetching dataflows from: {url}")
+                await ctx.info(f"Fetching dataflows from: {url}")
                 await ctx.report_progress(25, 100)
 
             session = await self._get_session()
@@ -670,7 +670,7 @@ class SDMXProgressiveClient:
             response.raise_for_status()
 
             if ctx:
-                ctx.info("Parsing SDMX-ML response...")
+                await ctx.info("Parsing SDMX-ML response...")
                 await ctx.report_progress(50, 100)
 
             # Parse SDMX-ML response
@@ -680,7 +680,7 @@ class SDMXProgressiveClient:
             df_elements = root.findall(".//str:Dataflow", SDMX_NAMESPACES)
 
             if ctx and df_elements:
-                ctx.info(f"Processing {len(df_elements)} dataflows...")
+                await ctx.info(f"Processing {len(df_elements)} dataflows...")
 
             for i, df in enumerate(df_elements):
                 df_id = df.get("id")
@@ -726,14 +726,14 @@ class SDMXProgressiveClient:
                     await ctx.report_progress(progress, 100)
 
             if ctx:
-                ctx.info(f"Successfully discovered {len(dataflows)} dataflows")
+                await ctx.info(f"Successfully discovered {len(dataflows)} dataflows")
                 await ctx.report_progress(100, 100)
 
             return dataflows
 
         except Exception as e:
             if ctx:
-                ctx.info(f"Error discovering dataflows: {str(e)}")
+                await ctx.info(f"Error discovering dataflows: {str(e)}")
             logger.exception("Failed to discover dataflows")
             raise
 
@@ -772,7 +772,7 @@ class SDMXProgressiveClient:
             Dict containing codelist metadata and codes
         """
         if ctx:
-            ctx.info(f"Retrieving codelist {codelist_id}...")
+            await ctx.info(f"Retrieving codelist {codelist_id}...")
 
         agency = agency_id or self.agency_id
 
@@ -866,7 +866,7 @@ class SDMXProgressiveClient:
 
             if ctx:
                 await ctx.report_progress(100, 100)
-                ctx.info(f"Retrieved {len(codes)} codes from codelist")
+                await ctx.info(f"Retrieved {len(codes)} codes from codelist")
 
             return {
                 "codelist_id": cl_id,
@@ -881,12 +881,12 @@ class SDMXProgressiveClient:
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP error {e.response.status_code}: {e.response.text[:200]}"
             if ctx:
-                ctx.info(f"Error retrieving codelist: {error_msg}")
+                await ctx.info(f"Error retrieving codelist: {error_msg}")
             logger.error(f"Failed to get codelist {codelist_id}: {error_msg}")
             return {"codelist_id": codelist_id, "error": error_msg, "codes": []}
         except Exception as e:
             if ctx:
-                ctx.info(f"Error retrieving codelist: {str(e)}")
+                await ctx.info(f"Error retrieving codelist: {str(e)}")
             logger.exception(f"Failed to get codelist {codelist_id}")
             return {"codelist_id": codelist_id, "error": str(e), "codes": []}
 
@@ -921,7 +921,7 @@ class SDMXProgressiveClient:
         )
 
         if ctx:
-            ctx.info("Checking actual data availability for " + dataflow_id + "...")
+            await ctx.info("Checking actual data availability for " + dataflow_id + "...")
 
         try:
             session = await self._get_session()
@@ -1090,7 +1090,7 @@ class SDMXProgressiveClient:
         )
 
         if ctx:
-            ctx.info(f"Fetching {direction} references for {structure_type}/{structure_id}...")
+            await ctx.info(f"Fetching {direction} references for {structure_type}/{structure_id}...")
 
         try:
             session = await self._get_session()
@@ -1154,7 +1154,7 @@ class SDMXProgressiveClient:
                 result["children"] = children
 
             if ctx:
-                ctx.info(f"Found {len(parents)} parents, {len(children)} children")
+                await ctx.info(f"Found {len(parents)} parents, {len(children)} children")
 
             return result
 

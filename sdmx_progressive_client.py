@@ -38,10 +38,12 @@ def _warn_client_global_default_use_once() -> None:
     _warned_client_global_default = True
     logger.warning(
         "SDMXProgressiveClient constructed without explicit base_url/agency_id; "
-        "falling back to module globals SDMX_BASE_URL=%r / SDMX_AGENCY_ID=%r. "
-        "These globals are mutated by config.set_endpoint() which is not "
-        "multi-user safe. Pass explicit kwargs, or construct via the session "
-        "pool (SessionState.get_or_create_client) which always does.",
+        "falling back to startup-time module defaults SDMX_BASE_URL=%r / "
+        "SDMX_AGENCY_ID=%r. These are captured by value at import time and do "
+        "NOT follow config.set_endpoint() calls at runtime, so every bare "
+        "construction in this process shares the same startup-time endpoint. "
+        "This is not multi-user safe. Pass explicit kwargs, or construct via "
+        "the session pool (SessionState.get_or_create_client).",
         SDMX_BASE_URL, SDMX_AGENCY_ID,
     )
 

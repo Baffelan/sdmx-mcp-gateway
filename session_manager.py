@@ -164,12 +164,13 @@ class SessionManager:
     per session. Each session has its own SDMX client instance.
 
     Thread Safety:
-        Async-path mutations (switch_endpoint, close_session, close_all,
-        cleanup_expired_sessions) are serialised by an asyncio.Lock.
-        Sync-path mutations to the _sessions dict (get_session's
-        check-and-insert) use a threading.Lock so the race is safe under
-        both asyncio cooperative scheduling and real thread concurrency
-        (ASGI workers, background threads, etc.).
+        Every read, write, and iteration of `_sessions` is serialised by
+        `_sessions_lock` (threading.Lock). The lock is held only while
+        mutating or snapshotting the dict — never across `await`, so it
+        doesn't block the event loop. Methods that need to close a client
+        pop the session under the lock, then `await session.close()` after
+        releasing, which is safe because the popped SessionState is no
+        longer reachable from the manager.
 
     Memory Management:
         Sessions are automatically cleaned up after SESSION_TIMEOUT_MINUTES
@@ -187,20 +188,21 @@ class SessionManager:
 
         self._sessions: dict[str, SessionState] = {}
         self._default_endpoint_key: str = default_endpoint_key
-        self._lock: asyncio.Lock = asyncio.Lock()
-        # Guards the sync-path check-and-insert in get_session. Acquired for
-        # microseconds only; contention is vanishing.
+        # Single lock guarding every read/write/iterate of _sessions. Acquired
+        # for microseconds only; never held across `await`.
         self._sessions_lock: threading.Lock = threading.Lock()
 
     @property
     def active_session_count(self) -> int:
         """Number of active sessions."""
-        return len(self._sessions)
+        with self._sessions_lock:
+            return len(self._sessions)
 
     @property
     def session_ids(self) -> list[str]:
         """List of active session IDs."""
-        return list(self._sessions.keys())
+        with self._sessions_lock:
+            return list(self._sessions.keys())
 
     def _get_endpoint_config(self, endpoint_key: str) -> dict[str, str]:
         """Get endpoint configuration by key."""
@@ -258,7 +260,8 @@ class SessionManager:
     def has_session(self, session_id: str | None = None) -> bool:
         """Check if a session exists."""
         sid = session_id or DEFAULT_SESSION_ID
-        return sid in self._sessions
+        with self._sessions_lock:
+            return sid in self._sessions
 
     async def switch_endpoint(
         self,
@@ -274,7 +277,7 @@ class SessionManager:
         sid = session_id or DEFAULT_SESSION_ID
         cfg = self._get_endpoint_config(endpoint_key)
 
-        async with self._lock:
+        with self._sessions_lock:
             session = self._sessions.get(sid)
             if session is None:
                 session = self._create_session(sid, endpoint_key)
@@ -312,14 +315,16 @@ class SessionManager:
         """
         sid = session_id or DEFAULT_SESSION_ID
 
-        async with self._lock:
-            if sid in self._sessions:
-                await self._sessions[sid].close()
-                del self._sessions[sid]
-                logger.debug("Closed session: %s", sid)
-                return True
-
-        return False
+        # Pop under the lock so no other caller can observe the session after
+        # this point; close outside the lock so we don't block concurrent
+        # get_session / list_sessions callers while awaiting HTTP teardown.
+        with self._sessions_lock:
+            session = self._sessions.pop(sid, None)
+        if session is None:
+            return False
+        await session.close()
+        logger.debug("Closed session: %s", sid)
+        return True
 
     async def cleanup_expired_sessions(self) -> int:
         """
@@ -331,15 +336,24 @@ class SessionManager:
         Returns:
             Number of sessions cleaned up
         """
-        expired_ids = [sid for sid, session in self._sessions.items() if session.is_expired()]
+        # Snapshot-and-remove expired ids under the lock, then close outside.
+        # Doing the is_expired scan under the lock (rather than iterating
+        # self._sessions.items() unlocked first) prevents the
+        # "dictionary changed size during iteration" race against get_session.
+        with self._sessions_lock:
+            expired = [
+                (sid, s) for sid, s in self._sessions.items() if s.is_expired()
+            ]
+            for sid, _ in expired:
+                del self._sessions[sid]
 
         count = 0
-        async with self._lock:
-            for sid in expired_ids:
-                if sid in self._sessions:
-                    await self._sessions[sid].close()
-                    del self._sessions[sid]
-                    count += 1
+        for sid, session in expired:
+            try:
+                await session.close()
+                count += 1
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Failed to close expired session %s: %s", sid, e)
 
         if count > 0:
             logger.info("Cleaned up %d expired sessions", count)
@@ -352,20 +366,28 @@ class SessionManager:
 
         Call this during server shutdown.
         """
-        async with self._lock:
-            for session in self._sessions.values():
-                await session.close()
+        # Snapshot + clear under lock; close outside. Any concurrent
+        # get_session that arrives after the clear will create a brand-new
+        # session, which is the right behaviour during shutdown.
+        with self._sessions_lock:
+            to_close = list(self._sessions.values())
             self._sessions.clear()
+        for session in to_close:
+            try:
+                await session.close()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Failed to close session %s: %s", session.session_id, e)
 
         logger.debug("Closed all sessions")
 
     def get_session_info(self, session_id: str | None = None) -> dict[str, Any] | None:
         """Get information about a session."""
         sid = session_id or DEFAULT_SESSION_ID
-        if sid not in self._sessions:
+        with self._sessions_lock:
+            session = self._sessions.get(sid)
+        if session is None:
             return None
 
-        session = self._sessions[sid]
         cfg = self._get_endpoint_config(session.default_endpoint_key)
         return {
             "session_id": session.session_id,
@@ -386,8 +408,13 @@ class SessionManager:
         Returns:
             List of session information dicts
         """
+        # Snapshot the ids under the lock, then call get_session_info for
+        # each (which takes the lock briefly again). Holding the lock across
+        # the whole iteration would serialise every other session touch.
+        with self._sessions_lock:
+            sids = list(self._sessions.keys())
         result: list[dict[str, Any]] = []
-        for sid in self._sessions:
+        for sid in sids:
             info = self.get_session_info(sid)
             if info is not None:
                 result.append(info)

@@ -1376,38 +1376,6 @@ def _get_session_endpoint_key(ctx: Context[Any, Any, Any] | None) -> str:
 # =============================================================================
 
 
-def _get_client_for_endpoint(
-    endpoint_key: str | None,
-    session_client: SDMXProgressiveClient,
-    session_endpoint_key: str,
-) -> tuple[SDMXProgressiveClient, str, bool]:
-    """
-    Get an SDMX client for the given endpoint key.
-
-    Returns (client, endpoint_key, is_temporary).
-    If endpoint_key is None, returns the session client.
-    If endpoint_key matches the session, returns the session client.
-    Otherwise creates a temporary client that must be closed by the caller.
-    """
-    from config import SDMX_ENDPOINTS
-
-    if endpoint_key is None or endpoint_key == session_endpoint_key:
-        return session_client, session_endpoint_key, False
-
-    if endpoint_key not in SDMX_ENDPOINTS:
-        available = ", ".join(SDMX_ENDPOINTS.keys())
-        raise ValueError(
-            "Unknown endpoint: " + endpoint_key + ". Available: " + available
-        )
-
-    config = SDMX_ENDPOINTS[endpoint_key]
-    client = SDMXProgressiveClient(
-        base_url=config["base_url"],
-        agency_id=config["agency_id"],
-    )
-    return client, endpoint_key, True
-
-
 class _ConstraintInfo:
     """Parsed constraint data: used codes and time range."""
 
@@ -1647,26 +1615,10 @@ async def compare_dataflow_dimensions(
         DataflowDimensionComparisonResult with dimension comparison, overlap stats,
         and join column recommendations
     """
-    session_client = await get_session_client(ctx)
     api_calls = 0
-
-    # Determine current session endpoint key
-    session_endpoint_key = _get_session_endpoint_key(ctx)
-
-    # Resolve clients
-    temp_clients: list[SDMXProgressiveClient] = []
     try:
-        client_a, ep_key_a, is_temp_a = _get_client_for_endpoint(
-            endpoint_a, session_client, session_endpoint_key
-        )
-        if is_temp_a:
-            temp_clients.append(client_a)
-
-        client_b, ep_key_b, is_temp_b = _get_client_for_endpoint(
-            endpoint_b, session_client, session_endpoint_key
-        )
-        if is_temp_b:
-            temp_clients.append(client_b)
+        client_a, ep_key_a = await _resolve_client(ctx, endpoint_a)
+        client_b, ep_key_b = await _resolve_client(ctx, endpoint_b)
 
         agency_a = client_a.agency_id
         agency_b = client_b.agency_id
@@ -1996,6 +1948,9 @@ async def compare_dataflow_dimensions(
             )
         next_steps.append("Use build_data_url() to fetch data from each dataflow")
 
+        _register_dataflow_if_possible(ctx, ep_key_a, dataflow_id_a)
+        _register_dataflow_if_possible(ctx, ep_key_b, dataflow_id_b)
+
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
@@ -2018,8 +1973,8 @@ async def compare_dataflow_dimensions(
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
-            endpoint_a=endpoint_a or session_endpoint_key,
-            endpoint_b=endpoint_b or session_endpoint_key,
+            endpoint_a=endpoint_a or _get_session_endpoint_key(ctx),
+            endpoint_b=endpoint_b or _get_session_endpoint_key(ctx),
             dimensions=[],
             interpretation=["Error: " + str(e)],
         )
@@ -2029,19 +1984,12 @@ async def compare_dataflow_dimensions(
         return DataflowDimensionComparisonResult(
             dataflow_a=dataflow_id_a,
             dataflow_b=dataflow_id_b,
-            endpoint_a=endpoint_a or session_endpoint_key,
-            endpoint_b=endpoint_b or session_endpoint_key,
+            endpoint_a=endpoint_a or _get_session_endpoint_key(ctx),
+            endpoint_b=endpoint_b or _get_session_endpoint_key(ctx),
             dimensions=[],
             interpretation=["Error: " + str(e)],
             api_calls_made=api_calls,
         )
-
-    finally:
-        for temp_client in temp_clients:
-            try:
-                await temp_client.close()
-            except Exception:
-                pass
 
 
 @mcp.tool()

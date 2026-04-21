@@ -757,7 +757,9 @@ class TestCompareDataflowDimensions:
         """Create a mock AppContext with session state."""
         session_state = MagicMock()
         session_state.endpoint_key = "SPC"
+        session_state.default_endpoint_key = "SPC"
         session_state.client = mock_session_client
+        session_state.get_or_create_client = AsyncMock(return_value=mock_session_client)
 
         app_ctx = MagicMock()
         app_ctx.get_session.return_value = session_state
@@ -916,15 +918,15 @@ class TestCompareDataflowDimensions:
 
     @pytest.mark.asyncio
     @patch("main_server._fetch_constraint_info")
-    @patch("main_server._get_client_for_endpoint")
+    @patch("main_server._resolve_client")
     @patch("main_server.get_app_context")
     @patch("main_server.get_session_client")
     async def test_cross_provider(self, mock_get_client, mock_get_app,
-                                  mock_get_endpoint_client, mock_fetch_info,
+                                  mock_resolve_client, mock_fetch_info,
                                   mock_session_client,
                                   mock_app_context, mock_structure_a, mock_structure_b,
                                   mock_overview_a, mock_overview_b):
-        """Cross-provider: endpoint_a='SPC', endpoint_b='IMF' creates temp client."""
+        """Cross-provider: endpoint_a=None, endpoint_b='IMF' resolves to pooled clients."""
         from main_server import _ConstraintInfo, compare_dataflow_dimensions
 
         mock_get_client.return_value = mock_session_client
@@ -939,12 +941,12 @@ class TestCompareDataflowDimensions:
         imf_client.get_dataflow_overview = AsyncMock(return_value=mock_overview_b)
         imf_client.close = AsyncMock()
 
-        def side_effect(endpoint_key, session_client, session_endpoint_key):
-            if endpoint_key == "IMF":
-                return (imf_client, "IMF", True)
-            return (session_client, session_endpoint_key, False)
+        async def resolve_side_effect(ctx, endpoint):
+            if endpoint == "IMF":
+                return (imf_client, "IMF")
+            return (mock_session_client, "SPC")
 
-        mock_get_endpoint_client.side_effect = side_effect
+        mock_resolve_client.side_effect = resolve_side_effect
 
         result = await compare_dataflow_dimensions(
             "DF_A", "DF_B", endpoint_a=None, endpoint_b="IMF", ctx=None,
@@ -952,8 +954,6 @@ class TestCompareDataflowDimensions:
 
         assert result.endpoint_a == "SPC"
         assert result.endpoint_b == "IMF"
-        # Verify temp client was closed
-        imf_client.close.assert_awaited_once()
 
     @pytest.mark.asyncio
     @patch("main_server.get_app_context")

@@ -189,6 +189,43 @@ def get_app_context(ctx: Context[Any, Any, Any] | None) -> AppContext | None:
         return None
 
 
+async def _resolve_client(
+    ctx: Context[Any, Any, Any] | None,
+    endpoint: str | None,
+) -> tuple[SDMXProgressiveClient, str]:
+    """
+    Resolve the SDMX client + endpoint key for a tool call.
+
+    Precedence:
+      1. Explicit `endpoint` argument (validated against SDMX_ENDPOINTS).
+      2. Session default endpoint (set via switch_endpoint or server init).
+      3. Falls back to the legacy default client when no AppContext exists.
+
+    Raises ValueError for unknown endpoints or when no default is set.
+    """
+    from config import SDMX_ENDPOINTS
+
+    app_ctx = get_app_context(ctx)
+    if app_ctx is None:
+        from tools.sdmx_tools import get_default_client
+        return get_default_client(), "SPC"
+
+    session = app_ctx.get_session(ctx)
+    key = endpoint or session.default_endpoint_key
+    if not key:
+        raise ValueError(
+            "No endpoint specified and no session default is set. "
+            "Pass endpoint=<key> or call switch_endpoint first."
+        )
+    if key not in SDMX_ENDPOINTS:
+        raise ValueError(
+            "Unknown endpoint '" + key + "'. Valid: "
+            + ", ".join(SDMX_ENDPOINTS.keys())
+        )
+    client = await session.get_or_create_client(key)
+    return client, key
+
+
 # =============================================================================
 # Discovery Tools
 # =============================================================================

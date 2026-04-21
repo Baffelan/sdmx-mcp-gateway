@@ -85,3 +85,65 @@ async def test_parallel_cross_endpoint_hits_distinct_base_urls():
     assert {"SPC", ep_b}.issubset(session.clients.keys()), (
         f"Pool should contain both endpoints; got {set(session.clients.keys())}"
     )
+
+
+@pytest.mark.asyncio
+async def test_mismatch_hint_points_at_registered_endpoint_on_error():
+    """When a dataflow is known on endpoint X, a 404 on endpoint Y returns a hint naming X."""
+    from config import SDMX_ENDPOINTS
+
+    available = list(SDMX_ENDPOINTS.keys())
+    assert "SPC" in available
+    ep_b = "ECB" if "ECB" in available else next(k for k in available if k != "SPC")
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    # Seed the registry: pretend we learned about DF_SHARED on SPC earlier.
+    session = app_ctx.get_session(ctx)
+    session.register_dataflow("SPC", "DF_SHARED")
+
+    async def failing_impl(client, dataflow_id, agency_id=None, ctx=None):
+        return {"error": "404 not found on " + client.base_url}
+
+    with patch(
+        "tools.sdmx_tools.get_dataflow_structure",
+        side_effect=failing_impl,
+    ):
+        from main_server import get_dataflow_structure as handler
+
+        result = await handler(dataflow_id="DF_SHARED", endpoint=ep_b, ctx=ctx)
+
+    # next_steps should include the error AND the sharp hint pointing at SPC
+    joined = "\n".join(result.next_steps)
+    assert "DF_SHARED" in joined
+    assert ep_b in joined or "404" in joined  # error preserved
+    assert "SPC" in joined  # hint points at registered endpoint
+    assert "endpoint='SPC'" in joined
+
+
+@pytest.mark.asyncio
+async def test_no_hint_when_error_is_not_a_404():
+    """Network errors without a not-found signal should not emit a mismatch hint."""
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def network_error_impl(client, dataflow_id, agency_id=None, ctx=None):
+        return {"error": "Connection timeout after 30s"}
+
+    with patch(
+        "tools.sdmx_tools.get_dataflow_structure",
+        side_effect=network_error_impl,
+    ):
+        from main_server import get_dataflow_structure as handler
+
+        result = await handler(dataflow_id="DF_UNSEEN", endpoint="SPC", ctx=ctx)
+
+    joined = "\n".join(result.next_steps)
+    # Error should be preserved
+    assert "Connection timeout" in joined
+    # But no mismatch-hint phrasing (no "Pass endpoint=" suggestion on a network error)
+    assert "Pass endpoint=" not in joined
+    assert "Registered endpoints:" not in joined

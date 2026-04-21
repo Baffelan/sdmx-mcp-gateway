@@ -257,13 +257,8 @@ def _build_mismatch_hint(
     If the registry has seen `dataflow_id` on a different endpoint, name it.
     Otherwise return a generic hint listing all valid endpoint keys.
 
-    NOTE: this helper is not yet called from any tool's error branch; the
-    per-call `endpoint=` migration populated the `known_dataflows` registry
-    and introduced this helper but left the 16 tool-specific error paths
-    untouched. Wiring each tool's empty/404 result to prepend this hint to
-    its `next_step` / `interpretation` / `error` field is a follow-up slice.
-    The helper and registry are correct and covered by unit tests; only
-    the caller-side wiring is pending.
+    Most callers should use `_maybe_mismatch_hint`, which decides whether
+    emitting a hint is warranted based on the error signature.
     """
     from config import SDMX_ENDPOINTS
 
@@ -302,6 +297,45 @@ def _register_dataflow_if_possible(
     if app_ctx is None:
         return
     app_ctx.get_session(ctx).register_dataflow(endpoint_key, dataflow_id)
+
+
+_NOT_FOUND_SIGNALS = ("404", "not found", "no such", "unknown dataflow", "204")
+
+
+def _maybe_mismatch_hint(
+    ctx: Context[Any, Any, Any] | None,
+    resolved_endpoint: str,
+    dataflow_id: str | None,
+    error_message: str,
+) -> str | None:
+    """
+    Return a mismatch hint when an error looks like a wrong-endpoint mishap.
+
+    Emits a hint in two cases:
+      1. The dataflow is registered on a different endpoint in this session
+         (we can confidently point the caller at the right provider).
+      2. The error message contains a not-found signal (404, "not found", etc.)
+         and we have session context — the generic hint is still useful.
+
+    Returns None when no hint is warranted (network errors, auth failures,
+    unknown dataflow never seen on any endpoint, etc.) to avoid misleading
+    the caller.
+    """
+    if dataflow_id is None:
+        return None
+    app_ctx = get_app_context(ctx)
+    if app_ctx is None:
+        return None
+    session = app_ctx.get_session(ctx)
+    known_elsewhere = any(
+        ep != resolved_endpoint and dataflow_id in flows
+        for ep, flows in session.known_dataflows.items()
+    )
+    low = (error_message or "").lower()
+    looks_like_not_found = any(s in low for s in _NOT_FOUND_SIGNALS)
+    if known_elsewhere or looks_like_not_found:
+        return _build_mismatch_hint(session, resolved_endpoint, dataflow_id)
+    return None
 
 
 # =============================================================================
@@ -465,6 +499,10 @@ async def get_dataflow_structure(
 
     if "error" in result:
         # Return minimal structure on error
+        next_steps = [f"Error: {result['error']}"]
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, result["error"])
+        if hint:
+            next_steps.append(hint)
         return DataflowStructureResult(
             discovery_level="structure",
             dataflow=DataflowInfo(
@@ -481,7 +519,7 @@ async def get_dataflow_structure(
                 attributes=[],
                 measure=None,
             ),
-            next_steps=[f"Error: {result['error']}"],
+            next_steps=next_steps,
         )
 
     # Build structured result from simplified response
@@ -591,6 +629,10 @@ async def get_dimension_codes(
     result = await get_codes_impl(client, dataflow_id, dimension_id, agency_id, limit, offset, ctx)
 
     if "error" in result:
+        usage = f"Error: {result['error']}"
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, result["error"])
+        if hint:
+            usage = usage + "\n" + hint
         return DimensionCodesResult(
             discovery_level="codes",
             dataflow_id=dataflow_id,
@@ -601,7 +643,7 @@ async def get_dimension_codes(
             showing=0,
             search_term=None,
             codes=[],
-            usage=f"Error: {result['error']}",
+            usage=usage,
             example_keys=[],
         )
 
@@ -836,6 +878,10 @@ async def get_code_usage(
 
     except Exception as e:
         logger.exception("Failed to check code usage")
+        interpretation = ["Error: " + str(e)]
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, str(e))
+        if hint:
+            interpretation.append(hint)
         return CodeUsageResult(
             dataflow_id=dataflow_id,
             dimension_id=dimension_id,
@@ -843,7 +889,7 @@ async def get_code_usage(
             codes_checked=[],
             summary={"total_checked": 0, "used": 0, "unused": 0},
             all_used_codes=None,
-            interpretation=["Error: " + str(e)],
+            interpretation=interpretation,
             api_calls_made=api_calls,
         )
 
@@ -1068,6 +1114,10 @@ async def check_time_availability(
 
     except Exception as e:
         logger.exception("Failed to check time availability")
+        interpretation = ["Error: " + str(e)]
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, str(e))
+        if hint:
+            interpretation.append(hint)
         return TimeAvailabilityResult(
             dataflow_id=dataflow_id,
             query_period=query_period,
@@ -1077,7 +1127,7 @@ async def check_time_availability(
             availability="no",
             available_frequencies=[],
             overlap="none",
-            interpretation=["Error: " + str(e)],
+            interpretation=interpretation,
             recommendation="Error checking time availability. Try get_data_availability() instead.",
             api_calls_made=api_calls,
         )
@@ -2058,7 +2108,14 @@ async def get_data_availability(
         tr = result["time_range"]
         time_range = TimeRange(start=tr.get("start"), end=tr.get("end"))
 
-    _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+    interpretation = list(result.get("interpretation", []))
+    if "error" in result:
+        interpretation.insert(0, "Error: " + str(result["error"]))
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, str(result["error"]))
+        if hint:
+            interpretation.append(hint)
+    else:
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
 
     return DataAvailabilityResult(
         discovery_level=result.get("discovery_level", "availability"),
@@ -2067,7 +2124,7 @@ async def get_data_availability(
         constraint_id=result.get("constraint_id"),
         time_range=time_range,
         cube_regions=result.get("cube_regions", []),
-        interpretation=result.get("interpretation", []),
+        interpretation=interpretation,
         dimension_values_checked=result.get("dimension_values_checked"),
         data_exists=result.get("data_exists"),
         observation_count=result.get("observation_count"),
@@ -2171,6 +2228,10 @@ async def build_key(
     result = await build_sdmx_key(client, dataflow_id, filters or {}, agency_id, ctx)
 
     if "error" in result:
+        usage = f"Error: {result['error']}"
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, result["error"])
+        if hint:
+            usage = usage + "\n" + hint
         return KeyBuildResult(
             dataflow_id=dataflow_id,
             version="latest",
@@ -2178,7 +2239,7 @@ async def build_key(
             dimensions_used=filters or {},
             dimensions_wildcard=[],
             key_template="",
-            usage=f"Error: {result['error']}",
+            usage=usage,
         )
 
     _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
@@ -2246,6 +2307,10 @@ async def build_data_url(
     )
 
     if "error" in result:
+        usage = f"Error: {result['error']}"
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, result["error"])
+        if hint:
+            usage = usage + "\n" + hint
         return DataUrlResult(
             dataflow_id=dataflow_id,
             version="latest",
@@ -2254,7 +2319,7 @@ async def build_data_url(
             url="",
             dimension_at_observation="AllDimensions",
             time_range=None,
-            usage=f"Error: {result['error']}",
+            usage=usage,
             formats_available=["csv", "json", "xml"],
             note=result.get("hint"),
         )

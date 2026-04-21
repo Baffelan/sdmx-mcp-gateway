@@ -208,8 +208,9 @@ async def _resolve_client(
 
     app_ctx = get_app_context(ctx)
     if app_ctx is None:
-        from tools.sdmx_tools import get_default_client
-        return get_default_client(), "SPC"
+        # Legacy fallback: route through get_session_client so test patches
+        # targeting main_server.get_session_client continue to work.
+        return await get_session_client(ctx), "SPC"
 
     session = app_ctx.get_session(ctx)
     key = endpoint or session.default_endpoint_key
@@ -298,6 +299,7 @@ async def list_dataflows(
     agency_id: str | None = None,
     limit: int = 10,
     offset: int = 0,
+    endpoint: str | None = None,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataflowListResult:
     """
@@ -315,6 +317,9 @@ async def list_dataflows(
         agency_id: The agency to query (uses session endpoint if not specified)
         limit: Number of results to return (default: 10)
         offset: Number of results to skip for pagination (default: 0)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
 
     Returns:
         Structured result with dataflows, pagination info, and navigation hints
@@ -322,16 +327,12 @@ async def list_dataflows(
     from config import get_dataflow_agency
     from tools.sdmx_tools import list_dataflows as list_dataflows_impl
 
-    # Get session-specific client for multi-user support
-    client = await get_session_client(ctx)
+    client, ep_key = await _resolve_client(ctx, endpoint)
     user_provided_agency = agency_id is not None
     agency_id = agency_id or client.agency_id
     normalized_keywords = _normalise_keywords_input(keywords)
 
-    # When user didn't explicitly provide agency_id, check for dataflow listing override
-    # (e.g. OECD publishes under sub-agencies, requiring "all" for listing)
     if not user_provided_agency:
-        ep_key = _get_session_endpoint_key(ctx)
         df_agency = get_dataflow_agency(ep_key)
         if df_agency:
             agency_id = df_agency
@@ -367,6 +368,12 @@ async def list_dataflows(
         )
         for df in result.get("dataflows", [])
     ]
+
+    app_ctx = get_app_context(ctx)
+    if app_ctx is not None:
+        session = app_ctx.get_session(ctx)
+        for df in result.get("dataflows", []):
+            session.register_dataflow(ep_key, df["id"])
 
     pagination = PaginationInfo(
         has_more=result.get("pagination", {}).get("has_more", False),

@@ -293,3 +293,77 @@ def test_session_id_fallback_rate_limited_to_powers_of_ten(caplog):
     finally:
         session_manager._HTTP_TRANSPORT_ACTIVE = original_flag
         session_manager._fallback_count = original_count
+
+
+def test_config_set_endpoint_emits_deprecation_warning():
+    """Audit H3: set_endpoint mutates process-wide globals and is not
+    multi-user safe. A DeprecationWarning must fire so callers notice."""
+    import warnings as _warnings
+    import config
+
+    with _warnings.catch_warnings(record=True) as captured:
+        _warnings.simplefilter("always")
+        try:
+            config.set_endpoint("ECB")
+        finally:
+            # Restore the original endpoint so the process-wide mutation
+            # doesn't leak into other tests.
+            config.set_endpoint("SPC")
+
+    dep = [w for w in captured if issubclass(w.category, DeprecationWarning)]
+    assert dep, "Expected a DeprecationWarning from config.set_endpoint()"
+    assert "multi-user" in str(dep[0].message).lower() \
+        or "AppContext" in str(dep[0].message)
+
+
+def test_client_construction_without_kwargs_warns_once(caplog):
+    """Audit H3: constructing SDMXProgressiveClient without explicit
+    base_url/agency_id silently uses module globals that set_endpoint
+    mutates. Log a WARNING on first occurrence per process."""
+    import logging
+
+    import sdmx_progressive_client as spc_mod
+    from sdmx_progressive_client import SDMXProgressiveClient
+
+    original = spc_mod._warned_client_global_default
+    spc_mod._warned_client_global_default = False
+    try:
+        caplog.set_level(logging.WARNING, logger="sdmx_progressive_client")
+        SDMXProgressiveClient()  # no kwargs — fallback path
+        SDMXProgressiveClient()  # second call: warning must NOT fire again
+
+        warnings = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "SDMX_BASE_URL" in r.message
+        ]
+        assert len(warnings) == 1, (
+            "Expected exactly one warning across two constructions; got "
+            + str(len(warnings))
+        )
+    finally:
+        spc_mod._warned_client_global_default = original
+
+
+def test_client_construction_with_kwargs_does_not_warn(caplog):
+    """When constructed with explicit kwargs (the pooled path), no warning
+    fires — this is the safe path."""
+    import logging
+
+    import sdmx_progressive_client as spc_mod
+    from sdmx_progressive_client import SDMXProgressiveClient
+
+    original = spc_mod._warned_client_global_default
+    spc_mod._warned_client_global_default = False
+    try:
+        caplog.set_level(logging.WARNING, logger="sdmx_progressive_client")
+        SDMXProgressiveClient(base_url="https://x/rest", agency_id="Y")
+        warnings = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "SDMX_BASE_URL" in r.message
+        ]
+        assert not warnings, (
+            "Explicit-kwargs path must not warn; got: "
+            + str([r.message for r in warnings])
+        )
+    finally:
+        spc_mod._warned_client_global_default = original

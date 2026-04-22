@@ -289,7 +289,7 @@ class SDMXProgressiveClient:
                     break
 
             if not actual_version:
-                raise ValueError(f"Could not extract version from dataflow response")
+                raise ValueError("Could not extract version from dataflow response")
 
             # Cache the result
             self.version_cache[cache_key] = actual_version

@@ -31,8 +31,6 @@ from models.schemas import (
     # Endpoint schemas
     EndpointInfo,
     EndpointListResult,
-    EndpointSwitchConfirmation,
-    EndpointSwitchResult,
     # Common schemas
     ErrorResult,
     FilterInfo,
@@ -79,9 +77,7 @@ __all__ = [
     # Endpoints
     "EndpointInfo",
     "EndpointListResult",
-    "EndpointSwitchResult",
     # Elicitation
-    "EndpointSwitchConfirmation",
     "DataQueryConfirmation",
     "DimensionSelectionForm",
     "ElicitationResult",

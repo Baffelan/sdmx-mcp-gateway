@@ -276,11 +276,12 @@ def get_current_config() -> dict[str, Any]:
     """
     Get current SDMX endpoint configuration.
 
+    Reads from environment (SDMX_BASE_URL / SDMX_AGENCY_ID / SDMX_ENDPOINT)
+    at call time; these values are process-wide and not mutated at runtime.
+
     Returns:
         Dict with base_url, agency_id, name, description, constraints
     """
-    global _current_endpoint_key
-
     # If environment variables are set, use custom endpoint
     if _env_base_url:
         return {
@@ -299,32 +300,10 @@ def get_current_config() -> dict[str, Any]:
     return SDMX_ENDPOINTS["SPC"]
 
 
-def set_endpoint(endpoint_key: str) -> dict[str, Any]:
-    """
-    Switch to a different SDMX endpoint.
-
-    Args:
-        endpoint_key: Key from SDMX_ENDPOINTS dict
-
-    Returns:
-        The new configuration dict
-    """
-    global _current_endpoint_key, SDMX_BASE_URL, SDMX_AGENCY_ID
-
-    if endpoint_key not in SDMX_ENDPOINTS:
-        available = ", ".join(SDMX_ENDPOINTS.keys())
-        raise ValueError(
-            "Unknown endpoint: " + endpoint_key + ". Available: " + available
-        )
-
-    _current_endpoint_key = endpoint_key
-    config = get_current_config()
-    # Update the module-level variables
-    SDMX_BASE_URL = config["base_url"]
-    SDMX_AGENCY_ID = config["agency_id"]
-    return config
-
-
-# Initialize module-level variables
+# Startup-time module defaults. Captured from the current config at import
+# time and never rewritten: this module has no set_endpoint() anymore. The
+# per-session pool always passes explicit base_url / agency_id to
+# SDMXProgressiveClient, so these values are only read by the legacy
+# no-kwargs constructor path and by callers that explicitly import them.
 SDMX_BASE_URL = get_current_config()["base_url"]
 SDMX_AGENCY_ID = get_current_config()["agency_id"]

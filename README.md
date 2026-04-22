@@ -85,10 +85,10 @@ sdmx-mcp-gateway/
 
 | Tool                          | Description                            | Output Schema          |
 | ----------------------------- | -------------------------------------- | ---------------------- |
-| `get_current_endpoint`        | Show active data source                | `EndpointInfo`         |
-| `list_available_endpoints`    | List all providers                     | `EndpointListResult`   |
-| `switch_endpoint`             | Change data provider                   | `EndpointSwitchResult` |
-| `switch_endpoint_interactive` | Interactive selection with elicitation | `EndpointSwitchResult` |
+| `get_current_endpoint`        | Show the session's default provider    | `EndpointInfo`         |
+| `list_available_endpoints`    | List all configured providers          | `EndpointListResult`   |
+
+The session default is set once at startup from the `SDMX_ENDPOINT` env var and is not mutable at runtime. To target a specific provider for an individual call, pass `endpoint=<KEY>` to any endpoint-scoped tool.
 
 ### Resources
 
@@ -120,14 +120,15 @@ sdmx-mcp-gateway/
 | `ILO`    | International Labour Organization | Labour and employment statistics     | Actual (single) |
 | `ESTAT`  | Eurostat                         | European Union official statistics    | None |
 
-Switch providers using:
+Target a provider per call:
 
 ```python
-# Direct switch
-switch_endpoint("ECB")
+# Pass endpoint= on any endpoint-scoped tool
+list_dataflows(endpoint="ECB", limit=10)
+get_dataflow_structure(dataflow_id="DF_CPI", endpoint="FBOS")
 
-# Interactive selection (with elicitation)
-switch_endpoint_interactive()
+# Or rely on the session default (set at startup from SDMX_ENDPOINT env var)
+list_dataflows(limit=10)
 ```
 
 See `docs/ENDPOINT_CONFIGURATION.md` for provider-specific behaviours and constraint strategies.
@@ -603,23 +604,17 @@ graph LR
     style chg_CL_GEO fill:#fff9c4,stroke:#fbc02d
 ```
 
-### Interactive Endpoint Switching
+### Targeting a Provider Per Call
 
-For clients that support elicitation (shows interactive form):
-
-```python
-switch_endpoint_interactive()
-# → Shows form to select endpoint and confirm
-# → Returns: EndpointSwitchResult
-```
-
-For clients without elicitation support:
+Every endpoint-scoped tool accepts an optional `endpoint=<KEY>` argument:
 
 ```python
-switch_endpoint("ECB")
-# → Directly switches to ECB
-# → Returns: EndpointSwitchResult
+list_dataflows(endpoint="ECB", limit=10)
+get_dataflow_structure(dataflow_id="EXR", endpoint="ECB")
+build_data_url(dataflow_id="DF_CPI", filters={"GEO_AREA": "FJI"}, endpoint="FBOS")
 ```
+
+Calls without `endpoint=` use the session's default (set at server startup from the `SDMX_ENDPOINT` env var). Parallel calls to different providers are safe — each resolves independently.
 
 ## Structured Outputs
 
@@ -665,15 +660,11 @@ uv run pytest tests/e2e/
 
 ## Known Limitations
 
-### Multi-User Endpoint Switching
+### Multi-User Endpoint Isolation
 
-Endpoint switching is session-scoped: each MCP session has its own active provider. STDIO mode uses a single session; HTTP transport uses `Mcp-Session-Id` headers for multi-user isolation. Sessions timeout after 30 minutes of inactivity.
+Each MCP session has its own client pool (one `SDMXProgressiveClient` per endpoint it has touched) and its own mismatch-hint registry. STDIO mode uses a single session; HTTP transport uses `Mcp-Session-Id` headers for per-user isolation. Sessions timeout after 30 minutes of inactivity. The session default endpoint is immutable at runtime — set it via the `SDMX_ENDPOINT` env var at server startup.
 
 See `docs/MULTI_USER_CONSIDERATIONS.md` for production deployment details.
-
-### Elicitation Support
-
-Interactive tools (`switch_endpoint_interactive`) require client elicitation support. Clients without support receive a helpful fallback message with available endpoints.
 
 ## Project Status
 

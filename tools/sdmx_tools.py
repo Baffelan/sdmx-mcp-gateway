@@ -1121,28 +1121,3 @@ async def build_sdmx_key(
     except Exception as e:
         logger.exception("Failed to build key for %s", dataflow_id)
         return {"error": str(e), "dataflow_id": dataflow_id}
-
-
-# Legacy global client for backward compatibility during migration.
-# This is a singleton; get_default_client() returns it so every caller
-# shares one httpx session and cleanup_sdmx_client() can reach it.
-# Will be removed when the no-AppContext code paths are retired.
-sdmx_client = SDMXProgressiveClient()
-
-
-def get_default_client() -> SDMXProgressiveClient:
-    """
-    Return the module-level singleton SDMX client.
-
-    DEPRECATED: Use session-based clients instead. Returning a singleton
-    (not a fresh instance) ensures any httpx session the client opens is
-    tracked and can be closed by cleanup_sdmx_client().
-    """
-    return sdmx_client
-
-
-async def cleanup_sdmx_client() -> None:
-    """Clean up the legacy SDMX client session."""
-    global sdmx_client
-    if sdmx_client and sdmx_client.session:
-        await sdmx_client.close()

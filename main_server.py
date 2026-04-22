@@ -20,7 +20,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
 import os
 import sys
@@ -54,8 +53,6 @@ from models.schemas import (
     DimensionSummary,
     EndpointInfo,
     EndpointListResult,
-    EndpointSwitchConfirmation,
-    EndpointSwitchResult,
     FilterInfo,
     KeyBuildResult,
     PaginationInfo,
@@ -130,39 +127,48 @@ mcp = FastMCP(
 # =============================================================================
 
 
+def _ad_hoc_default_client() -> SDMXProgressiveClient:
+    """Build a one-off SDMXProgressiveClient from startup config.
+
+    Used only by get_session_client when there is no AppContext (direct-call
+    tests, unlifespaned servers). Explicit kwargs are passed so this does not
+    trigger the audit-H3 no-kwargs warning and is not coupled to any mutable
+    module state. The client is not cached anywhere; each fallback call
+    produces a fresh instance.
+    """
+    from config import SDMX_AGENCY_ID, SDMX_BASE_URL
+
+    return SDMXProgressiveClient(
+        base_url=SDMX_BASE_URL,
+        agency_id=SDMX_AGENCY_ID,
+    )
+
+
 async def get_session_client(ctx: Context[Any, Any, Any] | None) -> SDMXProgressiveClient:
     """
     Get the SDMX client for the current session from lifespan context.
 
-    This ensures each session uses its own endpoint configuration,
-    preventing interference between users in multi-user deployments.
+    Multi-user deployments route through AppContext to get a per-session
+    pooled client. Callers without an AppContext (direct-call tests) get a
+    fresh ad-hoc client bound to the startup-time SDMX_BASE_URL /
+    SDMX_AGENCY_ID.
 
     Args:
         ctx: MCP Context object
 
     Returns:
-        SDMXProgressiveClient configured for the current session's endpoint
+        SDMXProgressiveClient for the caller's context
     """
     if ctx is None:
-        # Fallback to default session
-        from tools.sdmx_tools import get_default_client
-
-        return get_default_client()
+        return _ad_hoc_default_client()
 
     try:
-        # Get the lifespan context (AppContext)
         lifespan_ctx = ctx.request_context.lifespan_context
         if isinstance(lifespan_ctx, AppContext):
             return await lifespan_ctx.get_client(ctx)
-        # Fallback to default
-        from tools.sdmx_tools import get_default_client
-
-        return get_default_client()
     except (AttributeError, TypeError):
-        # Lifespan context not available, use default
-        from tools.sdmx_tools import get_default_client
-
-        return get_default_client()
+        pass
+    return _ad_hoc_default_client()
 
 
 def get_app_context(ctx: Context[Any, Any, Any] | None) -> AppContext | None:
@@ -196,8 +202,9 @@ async def _resolve_client(
 
     Precedence:
       1. Explicit `endpoint` argument (validated against SDMX_ENDPOINTS).
-      2. Session default endpoint (set via switch_endpoint or server init).
-      3. Falls back to the legacy default client when no AppContext exists.
+      2. Session default endpoint (set at session creation from env).
+      3. Falls back to an ad-hoc default client when no AppContext exists
+         (direct-call tests only).
 
     Raises ValueError for unknown endpoints or when no default is set.
     """
@@ -206,10 +213,8 @@ async def _resolve_client(
     app_ctx = get_app_context(ctx)
     if app_ctx is None:
         if endpoint is not None:
-            # Caller explicitly asked for a specific endpoint but the session
-            # infrastructure isn't available. Silently routing to the legacy
-            # default would misroute the request (wrong base_url, wrong agency).
-            # Surface the misconfiguration instead.
+            # Explicit endpoint with no session infrastructure = misconfig.
+            # Surface it instead of silently routing to a startup default.
             raise ValueError(
                 "endpoint='" + endpoint + "' was requested but no AppContext "
                 "is available. Explicit endpoints require the server lifespan "
@@ -217,23 +222,15 @@ async def _resolve_client(
                 "a tool handler directly in a test, construct an AppContext "
                 "(see tests/integration/test_cross_endpoint_tools.py)."
             )
-        # Legacy fallback: route through get_session_client so test patches
-        # targeting main_server.get_session_client continue to work.
+        # Route through get_session_client so tests patching that symbol keep
+        # working. Derive the reported ep_key from startup env.
         client = await get_session_client(ctx)
-        # Prefer the client's own endpoint_key when set (the legacy global
-        # switch_endpoint() path stamps this on the new singleton, so reads
-        # stay in sync after a runtime switch). Fall back to env vars for
-        # the startup-only case.
-        client_ep = getattr(client, "endpoint_key", None)
-        if client_ep and (client_ep == "CUSTOM" or client_ep in SDMX_ENDPOINTS):
-            return client, client_ep
         import os
         if os.getenv("SDMX_BASE_URL"):
-            fallback_ep = "CUSTOM"
-        else:
-            fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
-            if fallback_ep not in SDMX_ENDPOINTS:
-                fallback_ep = "SPC"
+            return client, "CUSTOM"
+        fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
+        if fallback_ep not in SDMX_ENDPOINTS:
+            fallback_ep = "SPC"
         return client, fallback_ep
 
     session = app_ctx.get_session(ctx)
@@ -241,7 +238,8 @@ async def _resolve_client(
     if not key:
         raise ValueError(
             "No endpoint specified and no session default is set. "
-            "Pass endpoint=<key> or call switch_endpoint first."
+            "Pass endpoint=<key> to the tool, or configure SDMX_ENDPOINT "
+            "at server startup."
         )
     if key not in SDMX_ENDPOINTS:
         raise ValueError(
@@ -269,8 +267,9 @@ def _build_mismatch_hint(
     from config import SDMX_ENDPOINTS
 
     if dataflow_id is not None:
+        snapshot = session.snapshot_known_dataflows()
         known_elsewhere = [
-            ep for ep, flows in session.known_dataflows.items()
+            ep for ep, flows in snapshot.items()
             if ep != resolved_endpoint and dataflow_id in flows
         ]
         if known_elsewhere:
@@ -286,8 +285,7 @@ def _build_mismatch_hint(
     return (
         "Not found on endpoint '" + resolved_endpoint
         + "'. Registered endpoints: " + str(valid)
-        + ". Pass endpoint=<key> to target a different provider, "
-        + "or call switch_endpoint(<key>)."
+        + ". Pass endpoint=<key> to target a different provider."
     )
 
 
@@ -355,9 +353,10 @@ def _maybe_mismatch_hint(
     if app_ctx is None:
         return None
     session = app_ctx.get_session(ctx)
+    snapshot = session.snapshot_known_dataflows()
     known_elsewhere = any(
         ep != resolved_endpoint and dataflow_id in flows
-        for ep, flows in session.known_dataflows.items()
+        for ep, flows in snapshot.items()
     )
     low = (error_message or "").lower()
     looks_like_not_found = any(s in low for s in _NOT_FOUND_SIGNALS)
@@ -2452,6 +2451,16 @@ async def probe_data_url(
 
     client, ep_key = await _resolve_client(ctx, endpoint)
 
+    # Session-scope the probe cache (audit M1): one session's cached probe
+    # results must never surface on another session's probe call.
+    session_probe_cache = None
+    session_probe_cache_lock = None
+    app_ctx = get_app_context(ctx)
+    if app_ctx is not None:
+        session = app_ctx.get_session(ctx)
+        session_probe_cache = session.probe_cache
+        session_probe_cache_lock = session._state_lock
+
     result = await probe_impl(
         client=client,
         data_url=data_url,
@@ -2462,6 +2471,8 @@ async def probe_data_url(
         sample_limit=sample_observations_limit,
         max_distinct_per_dim=max_distinct_values_per_dimension,
         timeout_ms=timeout_ms,
+        probe_cache=session_probe_cache,
+        probe_cache_lock=session_probe_cache_lock,
     )
 
     dim_summaries: dict[str, DimensionSummary] = {}
@@ -5004,428 +5015,13 @@ async def list_available_endpoints(ctx: Context[Any, Any, Any] | None = None) ->
     return EndpointListResult(
         current=current_key or "custom",
         endpoints=endpoints,
-        note="Use switch_endpoint() to change the active endpoint for your session",
+        note=(
+            "Endpoints are selected per-call. Pass endpoint='<KEY>' to any "
+            "endpoint-scoped tool to target a provider other than the session "
+            "default. The session default is set once at startup from the "
+            "SDMX_ENDPOINT env var and is not mutable at runtime."
+        ),
     )
-
-
-@mcp.tool()
-async def switch_endpoint(
-    endpoint_key: str,
-    require_confirmation: bool = False,
-    ctx: Context[Any, Any, Any] | None = None,
-) -> EndpointSwitchResult:
-    """
-    Switch to a different SDMX data source for your session.
-
-    Changes the active statistical data provider. All subsequent queries in your
-    session will use the new endpoint until switched again.
-
-    In multi-user deployments, this only affects your session - other users
-    are not impacted.
-
-    Args:
-        endpoint_key: The endpoint to switch to (e.g., "SPC", "ECB", "UNICEF", "IMF")
-        require_confirmation: If True, asks user for confirmation before switching
-        ctx: MCP context (injected automatically)
-
-    Returns:
-        Confirmation of the switch with new endpoint details
-
-    Examples:
-        - switch_endpoint("ECB") - Switch to European Central Bank
-        - switch_endpoint("UNICEF") - Switch to UNICEF data
-        - switch_endpoint("SPC") - Switch to Pacific Data Hub
-    """
-    from config import SDMX_ENDPOINTS
-
-    # Validate endpoint exists first
-    if endpoint_key not in SDMX_ENDPOINTS:
-        available = list(SDMX_ENDPOINTS.keys())
-        return EndpointSwitchResult(
-            success=False,
-            message="Failed to switch endpoint",
-            new_endpoint=None,
-            error=f"Unknown endpoint: {endpoint_key}",
-            available_endpoints=available,
-            hint=f"Use one of: {', '.join(available)}",
-        )
-
-    # Get current endpoint info for this session
-    app_ctx = get_app_context(ctx)
-    target_config = SDMX_ENDPOINTS[endpoint_key]
-
-    if app_ctx is not None:
-        # Use session-based endpoint switching (multi-user safe)
-        current_session = app_ctx.get_session(ctx)
-        current_cfg = SDMX_ENDPOINTS.get(current_session.default_endpoint_key, {})
-        current_name = current_cfg.get("name", current_session.default_endpoint_key)
-        current_url = current_cfg.get("base_url", "")
-    else:
-        # Fallback to global config
-        from config import get_current_config
-
-        current_config = get_current_config()
-        current_name = current_config["name"]
-        current_url = current_config["base_url"]
-
-    # If confirmation required and context available, use elicitation
-    if require_confirmation and ctx is not None:
-        try:
-            result = await ctx.elicit(
-                message=(
-                    f"Switch from **{current_name}** to **{target_config['name']}**?\n\n"
-                    f"This will change the data source for your session.\n\n"
-                    f"- Current: {current_url}\n"
-                    f"- New: {target_config['base_url']}"
-                ),
-                schema=EndpointSwitchConfirmation,
-            )
-
-            if result.action != "accept" or not result.data.confirm:
-                return EndpointSwitchResult(
-                    success=False,
-                    message="Endpoint switch cancelled by user",
-                    new_endpoint=None,
-                    error=None,
-                    available_endpoints=None,
-                    hint="Use switch_endpoint() again if you change your mind",
-                )
-        except Exception:
-            # Elicitation not supported by client, proceed without confirmation
-            pass
-
-    try:
-        # Use session-based switching if available
-        if app_ctx is not None:
-            switch_result = await app_ctx.switch_endpoint(endpoint_key, ctx)
-            new_config = switch_result["new_endpoint"]
-
-            return EndpointSwitchResult(
-                success=True,
-                message=f"Switched to {new_config['name']} (session-specific)",
-                new_endpoint=EndpointInfo(
-                    key=endpoint_key,
-                    name=new_config["name"],
-                    base_url=new_config["base_url"],
-                    agency_id=new_config["agency_id"],
-                    description=new_config.get("description", ""),
-                    status="Active",
-                    is_current=True,
-                ),
-                error=None,
-                available_endpoints=None,
-                hint=(
-                    "This change only affects your session. "
-                    "Note: most endpoint-scoped tools now accept an "
-                    "`endpoint` parameter directly, so `switch_endpoint` is "
-                    "only needed when you want to change the session default "
-                    "for subsequent calls."
-                ),
-            )
-        else:
-            # Fallback to global switching (legacy behavior)
-            from config import set_endpoint
-            from sdmx_progressive_client import SDMXProgressiveClient
-            from tools import sdmx_tools
-
-            new_config = set_endpoint(endpoint_key)
-
-            # Close existing client if it has a session
-            if sdmx_tools.sdmx_client.session:
-                await sdmx_tools.sdmx_client.close()
-
-            # Create new client with updated endpoint. Passing endpoint_key
-            # ensures _resolve_client's no-AppContext fallback reports the
-            # current key, not the startup-time env value.
-            sdmx_tools.sdmx_client = SDMXProgressiveClient(
-                base_url=new_config["base_url"],
-                agency_id=new_config["agency_id"],
-                endpoint_key=endpoint_key,
-            )
-
-            return EndpointSwitchResult(
-                success=True,
-                message=f"Switched to {new_config['name']} (global)",
-                new_endpoint=EndpointInfo(
-                    key=endpoint_key,
-                    name=new_config["name"],
-                    base_url=new_config["base_url"],
-                    agency_id=new_config["agency_id"],
-                    description=new_config["description"],
-                    status="Active",
-                    is_current=True,
-                ),
-                error=None,
-                available_endpoints=None,
-                hint=(
-                    "Warning: Session management not available, this affects all users. "
-                    "Note: most endpoint-scoped tools now accept an `endpoint` parameter directly."
-                ),
-            )
-
-    except ValueError as e:
-        available = list(SDMX_ENDPOINTS.keys())
-        return EndpointSwitchResult(
-            success=False,
-            message="Failed to switch endpoint",
-            new_endpoint=None,
-            error=str(e),
-            available_endpoints=available,
-            hint=f"Use one of: {', '.join(available)}",
-        )
-
-
-@mcp.tool()
-async def switch_endpoint_interactive(
-    ctx: Context[Any, Any, Any],
-    endpoint_key: str | None = None,
-) -> EndpointSwitchResult:
-    """
-    Interactively switch to a different SDMX data source with user confirmation.
-
-    This tool uses elicitation to show available endpoints and ask the user
-    to confirm their selection. If the client doesn't support elicitation,
-    it will return a list of available endpoints for manual selection.
-
-    Args:
-        ctx: MCP context (injected automatically)
-        endpoint_key: Optional - if provided, skips selection and just confirms
-
-    Returns:
-        Confirmation of the switch with new endpoint details, or list of
-        available endpoints if elicitation is not supported
-    """
-    from config import SDMX_ENDPOINTS, get_current_config, set_endpoint
-    from sdmx_progressive_client import SDMXProgressiveClient
-    from tools import sdmx_tools
-
-    # Prefer the session's default endpoint when AppContext is available so
-    # the elicit prompt shows the caller's current endpoint, not a
-    # process-wide global. Falls back to global config for direct-call tests.
-    app_ctx = get_app_context(ctx)
-    if app_ctx is not None:
-        session = app_ctx.get_session(ctx)
-        current_key = session.default_endpoint_key
-        current_cfg = SDMX_ENDPOINTS.get(current_key, {})
-        current_display_name = current_cfg.get("name", current_key)
-    else:
-        current_config = get_current_config()
-        current_key = None
-        for key, cfg in SDMX_ENDPOINTS.items():
-            if cfg["base_url"] == current_config["base_url"]:
-                current_key = key
-                break
-        current_display_name = current_config.get("name", "Unknown")
-
-    # Check if client supports elicitation by checking client_params capabilities
-    client_supports_elicitation = False
-    try:
-        if ctx.session and hasattr(ctx.session, "client_params"):
-            client_params = ctx.session.client_params
-            if client_params and hasattr(client_params, "capabilities"):
-                caps = client_params.capabilities
-                # Check if elicitation capability exists and is not None
-                if caps and hasattr(caps, "elicitation") and caps.elicitation is not None:
-                    client_supports_elicitation = True
-    except Exception:
-        pass
-
-    # If client doesn't support elicitation, return endpoint list for manual selection
-    if not client_supports_elicitation:
-        _ = [
-            EndpointInfo(
-                key=key,
-                name=cfg["name"],
-                base_url=cfg["base_url"],
-                agency_id=cfg["agency_id"],
-                description=cfg["description"],
-                status=cfg.get("status", "Available"),
-                is_current=(key == current_key),
-            )
-            for key, cfg in SDMX_ENDPOINTS.items()
-        ]
-
-        return EndpointSwitchResult(
-            success=False,
-            message=(
-                "Interactive selection requires elicitation support. "
-                "Please use switch_endpoint(endpoint_key) with one of the available endpoints."
-            ),
-            new_endpoint=None,
-            error="Client does not support elicitation",
-            available_endpoints=list(SDMX_ENDPOINTS.keys()),
-            hint=f"Current: {current_key}. Use: switch_endpoint('ECB') or switch_endpoint('UNICEF')",
-        )
-
-    # Build endpoint list for display
-    endpoint_list = "\n".join(
-        f"- **{key}**: {cfg['name']} - {cfg['description']}" for key, cfg in SDMX_ENDPOINTS.items()
-    )
-
-    # Create a dynamic schema for endpoint selection
-    from pydantic import BaseModel, Field
-
-    class EndpointSelection(BaseModel):
-        endpoint: str = Field(
-            default=endpoint_key or current_key or "SPC",
-            description=f"Select endpoint: {', '.join(SDMX_ENDPOINTS.keys())}",
-        )
-        confirm: bool = Field(default=False, description="Confirm the switch")
-
-    try:
-        from datetime import timedelta
-
-        from mcp import types as mcp_types
-        from mcp.shared.message import ServerMessageMetadata
-
-        # Build the elicitation request with a long timeout for human interaction
-        # Default MCP timeout is too short for humans to read and respond
-        message_text = (
-            f"## Select SDMX Data Source\n\n"
-            f"**Current endpoint**: {current_display_name}\n\n"
-            f"### Available endpoints:\n{endpoint_list}\n\n"
-            f"Enter the endpoint key and confirm to switch."
-        )
-
-        # Convert Pydantic schema to JSON schema for MCP
-        json_schema = EndpointSelection.model_json_schema()
-
-        # Use session.send_request directly with a 5-minute timeout
-        raw_result = await ctx.session.send_request(
-            mcp_types.ServerRequest(
-                mcp_types.ElicitRequest(
-                    params=mcp_types.ElicitRequestFormParams(
-                        message=message_text,
-                        requestedSchema=mcp_types.ElicitRequestedSchema(
-                            type="object",
-                            properties=json_schema.get("properties", {}),
-                            required=json_schema.get("required", []),
-                        ),
-                    ),
-                )
-            ),
-            mcp_types.ElicitResult,
-            request_read_timeout_seconds=timedelta(minutes=5),  # 5 minute timeout
-            metadata=ServerMessageMetadata(related_request_id=None),
-        )
-
-        # Parse the result
-        result_action = raw_result.action if hasattr(raw_result, "action") else "cancel"
-        result_data: EndpointSelection | None = None
-
-        if result_action == "accept" and hasattr(raw_result, "content") and raw_result.content:
-            try:
-                result_data = EndpointSelection.model_validate(raw_result.content)
-            except Exception:
-                result_data = None
-
-        if result_action != "accept":
-            return EndpointSwitchResult(
-                success=False,
-                message="Endpoint selection cancelled",
-                new_endpoint=None,
-                error=None,
-                available_endpoints=list(SDMX_ENDPOINTS.keys()),
-                hint=None,
-            )
-
-        if result_data is None or not result_data.confirm:
-            return EndpointSwitchResult(
-                success=False,
-                message="Endpoint switch not confirmed",
-                new_endpoint=None,
-                error=None,
-                available_endpoints=list(SDMX_ENDPOINTS.keys()),
-                hint="Set confirm=True to proceed with the switch",
-            )
-
-        selected_endpoint = result_data.endpoint.upper()
-
-        if selected_endpoint not in SDMX_ENDPOINTS:
-            return EndpointSwitchResult(
-                success=False,
-                message=f"Invalid endpoint: {selected_endpoint}",
-                new_endpoint=None,
-                error=f"Unknown endpoint: {selected_endpoint}",
-                available_endpoints=list(SDMX_ENDPOINTS.keys()),
-                hint=f"Use one of: {', '.join(SDMX_ENDPOINTS.keys())}",
-            )
-
-        # Perform the switch. Prefer the session-based path when AppContext
-        # is available: pointer flip on SessionState.default_endpoint_key,
-        # isolated from other users. Only fall back to the legacy global
-        # switch when AppContext is absent (direct-call tests, unlifespaned
-        # servers).
-        if app_ctx is not None:
-            switch_result = await app_ctx.switch_endpoint(selected_endpoint, ctx)
-            new_config = switch_result["new_endpoint"]
-            return EndpointSwitchResult(
-                success=True,
-                message=f"Switched to {new_config['name']} (session-specific)",
-                new_endpoint=EndpointInfo(
-                    key=selected_endpoint,
-                    name=new_config["name"],
-                    base_url=new_config["base_url"],
-                    agency_id=new_config["agency_id"],
-                    description=new_config.get("description", ""),
-                    status="Active",
-                    is_current=True,
-                ),
-                error=None,
-                available_endpoints=None,
-                hint="This change only affects your session.",
-            )
-
-        new_config = set_endpoint(selected_endpoint)
-
-        if sdmx_tools.sdmx_client.session:
-            await sdmx_tools.sdmx_client.close()
-
-        # Stamp endpoint_key so _resolve_client's no-AppContext fallback
-        # reports the current key after the interactive switch, matching
-        # the non-interactive legacy branch.
-        sdmx_tools.sdmx_client = SDMXProgressiveClient(
-            base_url=new_config["base_url"],
-            agency_id=new_config["agency_id"],
-            endpoint_key=selected_endpoint,
-        )
-
-        return EndpointSwitchResult(
-            success=True,
-            message=f"Switched to {new_config['name']}",
-            new_endpoint=EndpointInfo(
-                key=selected_endpoint,
-                name=new_config["name"],
-                base_url=new_config["base_url"],
-                agency_id=new_config["agency_id"],
-                description=new_config["description"],
-                status="Active",
-                is_current=True,
-            ),
-            error=None,
-            available_endpoints=None,
-            hint=None,
-        )
-
-    except (TimeoutError, asyncio.TimeoutError):
-        return EndpointSwitchResult(
-            success=False,
-            message="Elicitation timed out waiting for user response",
-            new_endpoint=None,
-            error="Timeout: no response received within 5 minutes",
-            available_endpoints=list(SDMX_ENDPOINTS.keys()),
-            hint="Use switch_endpoint(endpoint_key) directly instead",
-        )
-    except Exception as e:
-        return EndpointSwitchResult(
-            success=False,
-            message="Elicitation failed - client may not support interactive selection",
-            new_endpoint=None,
-            error=str(e),
-            available_endpoints=list(SDMX_ENDPOINTS.keys()),
-            hint="Use switch_endpoint(endpoint_key) directly instead",
-        )
-
 
 # =============================================================================
 # Resources
@@ -5564,6 +5160,10 @@ def main():
         mcp.settings.port = args.port
         mcp.settings.stateless_http = args.stateless
         mcp.settings.json_response = args.json_response
+        # Tell the session manager we're serving HTTP so missing
+        # Mcp-Session-Id falls back with a loud warning instead of silently.
+        from session_manager import mark_http_transport_active
+        mark_http_transport_active()
         logger.info("HTTP server listening on %s:%d", args.host, args.port)
         mcp.run(transport=transport)
     else:

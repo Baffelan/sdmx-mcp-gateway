@@ -212,73 +212,6 @@ async def test_list_available_endpoints_marks_session_default_as_current():
 
 
 @pytest.mark.asyncio
-async def test_switch_endpoint_interactive_uses_session_path_when_available():
-    """switch_endpoint_interactive must flip the session pointer, not the
-    process-wide global, whenever AppContext is present. Without this, one
-    user's interactive switch would affect every other concurrent session."""
-    mgr = SessionManager(default_endpoint_key="SPC")
-    app_ctx = AppContext(session_manager=mgr)
-
-    # Craft a ctx that reports no elicitation support so the tool returns
-    # the non-elicitation branch without issuing a real elicit request.
-    class _CtxNoElicit:
-        def __init__(self, app_ctx, sid="interactive-s1"):
-            class RC:
-                pass
-
-            rc = RC()
-            rc.lifespan_context = app_ctx
-            rc.session_id = sid
-            rc.meta = None
-            self.request_context = rc
-            # session exists but client_params exposes no elicitation capability
-            class _Session:
-                client_params = None
-
-            self.session = _Session()
-            self.meta = None
-
-        async def info(self, *a, **kw):
-            pass
-
-    ctx = _CtxNoElicit(app_ctx)
-
-    # Seed the session on SPC
-    session = app_ctx.get_session(ctx)
-    assert session.default_endpoint_key == "SPC"
-
-    from main_server import switch_endpoint_interactive as handler
-
-    # With no elicitation support we get the "please use switch_endpoint(...)"
-    # guidance response. The important regression check is the hint text
-    # reflects the session's current endpoint, not a global.
-    result = await handler(ctx, endpoint_key="ECB")
-    assert result.success is False
-    assert "SPC" in (result.hint or "")  # session's current endpoint surfaced
-
-
-@pytest.mark.asyncio
-async def test_switch_endpoint_session_path_does_not_AttributeError():
-    """Regression: switch_endpoint's session branch must not read removed
-    endpoint_name / base_url mirror fields on SessionState."""
-    mgr = SessionManager(default_endpoint_key="SPC")
-    app_ctx = AppContext(session_manager=mgr)
-    ctx = _FakeCtx(app_ctx)
-
-    from main_server import switch_endpoint as handler
-
-    # require_confirmation=False skips the elicit() prompt that reads
-    # current_name/current_url, but the preamble still constructs them.
-    result = await handler(endpoint_key="ECB", require_confirmation=False, ctx=ctx)
-
-    assert result.success is True
-    assert result.new_endpoint is not None
-    assert result.new_endpoint.key == "ECB"
-    # Session pointer flipped on the underlying SessionState
-    assert app_ctx.get_session(ctx).default_endpoint_key == "ECB"
-
-
-@pytest.mark.asyncio
 async def test_validate_query_populates_suggestion_with_mismatch_hint():
     """A failed validation where the dataflow is registered elsewhere should
     put the sharp hint into ValidationResult.suggestion."""
@@ -417,6 +350,7 @@ async def test_probe_data_url_registers_dataflow_on_nonempty_success():
         sample_limit=5,
         max_distinct_per_dim=10,
         timeout_ms=10000,
+        **_kwargs,  # swallow session cache kwargs added for M1
     ):
         return {
             "status": "nonempty",
@@ -447,3 +381,91 @@ async def test_probe_data_url_registers_dataflow_on_nonempty_success():
         "Expected probe_data_url to register DF_PROBED on SPC after a "
         "nonempty success; registry has: " + repr(session.known_dataflows)
     )
+
+
+@pytest.mark.asyncio
+async def test_probe_cache_is_session_scoped_audit_m1():
+    """Audit M1: Session A's cached probe result must not surface on
+    Session B's probe call for the same URL.
+
+    Pre-fix the probe cache was module-level, keyed on URL fingerprint +
+    shaping params. Two sessions hitting the same URL meant the second
+    served the first's cached payload (including sample_observations).
+    Now the cache lives on SessionState; sessions are independent.
+    """
+    from main_server import probe_data_url as handler
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx_a = _FakeCtx(app_ctx, sid="session-A")
+    ctx_b = _FakeCtx(app_ctx, sid="session-B")
+
+    impl_calls: list[str] = []
+
+    async def recording_probe(
+        client,
+        data_url=None,
+        dataflow_id=None,
+        filters=None,
+        start_period=None,
+        end_period=None,
+        sample_limit=5,
+        max_distinct_per_dim=10,
+        timeout_ms=10000,
+        probe_cache=None,
+        probe_cache_lock=None,
+    ):
+        # Side effect: record which cache instance was threaded in so we
+        # can assert each session got its own.
+        impl_calls.append(
+            "cache_id="
+            + str(id(probe_cache) if probe_cache is not None else None)
+        )
+        # Actually exercise the cache so the second call-for-same-URL is a hit.
+        key = "test-key"
+        if probe_cache is not None and key in probe_cache:
+            return probe_cache[key]
+        result = {
+            "status": "nonempty",
+            "observation_count": 7,
+            "series_count": 1,
+            "time_period_count": 7,
+            "dimensions": {},
+            "has_time_dimension": False,
+            "geo_dimension_id": None,
+            "sample_observations": [],
+            "query_fingerprint": "fp-" + str(id(probe_cache)),
+            "notes": [],
+        }
+        if probe_cache is not None:
+            probe_cache[key] = result
+        return result
+
+    with patch("tools.probing_tools.probe_data_url", side_effect=recording_probe):
+        result_a = await handler(
+            data_url="https://example/data/DF/A",
+            endpoint="SPC",
+            ctx=ctx_a,
+        )
+        result_b = await handler(
+            data_url="https://example/data/DF/A",  # same URL
+            endpoint="SPC",
+            ctx=ctx_b,
+        )
+
+    # Both handler calls fired the impl (neither was served from a
+    # cross-session cache); fingerprints differ because each session
+    # had a distinct cache dict used to derive the fingerprint.
+    assert len(impl_calls) == 2
+    assert result_a.query_fingerprint != result_b.query_fingerprint, (
+        "Expected distinct query_fingerprints from two sessions; same value "
+        "would indicate the impl was served a shared cache."
+    )
+    # Each session's probe_cache now holds its own entry; sessions are isolated.
+    session_a = app_ctx.get_session(ctx_a)
+    session_b = app_ctx.get_session(ctx_b)
+    assert session_a.probe_cache is not session_b.probe_cache
+    assert "test-key" in session_a.probe_cache
+    assert "test-key" in session_b.probe_cache
+    # And the stored entries are distinct objects (from distinct calls)
+    assert session_a.probe_cache["test-key"] is not session_b.probe_cache["test-key"]

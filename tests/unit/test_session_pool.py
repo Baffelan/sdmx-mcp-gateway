@@ -109,36 +109,6 @@ from session_manager import SessionManager
 
 
 @pytest.mark.asyncio
-async def test_switch_endpoint_is_pointer_flip():
-    """switch_endpoint flips default_endpoint_key without tearing down pooled clients."""
-    mgr = SessionManager(default_endpoint_key="SPC")
-    # Prime the pool by touching a client on SPC
-    session = mgr.get_session("s1")
-    spc_client = await session.get_or_create_client("SPC")
-
-    await mgr.switch_endpoint("ECB", session_id="s1")
-
-    # default flipped
-    assert session.default_endpoint_key == "ECB"
-    # previous client still in the pool (not closed, not replaced)
-    assert session.clients["SPC"] is spc_client
-    # no httpx session opened yet means close() never runs; verify by
-    # re-fetching the SPC client yields the same instance
-    assert await session.get_or_create_client("SPC") is spc_client
-
-
-@pytest.mark.asyncio
-async def test_switch_endpoint_unknown_raises_with_valid_list():
-    mgr = SessionManager(default_endpoint_key="SPC")
-    mgr.get_session("s1")
-    with pytest.raises(ValueError) as exc:
-        await mgr.switch_endpoint("BOGUS", session_id="s1")
-    msg = str(exc.value)
-    assert "BOGUS" in msg
-    assert "SPC" in msg  # valid list surfaced
-
-
-@pytest.mark.asyncio
 async def test_close_all_partial_failure_does_not_raise():
     """If one client close() raises, others still get closed and no exception propagates."""
     import types

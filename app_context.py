@@ -102,13 +102,6 @@ class AppContext:
             "description": cfg.get("description", ""),
         }
 
-    async def switch_endpoint(
-        self, endpoint_key: str, ctx: Context[Any, Any, Any] | None = None
-    ) -> dict[str, Any]:
-        """Flip session default endpoint."""
-        session_id = get_session_id_from_context(ctx)
-        return await self.session_manager.switch_endpoint(endpoint_key, session_id)
-
     def clear_cache(self, ctx: Context[Any, Any, Any] | None = None) -> None:
         """
         Clear cache for the current session.
@@ -177,31 +170,10 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         await session_manager.close_all()
 
 
-async def switch_endpoint_context(context: AppContext, endpoint_key: str) -> dict[str, Any]:
-    """
-    Switch the SDMX endpoint in the application context (default session).
-
-    This is a convenience function for backward compatibility.
-    For multi-user support, use context.switch_endpoint(endpoint_key, ctx) instead.
-
-    Args:
-        context: The current application context
-        endpoint_key: Key of the endpoint to switch to
-
-    Returns:
-        Dictionary with switch result information
-
-    Raises:
-        ValueError: If the endpoint_key is not recognized
-    """
-    return await context.switch_endpoint(endpoint_key, ctx=None)
-
-
 # Backward compatibility: expose SessionManager types
 __all__ = [
     "AppContext",
     "app_lifespan",
-    "switch_endpoint_context",
     "DEFAULT_SESSION_ID",
     "SessionState",
     "get_session_id_from_context",

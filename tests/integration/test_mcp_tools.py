@@ -1156,21 +1156,6 @@ class TestEndpointKeyThreading:
         assert client.endpoint_key == "SPC"
         await manager.close_all()
 
-    @pytest.mark.asyncio
-    async def test_session_switch_updates_endpoint_key(self):
-        """Switching endpoint should update the session's default endpoint."""
-        from session_manager import SessionManager
-
-        manager = SessionManager()
-        await manager.switch_endpoint("ECB", session_id="test-session")
-        session = manager.get_session("test-session")
-        assert session.default_endpoint_key == "ECB"
-        client = await session.get_or_create_client(session.default_endpoint_key)
-        assert client.endpoint_key == "ECB"
-        assert client.agency_id == "ECB"
-        await manager.close_all()
-
-
 class TestConstraintStrategies:
     """Test _fetch_constraint_info with different constraint strategies."""
 

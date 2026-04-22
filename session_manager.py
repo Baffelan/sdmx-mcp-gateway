@@ -301,46 +301,6 @@ class SessionManager:
         with self._sessions_lock:
             return sid in self._sessions
 
-    async def switch_endpoint(
-        self,
-        endpoint_key: str,
-        session_id: str | None = None,
-    ) -> dict[str, Any]:
-        """
-        Flip the session's default endpoint pointer.
-
-        Does not tear down pooled clients; they stay warm for future calls.
-        Only mutates the `default_endpoint_key` scalar.
-        """
-        sid = session_id or DEFAULT_SESSION_ID
-        cfg = self._get_endpoint_config(endpoint_key)
-
-        with self._sessions_lock:
-            session = self._sessions.get(sid)
-            if session is None:
-                session = self._create_session(sid, endpoint_key)
-                self._sessions[sid] = session
-                old_endpoint = None
-            else:
-                old_endpoint = session.default_endpoint_key
-                session.default_endpoint_key = endpoint_key
-                session.touch()
-
-        logger.info("Session %s: switched from %s to %s", sid, old_endpoint, endpoint_key)
-
-        return {
-            "success": True,
-            "session_id": sid,
-            "previous_endpoint": old_endpoint,
-            "new_endpoint": {
-                "key": endpoint_key,
-                "name": cfg["name"],
-                "base_url": cfg["base_url"],
-                "agency_id": cfg["agency_id"],
-                "description": cfg.get("description", ""),
-            },
-        }
-
     async def close_session(self, session_id: str | None = None) -> bool:
         """
         Close and remove a session.

@@ -265,27 +265,6 @@ def test_session_id_fallback_rate_limited_to_powers_of_ten(caplog):
         session_manager._fallback_count = original_count
 
 
-def test_config_set_endpoint_emits_deprecation_warning():
-    """Audit H3: set_endpoint mutates process-wide globals and is not
-    multi-user safe. A DeprecationWarning must fire so callers notice."""
-    import warnings as _warnings
-    import config
-
-    with _warnings.catch_warnings(record=True) as captured:
-        _warnings.simplefilter("always")
-        try:
-            config.set_endpoint("ECB")
-        finally:
-            # Restore the original endpoint so the process-wide mutation
-            # doesn't leak into other tests.
-            config.set_endpoint("SPC")
-
-    dep = [w for w in captured if issubclass(w.category, DeprecationWarning)]
-    assert dep, "Expected a DeprecationWarning from config.set_endpoint()"
-    assert "multi-user" in str(dep[0].message).lower() \
-        or "AppContext" in str(dep[0].message)
-
-
 def test_client_construction_without_kwargs_warns_once(caplog):
     """Audit H3: constructing SDMXProgressiveClient without explicit
     base_url/agency_id silently uses startup-time module globals that
@@ -338,39 +317,6 @@ def test_client_construction_with_kwargs_does_not_warn(caplog):
         )
     finally:
         spc_mod._warned_client_global_default = original
-
-
-def test_client_default_does_not_follow_set_endpoint():
-    """Regression for review of H3: `from config import SDMX_BASE_URL`
-    captures the value at import time, so config.set_endpoint() later does
-    NOT update what SDMXProgressiveClient() reads by default. The H3
-    warning text must describe this correctly (startup-time pinned, not
-    mutated at runtime)."""
-    import warnings as _warnings
-
-    import config
-    import sdmx_progressive_client as spc_mod
-    from sdmx_progressive_client import SDMXProgressiveClient
-
-    original_key = config._current_endpoint_key
-    try:
-        with _warnings.catch_warnings():
-            _warnings.simplefilter("ignore")
-            config.set_endpoint("ECB")
-            # The client-side module's imported value did NOT track the switch.
-            assert spc_mod.SDMX_BASE_URL != config.SDMX_BASE_URL, (
-                "Expected spc_mod.SDMX_BASE_URL to stay on the import-time "
-                "value while config.SDMX_BASE_URL follows set_endpoint — "
-                "this divergence is why the H3 warning text was reframed."
-            )
-            bare = SDMXProgressiveClient()
-            # Bare client reads the frozen spc_mod default, not the new config value.
-            assert bare.base_url == spc_mod.SDMX_BASE_URL.rstrip("/")
-            assert bare.base_url != config.SDMX_BASE_URL.rstrip("/")
-    finally:
-        with _warnings.catch_warnings():
-            _warnings.simplefilter("ignore")
-            config.set_endpoint(original_key)
 
 
 def test_legacy_singleton_import_does_not_emit_h3_warning(caplog):

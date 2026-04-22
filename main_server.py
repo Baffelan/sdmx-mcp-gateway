@@ -130,39 +130,48 @@ mcp = FastMCP(
 # =============================================================================
 
 
+def _ad_hoc_default_client() -> SDMXProgressiveClient:
+    """Build a one-off SDMXProgressiveClient from startup config.
+
+    Used only by get_session_client when there is no AppContext (direct-call
+    tests, unlifespaned servers). Explicit kwargs are passed so this does not
+    trigger the audit-H3 no-kwargs warning and is not coupled to any mutable
+    module state. The client is not cached anywhere; each fallback call
+    produces a fresh instance.
+    """
+    from config import SDMX_AGENCY_ID, SDMX_BASE_URL
+
+    return SDMXProgressiveClient(
+        base_url=SDMX_BASE_URL,
+        agency_id=SDMX_AGENCY_ID,
+    )
+
+
 async def get_session_client(ctx: Context[Any, Any, Any] | None) -> SDMXProgressiveClient:
     """
     Get the SDMX client for the current session from lifespan context.
 
-    This ensures each session uses its own endpoint configuration,
-    preventing interference between users in multi-user deployments.
+    Multi-user deployments route through AppContext to get a per-session
+    pooled client. Callers without an AppContext (direct-call tests) get a
+    fresh ad-hoc client bound to the startup-time SDMX_BASE_URL /
+    SDMX_AGENCY_ID.
 
     Args:
         ctx: MCP Context object
 
     Returns:
-        SDMXProgressiveClient configured for the current session's endpoint
+        SDMXProgressiveClient for the caller's context
     """
     if ctx is None:
-        # Fallback to default session
-        from tools.sdmx_tools import get_default_client
-
-        return get_default_client()
+        return _ad_hoc_default_client()
 
     try:
-        # Get the lifespan context (AppContext)
         lifespan_ctx = ctx.request_context.lifespan_context
         if isinstance(lifespan_ctx, AppContext):
             return await lifespan_ctx.get_client(ctx)
-        # Fallback to default
-        from tools.sdmx_tools import get_default_client
-
-        return get_default_client()
     except (AttributeError, TypeError):
-        # Lifespan context not available, use default
-        from tools.sdmx_tools import get_default_client
-
-        return get_default_client()
+        pass
+    return _ad_hoc_default_client()
 
 
 def get_app_context(ctx: Context[Any, Any, Any] | None) -> AppContext | None:
@@ -196,8 +205,9 @@ async def _resolve_client(
 
     Precedence:
       1. Explicit `endpoint` argument (validated against SDMX_ENDPOINTS).
-      2. Session default endpoint (set via switch_endpoint or server init).
-      3. Falls back to the legacy default client when no AppContext exists.
+      2. Session default endpoint (set at session creation from env).
+      3. Falls back to an ad-hoc default client when no AppContext exists
+         (direct-call tests only).
 
     Raises ValueError for unknown endpoints or when no default is set.
     """
@@ -206,10 +216,8 @@ async def _resolve_client(
     app_ctx = get_app_context(ctx)
     if app_ctx is None:
         if endpoint is not None:
-            # Caller explicitly asked for a specific endpoint but the session
-            # infrastructure isn't available. Silently routing to the legacy
-            # default would misroute the request (wrong base_url, wrong agency).
-            # Surface the misconfiguration instead.
+            # Explicit endpoint with no session infrastructure = misconfig.
+            # Surface it instead of silently routing to a startup default.
             raise ValueError(
                 "endpoint='" + endpoint + "' was requested but no AppContext "
                 "is available. Explicit endpoints require the server lifespan "
@@ -217,23 +225,15 @@ async def _resolve_client(
                 "a tool handler directly in a test, construct an AppContext "
                 "(see tests/integration/test_cross_endpoint_tools.py)."
             )
-        # Legacy fallback: route through get_session_client so test patches
-        # targeting main_server.get_session_client continue to work.
+        # Route through get_session_client so tests patching that symbol keep
+        # working. Derive the reported ep_key from startup env.
         client = await get_session_client(ctx)
-        # Prefer the client's own endpoint_key when set (the legacy global
-        # switch_endpoint() path stamps this on the new singleton, so reads
-        # stay in sync after a runtime switch). Fall back to env vars for
-        # the startup-only case.
-        client_ep = getattr(client, "endpoint_key", None)
-        if client_ep and (client_ep == "CUSTOM" or client_ep in SDMX_ENDPOINTS):
-            return client, client_ep
         import os
         if os.getenv("SDMX_BASE_URL"):
-            fallback_ep = "CUSTOM"
-        else:
-            fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
-            if fallback_ep not in SDMX_ENDPOINTS:
-                fallback_ep = "SPC"
+            return client, "CUSTOM"
+        fallback_ep = os.getenv("SDMX_ENDPOINT", "SPC")
+        if fallback_ep not in SDMX_ENDPOINTS:
+            fallback_ep = "SPC"
         return client, fallback_ep
 
     session = app_ctx.get_session(ctx)
@@ -241,7 +241,8 @@ async def _resolve_client(
     if not key:
         raise ValueError(
             "No endpoint specified and no session default is set. "
-            "Pass endpoint=<key> or call switch_endpoint first."
+            "Pass endpoint=<key> to the tool, or configure SDMX_ENDPOINT "
+            "at server startup."
         )
     if key not in SDMX_ENDPOINTS:
         raise ValueError(

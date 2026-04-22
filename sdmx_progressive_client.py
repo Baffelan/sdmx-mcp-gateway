@@ -26,27 +26,6 @@ from utils import SDMX_NAMESPACES
 
 logger = logging.getLogger(__name__)
 
-# One-shot flag so the global-default warning fires once per process, not on
-# every client construction.
-_warned_client_global_default = False
-
-
-def _warn_client_global_default_use_once() -> None:
-    global _warned_client_global_default
-    if _warned_client_global_default:
-        return
-    _warned_client_global_default = True
-    logger.warning(
-        "SDMXProgressiveClient constructed without explicit base_url/agency_id; "
-        "falling back to startup-time module defaults SDMX_BASE_URL=%r / "
-        "SDMX_AGENCY_ID=%r. These are captured by value at import time and do "
-        "NOT follow config.set_endpoint() calls at runtime, so every bare "
-        "construction in this process shares the same startup-time endpoint. "
-        "This is not multi-user safe. Pass explicit kwargs, or construct via "
-        "the session pool (SessionState.get_or_create_client).",
-        SDMX_BASE_URL, SDMX_AGENCY_ID,
-    )
-
 
 class DetailLevel(Enum):
     """Level of detail for metadata retrieval."""
@@ -143,14 +122,12 @@ class SDMXProgressiveClient:
         agency_id: str | None = None,
         endpoint_key: str | None = None,
     ):
-        # Falling back to the module-global SDMX_BASE_URL / SDMX_AGENCY_ID
-        # means this client follows whatever the last config.set_endpoint()
-        # call wrote — which is not multi-user safe. Log a WARNING once per
-        # process so the silent default path is visible to operators. The
-        # pooled-session path always passes explicit kwargs, so this should
-        # only fire from legacy code or tests.
-        if base_url is None or agency_id is None:
-            _warn_client_global_default_use_once()
+        # When kwargs are None, fall back to the startup-time module globals.
+        # These are immutable after import (config.set_endpoint was removed),
+        # so every bare construction in this process shares the same value
+        # with no cross-session contamination risk. The session pool always
+        # passes explicit kwargs anyway; the defaults are a convenience for
+        # direct-call tests.
         self.base_url = (base_url or SDMX_BASE_URL).rstrip("/")
         self.agency_id = agency_id or SDMX_AGENCY_ID
         self.endpoint_key = endpoint_key

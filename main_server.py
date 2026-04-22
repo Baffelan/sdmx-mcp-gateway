@@ -310,37 +310,6 @@ def _register_dataflow_if_possible(
 _NOT_FOUND_SIGNALS = ("404", "not found", "no such", "unknown dataflow", "204")
 
 
-_warned_legacy_switch_in_http = False
-
-
-def _warn_legacy_switch_in_http_mode(branch_name: str) -> None:
-    """Fire a one-shot WARNING when the legacy global singleton-swap path
-    runs in an HTTP deployment (audit L1).
-
-    In HTTP mode every tool call goes through the lifespan's AppContext, so
-    the legacy fallback branches in switch_endpoint / switch_endpoint_interactive
-    should be unreachable. If they do fire, something is wrong upstream
-    (AppContext missing, ctx stripped) and the swap is mutating shared
-    process state across all concurrent users.
-    """
-    global _warned_legacy_switch_in_http
-    if _warned_legacy_switch_in_http:
-        return
-    from session_manager import _HTTP_TRANSPORT_ACTIVE
-
-    if not _HTTP_TRANSPORT_ACTIVE:
-        return  # STDIO legitimately uses this path
-    _warned_legacy_switch_in_http = True
-    logger.warning(
-        "Legacy singleton swap ran in %s under HTTP transport. This replaces "
-        "tools.sdmx_tools.sdmx_client process-wide, affecting every other "
-        "concurrent caller. The session-scoped path should have been taken "
-        "instead — investigate why AppContext was unavailable in this "
-        "request's ctx.",
-        branch_name,
-    )
-
-
 def _extend_with_pair_hints(
     bucket: list[str],
     ctx: Context[Any, Any, Any] | None,

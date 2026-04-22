@@ -118,10 +118,11 @@ async def test_with_ecb_data():
     print("TEST 4: ECB Data Availability")
     print("="*60)
     
-    # First switch to ECB endpoint
-    import config
-    config.set_endpoint('ECB')
-    print(f"Switched to ECB endpoint: {config.SDMX_BASE_URL}")
+    # Note: config.set_endpoint() was removed. For per-call provider
+    # targeting, pass endpoint='ECB' to MCP tool handlers in main_server.
+    # This ad-hoc script calls tools.sdmx_tools impls directly, which take
+    # an explicit `client` argument instead.
+    print("Targeting ECB directly via agency_id='ECB' below.")
     
     # Check exchange rates availability
     print("\nChecking EUR/USD exchange rate data availability...")
@@ -140,8 +141,7 @@ async def test_with_ecb_data():
         print(f"\nStep {step_result['step']}: {step_result['dimensions']}")
         print(f"  Has data: {step_result['has_data']}")
     
-    # Switch back to SPC
-    config.set_endpoint('SPC')
+    # (No global endpoint to reset — set_endpoint() no longer exists.)
     
     return result
 

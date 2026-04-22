@@ -10,7 +10,7 @@ Approach: "hybrid" per the smoke-test plan. We do not spawn a subprocess
 and drive it over stdio; we construct a real AppContext with SessionManager
 and call the @mcp.tool() handlers in-process with a minimal FakeCtx. This
 exercises the real lifespan data path (_resolve_client, client pooling,
-mismatch hints, switch_endpoint pointer flip) end-to-end without the MCP
+mismatch hints, per-call endpoint= routing) end-to-end without the MCP
 transport layer.
 
 Marked e2e + slow; opt-in only. Run with:
@@ -220,63 +220,52 @@ async def test_scenario_4_pool_reuses_warmed_client(app_ctx):
 
 
 # ---------------------------------------------------------------------------
-# Scenario 5: switch_endpoint flips pointer + retains pool
+# Scenario 5: pool retains all endpoints touched by per-call `endpoint=`
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_scenario_5_switch_endpoint_retains_pool(app_ctx):
-    """switch_endpoint flips default_endpoint_key but does not tear down pooled clients."""
-    from main_server import get_current_endpoint, list_dataflows, switch_endpoint
+async def test_scenario_5_pool_retains_clients_across_per_call_endpoints(app_ctx):
+    """Two calls with different endpoint= values must leave both clients in
+    the pool. The session default is immutable — there is no switch_endpoint
+    tool anymore — so this tests the actual runtime invariant: the pool grows
+    monotonically as new endpoints are touched and never evicts."""
+    from main_server import list_dataflows
 
     ctx = _FakeCtx(app_ctx)
 
-    # Warm SPC by making a real call
+    # Warm SPC (the startup-time default)
     try:
-        await list_dataflows(limit=3, endpoint="SPC", ctx=ctx)
+        await list_dataflows(limit=3, ctx=ctx)
     except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException) as e:
         pytest.skip("SPC unreachable: " + str(e))
 
     session = app_ctx.get_session(ctx)
-    spc_client_before_switch = session.clients["SPC"]
+    spc_client_after_first = session.clients["SPC"]
 
-    # Switch to ECB
-    result = await switch_endpoint(endpoint_key="ECB", ctx=ctx)
-    assert result.success
-    assert result.new_endpoint is not None
-    assert result.new_endpoint.key == "ECB"
-
-    current = await get_current_endpoint(ctx=ctx)
-    assert current.key == "ECB"
-
-    # SPC client still in the pool (not closed)
-    assert "SPC" in session.clients, "switch_endpoint must not evict existing pooled clients"
-    assert session.clients["SPC"] is spc_client_before_switch, (
-        "SPC client should be the identical instance — only the pointer flipped"
-    )
-
-    # Switch back to SPC; ECB stays warm
-    # (ECB client only exists if a call was made with endpoint='ECB';
-    # switch_endpoint does not warm up the new endpoint eagerly, so we
-    # explicitly warm it before flipping back.)
+    # Warm ECB via per-call endpoint=
     try:
-        await list_dataflows(limit=3, ctx=ctx)  # uses session default (ECB now)
+        await list_dataflows(limit=3, endpoint="ECB", ctx=ctx)
     except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException) as e:
-        pytest.skip("ECB unreachable after switch: " + str(e))
+        pytest.skip("ECB unreachable: " + str(e))
 
-    assert "ECB" in session.clients
-
-    result2 = await switch_endpoint(endpoint_key="SPC", ctx=ctx)
-    assert result2.success
-
-    current2 = await get_current_endpoint(ctx=ctx)
-    assert current2.key == "SPC"
-
-    # Both pool entries still present after the round-trip
+    # Both in the pool; the SPC client is the identical instance, not a
+    # new one — per-call endpoint= never evicts.
+    assert session.clients["SPC"] is spc_client_after_first, (
+        "SPC pool entry must be identical across calls to other endpoints"
+    )
     assert {"SPC", "ECB"}.issubset(session.clients.keys()), (
-        "Both endpoints must remain in pool after switch round-trip; got "
+        "Both endpoints must be in pool after touching both; got "
         + str(sorted(session.clients.keys()))
     )
+
+    # A second SPC call reuses the same client — the per-call `endpoint=` to
+    # ECB did not invalidate anything.
+    try:
+        await list_dataflows(limit=3, endpoint="SPC", ctx=ctx)
+    except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException) as e:
+        pytest.skip("SPC unreachable on second touch: " + str(e))
+    assert session.clients["SPC"] is spc_client_after_first
 
 
 # ---------------------------------------------------------------------------
@@ -364,35 +353,43 @@ async def test_scenario_7_mismatch_hint_generic_path(app_ctx):
 @pytest.mark.asyncio
 async def test_scenario_8_session_isolation_with_distinct_ids(app_ctx):
     """
-    Two FakeCtx instances with different session_ids should maintain independent
-    default_endpoint_key pointers. Session A switches to ECB; session B stays on SPC.
+    Two FakeCtx instances with different session_ids maintain independent
+    client pools and registries. Session A touches ECB via per-call endpoint=;
+    session B stays on SPC. The pool additions on A must not leak into B.
 
-    This simulates the HTTP transport's per-Mcp-Session-Id model without spinning
-    up the HTTP server: the SessionManager is the same piece of machinery either way.
+    Simulates the HTTP transport's per-Mcp-Session-Id model without spinning
+    up the HTTP server: the SessionManager is the same machinery either way.
     """
-    from main_server import get_current_endpoint, switch_endpoint
+    from main_server import get_current_endpoint, list_dataflows
 
     ctx_a = _FakeCtx(app_ctx, session_id="session-a")
     ctx_b = _FakeCtx(app_ctx, session_id="session-b")
 
-    # Touch both sessions so they exist
+    # Touch both sessions so they exist (reports the startup-time default)
     ep_a0 = await get_current_endpoint(ctx=ctx_a)
     ep_b0 = await get_current_endpoint(ctx=ctx_b)
     assert ep_a0.key == "SPC"
     assert ep_b0.key == "SPC"
 
-    # Session A switches to ECB
-    r = await switch_endpoint(endpoint_key="ECB", ctx=ctx_a)
-    assert r.success
+    # Session A warms ECB via per-call endpoint=
+    try:
+        await list_dataflows(endpoint="ECB", limit=2, ctx=ctx_a)
+    except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException) as e:
+        pytest.skip("ECB unreachable: " + str(e))
 
-    # Session A sees ECB; session B stays on SPC
-    ep_a = await get_current_endpoint(ctx=ctx_a)
-    ep_b = await get_current_endpoint(ctx=ctx_b)
-    assert ep_a.key == "ECB"
-    assert ep_b.key == "SPC", (
-        "Session B should not be affected by session A's switch; "
-        "got " + str(ep_b.key)
+    # Both sessions still report the startup default (nothing mutates it)
+    assert (await get_current_endpoint(ctx=ctx_a)).key == "SPC"
+    assert (await get_current_endpoint(ctx=ctx_b)).key == "SPC"
+
+    # Session A's pool contains ECB; session B's does not (no leak)
+    session_a = app_ctx.get_session(ctx_a)
+    session_b = app_ctx.get_session(ctx_b)
+    assert "ECB" in session_a.clients
+    assert "ECB" not in session_b.clients, (
+        "Session B's client pool must not contain clients that session A "
+        "warmed; got " + str(sorted(session_b.clients.keys()))
     )
+    assert session_a.clients is not session_b.clients
 
 
 # ---------------------------------------------------------------------------

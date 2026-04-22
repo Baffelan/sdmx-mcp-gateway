@@ -4,9 +4,9 @@ Extended end-to-end smoke tests for the per-call `endpoint=` parameter wiring.
 Complements `tests/e2e/test_multiendpoint_smoke.py` (the 9-scenario baseline)
 with four broader coverage dimensions:
 
-- TestToolCoverage: exercises the 12 migrated tools other than the baseline's
-  list_dataflows / get_dataflow_structure / get_current_endpoint / switch_endpoint,
-  each called with an explicit endpoint= argument to prove per-call routing works.
+- TestToolCoverage: exercises the migrated tools other than the baseline's
+  list_dataflows / get_dataflow_structure / get_current_endpoint, each called
+  with an explicit endpoint= argument to prove per-call routing works.
 - TestEdgeCases: provider-specific quirks (STATSNZ auth + format, OECD sub-agency
   override, ILO references_all, custom endpoint via env, SDMX_ENDPOINT startup).
 - TestProviderBreadth: a parameterised spot check of list_dataflows across every
@@ -898,48 +898,40 @@ class TestFullStackSubprocess:
                     # dataflows list present (may be fewer than 2 on the edge)
                     assert isinstance(dict_c.get("dataflows"), list)
 
-                    # Scenario D: switch_endpoint(endpoint_key='ECB')
-                    res_d = await session.call_tool(
-                        "switch_endpoint",
-                        arguments={"endpoint_key": "ECB"},
-                    )
-                    assert res_d.isError is not True
-                    dict_d = self._extract_result(res_d)
-                    assert dict_d.get("success") is True, (
-                        "switch_endpoint did not report success: " + repr(dict_d)
-                    )
-
-                    # Scenario E: get_current_endpoint after switch → ECB
-                    res_e = await session.call_tool(
-                        "get_current_endpoint", arguments={}
-                    )
-                    dict_e = self._extract_result(res_e)
-                    assert dict_e.get("key") == "ECB", (
-                        "After switch_endpoint('ECB'), current endpoint "
-                        "should be ECB; got " + repr(dict_e)
-                    )
-
-                    # Scenario F: list_dataflows(limit=2) with no endpoint=
-                    # → hits the session default (ECB now)
+                    # Scenario D: list_dataflows with no endpoint= still
+                    # reports the startup default (SPC). The session default
+                    # is immutable — there is no switch_endpoint tool.
                     try:
-                        res_f = await session.call_tool(
+                        res_d = await session.call_tool(
                             "list_dataflows", arguments={"limit": 2}
                         )
                     except Exception as e:
                         pytest.skip(
-                            "ECB call raised at protocol level (session "
+                            "SPC call raised at protocol level (session "
                             "default): " + str(e)
                         )
-                    if res_f.isError:
+                    if res_d.isError:
                         pytest.skip(
-                            "ECB list_dataflows (session default) errored: "
-                            + str(res_f.content)
+                            "SPC list_dataflows (session default) errored: "
+                            + str(res_d.content)
                         )
-                    dict_f = self._extract_result(res_f)
-                    assert dict_f.get("agency_id") == "ECB", (
-                        "With session default=ECB, list_dataflows with no "
-                        "endpoint= should report agency_id='ECB'; got "
-                        + repr(dict_f.get("agency_id"))
+                    dict_d = self._extract_result(res_d)
+                    assert dict_d.get("agency_id") == "SPC", (
+                        "Session default is SPC; list_dataflows with no "
+                        "endpoint= should report agency_id='SPC'; got "
+                        + repr(dict_d.get("agency_id"))
+                    )
+
+                    # Scenario E: after the ECB call in scenario C, the
+                    # session default is still SPC — per-call endpoint=
+                    # does not mutate the default.
+                    res_e = await session.call_tool(
+                        "get_current_endpoint", arguments={}
+                    )
+                    dict_e = self._extract_result(res_e)
+                    assert dict_e.get("key") == "SPC", (
+                        "Session default must remain SPC after per-call "
+                        "endpoint='ECB'; got " + repr(dict_e)
                     )
         except FileNotFoundError as e:
             pytest.skip("subprocess launcher failed (uv missing?): " + str(e))

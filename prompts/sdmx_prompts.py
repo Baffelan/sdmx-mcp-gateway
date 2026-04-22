@@ -100,7 +100,7 @@ Details: {error_details}
 - Verify agency ID is correct (SPC, ECB, OECD, etc.)
 - Try version "latest" instead of specific version
 - Use list_dataflows() to see available dataflows
-- If the wrong provider may be selected, retry with `endpoint=<key>` or call `switch_endpoint()`
+- If the wrong provider may be selected, retry the call with `endpoint=<key>` to target a specific provider (e.g. `endpoint="ECB"`)
 
 ### 2. HTTP 400 - Bad Request
 - Validate key syntax with validate_query()

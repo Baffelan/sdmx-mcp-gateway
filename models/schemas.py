@@ -709,33 +709,9 @@ class EndpointListResult(BaseModel):
     note: str = Field(description="Usage hint")
 
 
-class EndpointSwitchResult(BaseModel):
-    """Result from switch_endpoint() tool."""
-
-    success: bool = Field(description="Whether the switch was successful")
-    message: str = Field(description="Status message")
-    new_endpoint: Optional[EndpointInfo] = Field(
-        default=None, description="New endpoint info if successful"
-    )
-    error: Optional[str] = Field(default=None, description="Error message if failed")
-    available_endpoints: Optional[list[str]] = Field(
-        default=None, description="Available endpoint keys if switch failed"
-    )
-    hint: Optional[str] = Field(default=None, description="Hint for fixing the error")
-
-
 # =============================================================================
 # Elicitation Schemas
 # =============================================================================
-
-
-class EndpointSwitchConfirmation(BaseModel):
-    """Schema for endpoint switch confirmation elicitation."""
-
-    confirm: bool = Field(default=False, description="Confirm switching to the new endpoint")
-    reason: Optional[str] = Field(
-        default=None, description="Optional reason for switching (for logging)"
-    )
 
 
 class DataQueryConfirmation(BaseModel):

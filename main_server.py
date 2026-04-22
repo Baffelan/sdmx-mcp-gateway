@@ -285,8 +285,7 @@ def _build_mismatch_hint(
     return (
         "Not found on endpoint '" + resolved_endpoint
         + "'. Registered endpoints: " + str(valid)
-        + ". Pass endpoint=<key> to target a different provider, "
-        + "or call switch_endpoint(<key>)."
+        + ". Pass endpoint=<key> to target a different provider."
     )
 
 

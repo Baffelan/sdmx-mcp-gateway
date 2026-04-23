@@ -64,6 +64,14 @@ class DataflowSummary(BaseModel):
     """Lightweight dataflow summary for list responses."""
 
     id: str = Field(description="Dataflow identifier")
+    agency: str = Field(
+        default="",
+        description=(
+            "Owning agency ID as reported by the provider. For OECD this is "
+            "typically a sub-agency (e.g. 'OECD.STI.STP', 'OECD.EDU.IMEP'); "
+            "pass it alongside the id on subsequent structure / data calls."
+        ),
+    )
     name: str = Field(description="Human-readable name")
     description: str = Field(description="Brief description (may be truncated)")
 

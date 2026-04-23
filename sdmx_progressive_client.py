@@ -314,8 +314,41 @@ class SDMXProgressiveClient:
         """
         Get lightweight dataflow overview without references.
         This is the first level of discovery.
+
+        On a 404 we retry once with `agency="all"` — the SDMX 2.1 REST
+        wildcard documented for the `agencies` path parameter. Providers
+        that publish flows under sub-agencies (notably OECD, where a flow
+        like `DSD_RDS_GERD@DF_GERD_SOF` is owned by `OECD.STI.STP`)
+        resolve under the wildcard without the caller knowing the
+        sub-agency upfront. The real agency is recovered from the
+        `agencyID` attribute on the returned `<structure:Dataflow>`
+        element, so downstream DSD lookups still target the correct owner.
         """
         agency = agency_id or self.agency_id
+        try:
+            return await self._fetch_dataflow_overview_once(
+                dataflow_id, agency, version, ctx
+            )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404 and agency != "all":
+                logger.info(
+                    "Dataflow %s not found on agency '%s'; retrying with wildcard 'all'.",
+                    dataflow_id,
+                    agency,
+                )
+                return await self._fetch_dataflow_overview_once(
+                    dataflow_id, "all", version, ctx
+                )
+            raise
+
+    async def _fetch_dataflow_overview_once(
+        self,
+        dataflow_id: str,
+        agency: str,
+        version: str,
+        ctx: Context[Any, Any, Any] | None,
+    ) -> DataflowOverview:
+        """Single-attempt fetch + parse for a dataflow overview."""
         cache_key = f"df_overview_{agency}_{dataflow_id}_{version}"
 
         if cache_key in self._cache:
@@ -369,6 +402,8 @@ class SDMXProgressiveClient:
 
             raise ValueError(f"No dataflow element found for {dataflow_id}")
 
+        except httpx.HTTPStatusError:
+            raise
         except Exception as e:
             logger.error(f"Failed to get dataflow overview: {e}")
             raise

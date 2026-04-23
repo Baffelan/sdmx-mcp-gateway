@@ -91,6 +91,7 @@ async def list_dataflows(
             summaries.append(
                 {
                     "id": str(df.get("id", "")),
+                    "agency": str(df.get("agency", "")),
                     "name": str(df.get("name", "")),
                     "description": desc,
                 }

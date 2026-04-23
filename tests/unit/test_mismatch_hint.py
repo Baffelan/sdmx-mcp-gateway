@@ -39,3 +39,48 @@ def test_mismatch_hint_no_dataflow_id_returns_generic():
 
     assert "endpoint" in hint.lower()
     assert "ECB" in hint  # lists all valid endpoints
+
+
+def test_mismatch_hint_steers_toward_agency_for_sub_agency_id():
+    """Dataflow IDs containing '@' (OECD's DSD@DF convention) must steer
+    the caller toward agency_id=, not endpoint=. Before this branch existed,
+    the generic 'Pass endpoint=<key>' phrasing misled LLMs into switching
+    endpoints when the endpoint was already correct — they just didn't know
+    the sub-agency owner."""
+    from main_server import _build_mismatch_hint
+
+    state = SessionState(session_id="s1", default_endpoint_key="OECD")
+    hint = _build_mismatch_hint(
+        state,
+        resolved_endpoint="OECD",
+        dataflow_id="DSD_RDS_GERD@DF_GERD_SOF",
+    )
+
+    assert "DSD_RDS_GERD@DF_GERD_SOF" in hint
+    assert "OECD" in hint
+    # Points to the right parameter
+    assert "agency_id" in hint
+    assert "list_dataflows" in hint
+    # Does NOT emit the misleading "Pass endpoint=<key>" generic suggestion
+    assert "Pass endpoint=<key>" not in hint
+    # Does NOT repeat the full "Registered endpoints:" list — stays focused
+    assert "Registered endpoints:" not in hint
+
+
+def test_mismatch_hint_at_symbol_loses_to_known_elsewhere_priority():
+    """If an '@'-flow is registered on another endpoint, the known-elsewhere
+    branch wins — that's a stronger signal than the generic @-heuristic."""
+    from main_server import _build_mismatch_hint
+
+    state = SessionState(session_id="s1", default_endpoint_key="OECD")
+    state.register_dataflow("ESTAT", "DSD_STRANGE@DF_EDGE_CASE")
+
+    hint = _build_mismatch_hint(
+        state,
+        resolved_endpoint="OECD",
+        dataflow_id="DSD_STRANGE@DF_EDGE_CASE",
+    )
+
+    # Known-elsewhere branch fires, not the @-branch
+    assert "endpoint='ESTAT'" in hint
+    assert "agency_id" not in hint

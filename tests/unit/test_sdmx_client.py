@@ -333,6 +333,148 @@ class TestSDMXProgressiveClient:
             assert any(call[0][0] == 100 for call in progress_calls)  # Ended at 100
 
 
+class TestDataflowOverviewAgencyFallback:
+    """get_dataflow_overview retries with agency='all' on 404.
+
+    Motivation: OECD publishes flows under ~50 sub-agencies (e.g. the flow
+    DSD_RDS_GERD@DF_GERD_SOF is owned by OECD.STI.STP, not bare OECD).
+    Callers that don't know the owning sub-agency would otherwise need a
+    pre-flight list_dataflows or codelist walk just to resolve one structure.
+    SDMX 2.1 REST documents `all` as a valid wildcard for the `agencies`
+    path parameter on /dataflow/ — this test pins that we actually use it.
+    """
+
+    @pytest.fixture
+    def wildcard_response_xml(self) -> str:
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<str:Structure xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"
+               xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">
+    <str:Structures>
+        <str:Dataflows>
+            <str:Dataflow id="DSD_RDS_GERD@DF_GERD_SOF" agencyID="OECD.STI.STP" version="1.0">
+                <com:Name>R&amp;D expenditure by source of funds</com:Name>
+                <com:Description>Test flow owned by a sub-agency</com:Description>
+                <str:Structure>
+                    <Ref id="DSD_RDS_GERD" agencyID="OECD.STI.STP" version="1.0"/>
+                </str:Structure>
+            </str:Dataflow>
+        </str:Dataflows>
+    </str:Structures>
+</str:Structure>"""
+
+    @pytest.mark.asyncio
+    async def test_retries_with_all_on_404_and_recovers_real_agency(
+        self, wildcard_response_xml
+    ):
+        """A 404 on bare-agency triggers one retry with agency='all'; the
+        real sub-agency is read from the XML response and surfaced on
+        DataflowOverview.agency."""
+        client = SDMXProgressiveClient(
+            base_url="https://sdmx.oecd.org/public/rest", agency_id="OECD"
+        )
+
+        not_found_response = Mock()
+        not_found_response.status_code = 404
+        not_found_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "404", request=Mock(), response=Mock(status_code=404)
+            )
+        )
+
+        ok_response = Mock()
+        ok_response.status_code = 200
+        ok_response.content = wildcard_response_xml.encode("utf-8")
+        ok_response.raise_for_status = Mock()
+
+        with patch.object(client, "_get_session") as mock_session:
+            mock_http = AsyncMock()
+            mock_http.get.side_effect = [not_found_response, ok_response]
+            mock_session.return_value = mock_http
+
+            overview = await client.get_dataflow_overview(
+                "DSD_RDS_GERD@DF_GERD_SOF"
+            )
+
+        assert mock_http.get.call_count == 2, (
+            "Expected exactly two HTTP calls — one to the configured agency, "
+            "one to the 'all' wildcard fallback."
+        )
+        first_url = mock_http.get.call_args_list[0][0][0]
+        second_url = mock_http.get.call_args_list[1][0][0]
+        assert "/dataflow/OECD/DSD_RDS_GERD@DF_GERD_SOF/" in first_url
+        assert "/dataflow/all/DSD_RDS_GERD@DF_GERD_SOF/" in second_url
+
+        # Response carried the real sub-agency; overview must surface it
+        # instead of the request-time 'all', otherwise downstream DSD lookups
+        # target the wildcard and fail.
+        assert overview.agency == "OECD.STI.STP"
+        assert overview.dsd_ref is not None
+        assert overview.dsd_ref["agency"] == "OECD.STI.STP"
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_first_attempt_succeeds(self, mock_dataflow_response):
+        """Happy path: 200 on first attempt — no fallback call fired."""
+        client = SDMXProgressiveClient(
+            base_url="https://test.api.org/rest", agency_id="TEST"
+        )
+
+        ok_response = Mock()
+        ok_response.status_code = 200
+        ok_response.content = mock_dataflow_response.encode("utf-8")
+        ok_response.raise_for_status = Mock()
+
+        with patch.object(client, "_get_session") as mock_session:
+            mock_http = AsyncMock()
+            mock_http.get.return_value = ok_response
+            mock_session.return_value = mock_http
+
+            await client.get_dataflow_overview("TEST_DF")
+
+        assert mock_http.get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_agency_already_all(self, mock_dataflow_response):
+        """If the caller explicitly asked for agency='all' and the provider
+        still 404s, we don't loop. The 404 propagates."""
+        client = SDMXProgressiveClient(
+            base_url="https://test.api.org/rest", agency_id="TEST"
+        )
+
+        not_found_response = Mock()
+        not_found_response.status_code = 404
+        not_found_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "404", request=Mock(), response=Mock(status_code=404)
+            )
+        )
+
+        with patch.object(client, "_get_session") as mock_session:
+            mock_http = AsyncMock()
+            mock_http.get.return_value = not_found_response
+            mock_session.return_value = mock_http
+
+            with pytest.raises(httpx.HTTPStatusError):
+                await client.get_dataflow_overview(
+                    "GHOST_DF", agency_id="all"
+                )
+
+        assert mock_http.get.call_count == 1
+
+    @pytest.fixture
+    def mock_dataflow_response(self):
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<str:Structure xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"
+               xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">
+    <str:Structures>
+        <str:Dataflows>
+            <str:Dataflow id="TEST_DF" agencyID="TEST" version="1.0">
+                <com:Name>Test Dataflow</com:Name>
+            </str:Dataflow>
+        </str:Dataflows>
+    </str:Structures>
+</str:Structure>"""
+
+
 class TestClientConfiguration:
     """Test client configuration handling."""
 

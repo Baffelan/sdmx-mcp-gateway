@@ -258,8 +258,13 @@ def _build_mismatch_hint(
     """
     Build a self-correcting hint for an LLM that hit an empty/404 result.
 
-    If the registry has seen `dataflow_id` on a different endpoint, name it.
-    Otherwise return a generic hint listing all valid endpoint keys.
+    Priority order:
+      1. Registry has seen `dataflow_id` on a different endpoint -> name it
+         and suggest `endpoint='<key>'`.
+      2. `dataflow_id` has a `@` in it (OECD `DSD@DF` convention) ->
+         the endpoint is probably correct but the agent is missing the
+         sub-agency. Steer toward `agency_id=`, not `endpoint=`.
+      3. Otherwise -> generic "Registered endpoints: ..." fallback.
 
     Most callers should use `_maybe_mismatch_hint`, which decides whether
     emitting a hint is warranted based on the error signature.
@@ -279,6 +284,21 @@ def _build_mismatch_hint(
                 + resolved_endpoint + "'. Known on: " + str(known_elsewhere)
                 + ". Pass endpoint='" + target
                 + "' to target it directly."
+            )
+
+        if "@" in dataflow_id:
+            return (
+                "Dataflow '" + dataflow_id + "' not found on endpoint '"
+                + resolved_endpoint + "'. The '@' in the id is OECD's "
+                "DSD@DF convention, which means the flow is owned by a "
+                "sub-agency (e.g. 'OECD.STI.STP', 'OECD.EDU.IMEP'), not "
+                "bare '" + resolved_endpoint + "'. The gateway already "
+                "retries with agency='all' on 404 — if you still see this "
+                "hint, the id itself is wrong. Call list_dataflows("
+                "endpoint='" + resolved_endpoint + "') and read the "
+                "'agency' field on each entry to confirm both the id and "
+                "the sub-agency, then retry with agency_id=<sub-agency>. "
+                "Do not switch endpoints."
             )
 
     valid = list(SDMX_ENDPOINTS.keys())

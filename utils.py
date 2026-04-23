@@ -60,8 +60,12 @@ SDMX_FORMATS = {
 
 
 def validate_dataflow_id(dataflow_id: str) -> bool:
-    """Validate dataflow ID according to SDMX conventions."""
-    return bool(re.match(r"^[a-zA-Z][a-zA-Z\d_-]*$", dataflow_id))
+    """Validate dataflow ID according to SDMX conventions.
+
+    `@` is allowed because OECD publishes flows as `DSD@DF` pairs
+    (e.g. `DSD_RDS_GERD@DF_GERD_SOF`).
+    """
+    return bool(re.match(r"^[a-zA-Z][a-zA-Z\d_@-]*$", dataflow_id))
 
 
 def validate_sdmx_key(key: str) -> bool:

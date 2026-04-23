@@ -16,10 +16,11 @@ class TestValidationFunctions:
         """Test valid dataflow IDs."""
         valid_ids = [
             "EXR",
-            "DF_TRADE_FOOD", 
+            "DF_TRADE_FOOD",
             "GDP_QUARTERLY",
             "CPI-DATA",
-            "A123_test"
+            "A123_test",
+            "DSD_RDS_GERD@DF_GERD_SOF",
         ]
         
         for dataflow_id in valid_ids:

@@ -2416,6 +2416,7 @@ async def probe_data_url(
     filters: dict[str, str] | None = None,
     start_period: str | None = None,
     end_period: str | None = None,
+    agency_id: str | None = None,
     sample_observations_limit: int = 5,
     max_distinct_values_per_dimension: int = 10,
     timeout_ms: int = 10000,
@@ -2437,6 +2438,10 @@ async def probe_data_url(
         filters: Dimension filters (alternative to data_url)
         start_period: Start time period
         end_period: End time period
+        agency_id: Owning agency when different from the session default.
+            Required for OECD sub-agency flows (e.g. pass "OECD.STI.STP"
+            alongside dataflow_id="DSD_RDS_GERD@DF_GERD_SOF"). Only consulted
+            when data_url is not provided; ignored when data_url is.
         sample_observations_limit: Max sample observations to return
         max_distinct_values_per_dimension: Max distinct values per dimension summary
         timeout_ms: Probe timeout in milliseconds
@@ -2468,6 +2473,7 @@ async def probe_data_url(
         filters=filters,
         start_period=start_period,
         end_period=end_period,
+        agency_id=agency_id,
         sample_limit=sample_observations_limit,
         max_distinct_per_dim=max_distinct_values_per_dimension,
         timeout_ms=timeout_ms,

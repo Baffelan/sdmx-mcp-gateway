@@ -409,6 +409,7 @@ async def test_probe_cache_is_session_scoped_audit_m1():
         filters=None,
         start_period=None,
         end_period=None,
+        agency_id=None,
         sample_limit=5,
         max_distinct_per_dim=10,
         timeout_ms=10000,

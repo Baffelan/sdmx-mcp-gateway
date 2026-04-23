@@ -286,6 +286,7 @@ async def probe_data_url(
     filters: dict[str, str] | None = None,
     start_period: str | None = None,
     end_period: str | None = None,
+    agency_id: str | None = None,
     sample_limit: int = 5,
     max_distinct_per_dim: int = 10,
     timeout_ms: int = 10000,
@@ -299,6 +300,10 @@ async def probe_data_url(
     from the client's base_url.
 
     Args:
+        agency_id: Owning agency for the dataflow (e.g. OECD sub-agencies like
+            "OECD.STI.STP"). Only consulted when data_url is None and the URL
+            is built from structured input. Defaults to the client's session
+            agency, which is wrong for OECD flows owned by sub-agencies.
         probe_cache: Optional explicit cache dict. Session-scoped callers
             should pass their SessionState.probe_cache so results never
             leak across sessions (audit M1). Defaults to the legacy
@@ -322,6 +327,7 @@ async def probe_data_url(
             filters=filters,
             start_period=start_period,
             end_period=end_period,
+            agency_id=agency_id,
         )
 
     fingerprint = normalize_query_fingerprint(data_url)
@@ -474,9 +480,11 @@ async def _build_url_from_parts(
     filters: dict[str, str] | None,
     start_period: str | None,
     end_period: str | None,
+    agency_id: str | None = None,
 ) -> str:
     """Build an SDMX data URL from structured components."""
-    flow_ref = _parse_flow_ref(dataflow_id, client.agency_id)
+    default_agency = agency_id or client.agency_id
+    flow_ref = _parse_flow_ref(dataflow_id, default_agency)
     base = client.base_url.rstrip("/")
 
     if filters:

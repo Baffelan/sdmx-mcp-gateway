@@ -14,19 +14,35 @@ A Model Context Protocol (MCP) server that provides progressive discovery tools 
 
 ## Quick Start
 
+A public instance of this server is hosted on Railway. Point any MCP client at the URL below and you can skip cloning, installing dependencies, and managing a Python environment.
+
+```
+https://sdmx-mcp-gateway-production.up.railway.app/mcp
+```
+
+Transport is Streamable HTTP. The endpoint is shared and stateless from the client's perspective; each MCP session gets its own server-side state (endpoint selection, client pool, mismatch-hint cache).
+
+Quick check that it responds:
+
 ```bash
-# Install dependencies
+curl -X POST https://sdmx-mcp-gateway-production.up.railway.app/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}'
+```
+
+See [MCP Client Configuration](#mcp-client-configuration) for ready-to-paste configs for Claude Code, Claude Desktop, Codex, Cursor, Zed, and OpenCode.
+
+### Self-Hosting
+
+If you prefer to run the server yourself (offline use, private deployments, development on the tools themselves), see [Installation](#installation) and [Running the Server](#running-the-server).
+
+```bash
 cd sdmx-mcp-gateway
 uv sync
-
-# Run the server (STDIO mode for development)
-uv run python main_server.py
-
-# Run with MCP Inspector
-uv run mcp dev ./main_server.py
-
-# Run in production mode (Streamable HTTP)
-uv run python main_server.py --transport http --port 8000 --stateless --json-response
+uv run python main_server.py                                     # STDIO, for local clients
+uv run python main_server.py --transport http --port 8000        # HTTP, for remote clients
+uv run mcp dev ./main_server.py                                  # MCP Inspector (browser UI)
 ```
 
 ## The Problem We Solve
@@ -200,49 +216,35 @@ settings, rather than silently falling back to localhost.
 
 ## MCP Client Configuration
 
-### Prerequisites
+The recommended path is to point your client at the hosted Railway URL. Each section below shows:
 
-Before configuring any MCP client, ensure you have:
+- **Hosted (HTTP)**: uses `https://sdmx-mcp-gateway-production.up.railway.app/mcp`. Nothing to install beyond the client itself.
+- **Self-hosted (STDIO)**: runs the server from a clone of this repo. Requires `uv` and `git` (see [Installation](#installation)).
 
-1. **Install uv** (recommended Python package manager):
-
-    ```bash
-    # macOS/Linux
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-
-    # Windows
-    powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-    # Or via pip
-    pip install uv
-    ```
-
-2. **Clone and set up the project**:
-
-    ```bash
-    git clone <repository-url>
-    cd sdmx-mcp-gateway
-    uv sync  # Installs all dependencies
-    ```
-
-3. **Verify installation**:
-    ```bash
-    uv run python main_server.py --help
-    ```
-
-> **Alternative without uv**: If you prefer not to use `uv`, you can install dependencies with pip in a virtual environment:
->
-> ```bash
-> python -m venv .venv
-> source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-> pip install -e .
-> ```
->
-> Then replace `"command": "uv"` with the full path to your venv's python, and adjust args accordingly.
+Clients that only speak STDIO can still reach the hosted instance via the [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge, which proxies HTTP MCP servers through stdio via `npx`.
 
 ### Claude Code
 
-Add to your project or user settings (`.claude/settings.json` or `~/.claude/settings.json`):
+Hosted, one-liner:
+
+```bash
+claude mcp add --transport http sdmx-gateway https://sdmx-mcp-gateway-production.up.railway.app/mcp
+```
+
+Or in `.claude/settings.json` / `~/.claude/settings.json`:
+
+```json
+{
+    "mcpServers": {
+        "sdmx-gateway": {
+            "type": "http",
+            "url": "https://sdmx-mcp-gateway-production.up.railway.app/mcp"
+        }
+    }
+}
+```
+
+Self-hosted (STDIO):
 
 ```json
 {
@@ -261,11 +263,27 @@ Add to your project or user settings (`.claude/settings.json` or `~/.claude/sett
 }
 ```
 
-> **Note**: If `uv` is not on your PATH, use the full path (e.g. `"/home/user/.local/bin/uv"`).
+> If `uv` is not on your PATH, use the full path (e.g. `"/home/user/.local/bin/uv"`).
 
 ### OpenAI Codex CLI
 
-Add to `~/.codex/config.toml`:
+Hosted, via `~/.codex/config.toml` (uses `mcp-remote` to bridge HTTP into stdio):
+
+```toml
+[mcp_servers.sdmx]
+command = "npx"
+args = ["-y", "mcp-remote", "https://sdmx-mcp-gateway-production.up.railway.app/mcp"]
+enabled = true
+tool_timeout_sec = 120
+```
+
+Or via the CLI:
+
+```bash
+codex mcp add sdmx -- npx -y mcp-remote https://sdmx-mcp-gateway-production.up.railway.app/mcp
+```
+
+Self-hosted:
 
 ```toml
 [mcp_servers.sdmx]
@@ -275,17 +293,36 @@ enabled = true
 tool_timeout_sec = 120
 ```
 
-> **Note**: The `command` field must be the executable only. If `uv` is not on your PATH, use the full path (e.g. `"/home/user/.local/bin/uv"`). Arguments go in `args` as a separate array.
-
-Or via the CLI:
-
-```bash
-codex mcp add sdmx -- uv run --directory /path/to/sdmx-mcp-gateway python main_server.py
-```
+> The `command` field must be the executable only. If `uv` or `npx` is not on your PATH, use the full path. Arguments go in `args` as a separate array.
 
 ### Claude Desktop
 
-**Linux** (`~/.config/Claude/claude_desktop_config.json`):
+Claude Desktop does not yet speak HTTP MCP natively, so use `mcp-remote` to reach the hosted server.
+
+Config file locations:
+
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+Hosted:
+
+```json
+{
+    "mcpServers": {
+        "sdmx-gateway": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "mcp-remote",
+                "https://sdmx-mcp-gateway-production.up.railway.app/mcp"
+            ]
+        }
+    }
+}
+```
+
+Self-hosted (STDIO):
 
 ```json
 {
@@ -304,67 +341,49 @@ codex mcp add sdmx -- uv run --directory /path/to/sdmx-mcp-gateway python main_s
 }
 ```
 
-**macOS** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-    "mcpServers": {
-        "sdmx-gateway": {
-            "command": "uv",
-            "args": [
-                "run",
-                "--directory",
-                "/path/to/sdmx-mcp-gateway",
-                "python",
-                "main_server.py"
-            ]
-        }
-    }
-}
-```
-
-**Windows** (`%APPDATA%\Claude\claude_desktop_config.json`):
-
-```json
-{
-    "mcpServers": {
-        "sdmx-gateway": {
-            "command": "uv",
-            "args": [
-                "run",
-                "--directory",
-                "C:\\path\\to\\sdmx-mcp-gateway",
-                "python",
-                "main_server.py"
-            ]
-        }
-    }
-}
-```
+> On Windows, escape the path: `"C:\\path\\to\\sdmx-mcp-gateway"`.
 
 ### Cursor
 
-1. Go to **Cursor Settings > MCP**
-2. Add new global MCP server
-3. Use the configuration above
+1. Open **Cursor Settings > MCP**.
+2. Add a new global MCP server.
+3. Set the URL to `https://sdmx-mcp-gateway-production.up.railway.app/mcp` (Cursor supports Streamable HTTP servers directly).
+
+For a self-hosted instance, use the STDIO command shown for Claude Code.
 
 ### Zed
 
-Zed uses "Context Servers" for MCP integration. Add the following to your Zed settings:
-
-**Location**:
+Zed uses "Context Servers" for MCP integration. Settings file:
 
 - Linux: `~/.config/zed/settings.json`
 - macOS: `~/Library/Application Support/Zed/settings.json`
 - Project-specific: `.zed/settings.json` in your project root
 
-Add the `context_servers` key at the **top level** of your settings.json (alongside other settings like `theme`, `ui_font_size`, etc.):
+Add the `context_servers` key at the **top level** of your settings.json, alongside other settings like `theme` and `ui_font_size`.
+
+Hosted (via `mcp-remote`):
 
 ```json
 {
-    "theme": "One Dark",
-    "ui_font_size": 16,
+    "context_servers": {
+        "sdmx-gateway": {
+            "command": {
+                "path": "npx",
+                "args": [
+                    "-y",
+                    "mcp-remote",
+                    "https://sdmx-mcp-gateway-production.up.railway.app/mcp"
+                ]
+            }
+        }
+    }
+}
+```
 
+Self-hosted:
+
+```json
+{
     "context_servers": {
         "sdmx-gateway": {
             "command": {
@@ -382,44 +401,42 @@ Add the `context_servers` key at the **top level** of your settings.json (alongs
 }
 ```
 
-If you already have a `context_servers` section, just add the `"sdmx-gateway": {...}` entry inside it.
-
 ### OpenCode
 
-Add to your OpenCode configuration file (`~/.config/opencode/config.json`):
+`~/.config/opencode/config.json`:
 
 ```json
 {
     "mcpServers": {
         "sdmx-gateway": {
-            "command": "uv",
+            "command": "npx",
             "args": [
-                "run",
-                "--directory",
-                "/path/to/sdmx-mcp-gateway",
-                "python",
-                "main_server.py"
+                "-y",
+                "mcp-remote",
+                "https://sdmx-mcp-gateway-production.up.railway.app/mcp"
             ]
         }
     }
 }
 ```
 
-Or use environment variable configuration:
-
-```bash
-export OPENCODE_MCP_SERVERS='{"sdmx-gateway":{"command":"uv","args":["run","--directory","/path/to/sdmx-mcp-gateway","python","main_server.py"]}}'
-```
+Or, for a self-hosted instance, swap to the `uv run ...` command shown in the Claude Code section.
 
 ### Generic MCP Client (Streamable HTTP)
 
-For any MCP client that supports Streamable HTTP transport, start the server in HTTP mode:
+Any client with Streamable HTTP support connects directly to the hosted URL:
 
-```bash
-uv run python main_server.py --transport http --port 8000 --stateless --json-response
+```
+https://sdmx-mcp-gateway-production.up.railway.app/mcp
 ```
 
-Then configure your client to connect to `http://localhost:8000/mcp`.
+To run your own HTTP instance locally:
+
+```bash
+uv run python main_server.py --transport http --port 8000
+```
+
+Point the client at `http://localhost:8000/mcp`. Add `--stateless --json-response` if your client cannot consume Server-Sent Events.
 
 ## Usage Examples
 

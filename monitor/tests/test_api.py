@@ -96,3 +96,40 @@ def test_refresh_runs_cycle_and_cooldown(store: Store, client: TestClient, monke
     second = client.post("/api/refresh")
     assert second.status_code == 429
     assert len(calls) == 1
+
+
+def test_status_splits_nonempty_drift(store: Store, client: TestClient):
+    cid = store.open_cycle(utcnow_iso())
+    store.add_result(cid, CheckResult("SPC", "gateway", "metadata", ok=True))
+    store.close_cycle(cid, utcnow_iso(), gateway_up=True, gateway_latency_ms=1,
+                      drift="gateway endpoints not monitored: NEWONE; drift check failed: boom")
+    body = client.get("/api/status").json()
+    assert body["drift"] == [
+        "gateway endpoints not monitored: NEWONE",
+        "drift check failed: boom",
+    ]
+
+
+def test_refresh_409_when_cycle_running(store: Store, client: TestClient):
+    class HeldLock:
+        def locked(self) -> bool:
+            return True
+
+    client.app.state.cycle_lock = HeldLock()
+    resp = client.post("/api/refresh")
+    assert resp.status_code == 409
+
+
+def test_scheduler_catchup_runs_on_stale_store(store: Store, monkeypatch):
+    import threading
+
+    ran = threading.Event()
+
+    async def fake_run_cycle(store_arg, endpoints, url, *, timeout_s=30.0):
+        ran.set()
+        return 1
+
+    monkeypatch.setattr(main, "run_cycle", fake_run_cycle)
+    app = main.create_app(store=store, enable_scheduler=True)
+    with TestClient(app):
+        assert ran.wait(timeout=5.0), "catch-up cycle did not run within 5s"

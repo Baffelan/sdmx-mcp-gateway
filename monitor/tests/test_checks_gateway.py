@@ -60,6 +60,7 @@ async def test_data_ok_on_nonempty_probe():
     name, args = gw.calls[0]
     assert name == "probe_data_url"
     assert args["data_url"] == ep.data_url
+    assert args["timeout_ms"] == 30000
 
 
 async def test_data_fails_on_empty_or_error_probe():
@@ -69,6 +70,7 @@ async def test_data_fails_on_empty_or_error_probe():
         result = await gateway_data_check(gw, _ep("ECB"))
         assert result.ok is False
         assert status in (result.error or "")
+        assert result.obs_count == 0
 
 
 async def test_drift_reports_both_directions():

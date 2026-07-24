@@ -113,3 +113,30 @@ async def test_no_pinned_data_query_skips_data_only(monkeypatch):
     assert route.calls[0].request.headers["Ocp-Apim-Subscription-Key"] == "k"
     assert data.skipped is True
     assert "no pinned data query" in (data.error or "")
+
+
+@respx.mock
+async def test_non_httpx_exception_is_captured_not_raised():
+    ep = _ep("SPC")
+    respx.get(ep.metadata_url).mock(side_effect=RuntimeError("surprise"))
+    respx.get(ep.data_url).respond(200, text=CSV_BODY)
+    async with httpx.AsyncClient() as client:
+        meta, data = await run_direct_checks(client, ep)
+    assert meta.ok is False
+    assert "RuntimeError" in (meta.error or "")
+    assert data.ok is True  # contract held: both results returned
+
+
+@respx.mock
+async def test_xml_data_response_counts_as_observations():
+    ep = _ep("SPC")
+    respx.get(ep.metadata_url).respond(200, text=XML_META)
+    respx.get(ep.data_url).respond(
+        200,
+        text="<GenericData><gen:Obs value='1'/></GenericData>",
+        headers={"content-type": "application/xml"},
+    )
+    async with httpx.AsyncClient() as client:
+        _meta, data = await run_direct_checks(client, ep)
+    assert data.ok is True
+    assert data.obs_count is None

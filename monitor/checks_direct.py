@@ -32,43 +32,45 @@ async def _metadata_once(client: httpx.AsyncClient, ep: Endpoint) -> CheckResult
     start = time.monotonic()
     try:
         resp = await client.get(ep.metadata_url, headers=ep.auth_headers())
-    except httpx.HTTPError as exc:
+        ok = resp.status_code == 200 and "Dataflow" in resp.text
+        error = None
+        if not ok:
+            error = "HTTP " + str(resp.status_code)
+            if resp.status_code == 200:
+                error = "response contains no Dataflow element"
+        return CheckResult(ep.key, "direct", "metadata", ok=ok, latency_ms=_ms(start),
+                           http_status=resp.status_code, error=error)
+    except Exception as exc:
+        error_str = type(exc).__name__ + ": " + str(exc)
         return CheckResult(ep.key, "direct", "metadata", ok=False,
-                           latency_ms=_ms(start), error=str(exc)[:300])
-    ok = resp.status_code == 200 and "Dataflow" in resp.text
-    error = None
-    if not ok:
-        error = "HTTP " + str(resp.status_code)
-        if resp.status_code == 200:
-            error = "response contains no Dataflow element"
-    return CheckResult(ep.key, "direct", "metadata", ok=ok, latency_ms=_ms(start),
-                       http_status=resp.status_code, error=error)
+                           latency_ms=_ms(start), error=error_str[:300])
 
 
 async def _data_once(client: httpx.AsyncClient, ep: Endpoint) -> CheckResult:
     start = time.monotonic()
     url = ep.data_url
     assert url is not None  # callers gate on ep.data_path
-    headers = {"Accept": ep.data_accept, **ep.auth_headers()}
     try:
+        headers = {"Accept": ep.data_accept, **ep.auth_headers()}
         resp = await client.get(url, headers=headers)
-    except httpx.HTTPError as exc:
+        if resp.status_code != 200:
+            return CheckResult(ep.key, "direct", "data", ok=False, latency_ms=_ms(start),
+                               http_status=resp.status_code,
+                               error="HTTP " + str(resp.status_code))
+        content_type = resp.headers.get("content-type", "")
+        if "xml" in content_type or resp.text.lstrip().startswith("<"):
+            ok = looks_like_xml_data(resp.text)
+            obs: int | None = None
+        else:
+            obs = count_csv_observations(resp.text)
+            ok = obs >= 1
+        error = None if ok else "no observations in response"
+        return CheckResult(ep.key, "direct", "data", ok=ok, latency_ms=_ms(start),
+                           http_status=resp.status_code, obs_count=obs, error=error)
+    except Exception as exc:
+        error_str = type(exc).__name__ + ": " + str(exc)
         return CheckResult(ep.key, "direct", "data", ok=False,
-                           latency_ms=_ms(start), error=str(exc)[:300])
-    if resp.status_code != 200:
-        return CheckResult(ep.key, "direct", "data", ok=False, latency_ms=_ms(start),
-                           http_status=resp.status_code,
-                           error="HTTP " + str(resp.status_code))
-    content_type = resp.headers.get("content-type", "")
-    if "xml" in content_type or resp.text.lstrip().startswith("<"):
-        ok = looks_like_xml_data(resp.text)
-        obs: int | None = None
-    else:
-        obs = count_csv_observations(resp.text)
-        ok = obs >= 1
-    error = None if ok else "no observations in response"
-    return CheckResult(ep.key, "direct", "data", ok=ok, latency_ms=_ms(start),
-                       http_status=resp.status_code, obs_count=obs, error=error)
+                           latency_ms=_ms(start), error=error_str[:300])
 
 
 async def run_direct_checks(client: httpx.AsyncClient, ep: Endpoint) -> list[CheckResult]:

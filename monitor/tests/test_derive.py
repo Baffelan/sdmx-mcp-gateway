@@ -62,3 +62,15 @@ def test_skipped_rows_are_ignored():
 def test_no_rows_is_unknown():
     status, _ = derive_status([], gateway_up=True)
     assert status == "unknown"
+
+
+def test_unrun_direct_side_is_not_reported_as_gateway_issue():
+    rows = [
+        _row("gateway", "metadata", False),
+        _row("gateway", "data", True),
+        _row("direct", "metadata", False, skipped=True),
+        _row("direct", "data", False, skipped=True),
+    ]
+    status, reason = derive_status(rows, gateway_up=True)
+    assert status == "degraded"
+    assert "direct path OK" not in reason

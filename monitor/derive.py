@@ -4,7 +4,7 @@ Raw rows are stored; status is computed here on read, so the rules live in
 one place and history can be re-interpreted if they change.
 """
 
-STATUSES = ["healthy", "degraded", "gateway_issue", "provider_down", "unknown"]
+STATUSES: list[str] = ["healthy", "degraded", "gateway_issue", "provider_down", "unknown"]
 
 
 def _lookup(rows: list[dict], path: str, kind: str) -> bool | None:
@@ -31,7 +31,9 @@ def derive_status(rows: list[dict], gateway_up: bool) -> tuple[str, str]:
         return "healthy", "all checks passing"
     if gm is False and dm is False:
         return "provider_down", "metadata failing on both the gateway and the direct path"
-    if dm is not False and dd is not False and (gm is False or gd is False):
+    direct_ran = [v for v in (dm, dd) if v is not None]
+    direct_ok = bool(direct_ran) and all(direct_ran)
+    if direct_ok and (gm is False or gd is False):
         return "gateway_issue", "direct path OK; gateway path failing"
     failing = [
         name

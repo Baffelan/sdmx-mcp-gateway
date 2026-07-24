@@ -101,3 +101,36 @@ async def test_cycle_prunes_old_cycles(store: Store):
     await cycle.run_cycle(store, ENDPOINTS, "http://gw.example/mcp")
     ids = [c["id"] for c in store.cycles_since("2000-01-01T00:00:00+00:00")]
     assert old not in ids
+
+
+async def test_tool_count_failure_closes_session_and_marks_gateway_down(store, monkeypatch):
+    class ExplodingSession(FakeGatewaySession):
+        exited = False
+
+        async def tool_count(self) -> int:
+            raise RuntimeError("boom")
+
+        async def __aexit__(self, *exc_info):
+            ExplodingSession.exited = True
+            return False
+
+    ExplodingSession.exited = False
+    monkeypatch.setattr(cycle, "GatewaySession", ExplodingSession)
+    await cycle.run_cycle(store, ENDPOINTS, "http://gw.example/mcp")
+    assert ExplodingSession.exited is True
+    latest = store.latest_cycle()
+    assert latest["gateway_up"] is False
+    gw_rows = [r for r in latest["results"] if r["path"] == "gateway"]
+    assert gw_rows and all(r["skipped"] for r in gw_rows)
+
+
+async def test_escaping_check_exception_still_closes_cycle(store, monkeypatch):
+    async def exploding_direct(client, ep):
+        raise RuntimeError("bundle bug")
+
+    monkeypatch.setattr(cycle, "run_direct_checks", exploding_direct)
+    cycle_id = await cycle.run_cycle(store, ENDPOINTS, "http://gw.example/mcp")
+    latest = store.latest_cycle()
+    assert latest["id"] == cycle_id
+    assert latest["finished_at"] is not None
+    assert "cycle error" in latest["drift"]

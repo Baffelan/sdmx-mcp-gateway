@@ -26,7 +26,7 @@ USER_AGENT = "sdmx-monitor/0.1 (+https://github.com/Baffelan/sdmx-mcp-gateway)"
 
 
 async def _endpoint_bundle(
-    ep: Endpoint, gw, client: httpx.AsyncClient, timeout_s: float
+    ep: Endpoint, gw: GatewaySession | None, client: httpx.AsyncClient, timeout_s: float
 ) -> list[CheckResult]:
     results: list[CheckResult] = []
     if gw is None:
@@ -61,11 +61,13 @@ async def run_cycle(
 
     gw = None
     gw_cm = None
+    entered = False
     gateway_latency_ms: int | None = None
     start = time.monotonic()
     try:
         gw_cm = GatewaySession(gateway_url, timeout_s)
         gw = await gw_cm.__aenter__()
+        entered = True
         tool_count = await gw.tool_count()
         gateway_latency_ms = int((time.monotonic() - start) * 1000)
         if tool_count == 0:
@@ -76,6 +78,7 @@ async def run_cycle(
         gw = None
 
     drift = ""
+    cycle_error: str | None = None
     try:
         if gw is not None:
             try:
@@ -94,9 +97,16 @@ async def run_cycle(
         for bundle in bundles:
             for result in bundle:
                 store.add_result(cycle_id, result)
+    except Exception as exc:
+        # never let a mid-cycle failure leave the cycle row open forever
+        logger.exception("cycle %s aborted mid-checks", cycle_id)
+        cycle_error = ("cycle error: " + str(exc))[:300]
     finally:
-        if gw_cm is not None and gw is not None:
+        if gw_cm is not None and entered:
             await gw_cm.__aexit__(None, None, None)
+
+    if cycle_error:
+        drift = (drift + "; " if drift else "") + cycle_error
 
     store.close_cycle(cycle_id, utcnow_iso(), gw is not None, gateway_latency_ms, drift)
     cutoff = (

@@ -133,3 +133,10 @@ def test_scheduler_catchup_runs_on_stale_store(store: Store, monkeypatch):
     app = main.create_app(store=store, enable_scheduler=True)
     with TestClient(app):
         assert ran.wait(timeout=5.0), "catch-up cycle did not run within 5s"
+
+
+def test_index_serves_status_page(client: TestClient):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "SDMx MCP Gateway Status" in resp.text

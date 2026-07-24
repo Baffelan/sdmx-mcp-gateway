@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDMx MCP Gateway Status</title>
+<style>
+:root{
+  --surface:#fcfcfb; --page:#f9f9f7; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b; --unknown:#898781;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --surface:#1a1a19; --page:#0d0d0d; --ink:#ffffff; --ink2:#c3c2b7; }
+}
+*{box-sizing:border-box}
+body{margin:0 auto;max-width:960px;padding:24px;background:var(--page);color:var(--ink);
+     font:15px/1.45 system-ui,sans-serif}
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+h1{font-size:20px;margin:0}
+.sub{color:var(--ink2);font-size:13px}
+#refresh{margin-left:auto;background:var(--surface);color:var(--ink);
+         border:1px solid var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer}
+#refresh:disabled{opacity:.5;cursor:default}
+#banner{display:none;background:var(--critical);color:#fff;padding:8px 12px;
+        border-radius:6px;margin:14px 0 0}
+#drift{margin-top:8px}
+.grid{display:grid;gap:12px;margin-top:16px}
+.card{background:var(--surface);border:1px solid rgba(137,135,129,.35);
+      border-radius:8px;padding:12px 14px}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.status-label{font-weight:600;font-size:13px}
+.name{font-weight:600}
+.meta{color:var(--ink2);font-size:13px;margin-left:auto}
+.bar{display:flex;gap:1px;margin-top:10px;height:14px}
+.bar span{flex:1 1 2px;min-width:2px;border-radius:2px}
+details{margin-top:8px}
+summary{cursor:pointer;color:var(--ink2);font-size:13px}
+table{border-collapse:collapse;width:100%;margin-top:8px;font-size:13px}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid rgba(137,135,129,.25)}
+th{color:var(--muted);font-weight:500}
+.err{color:var(--critical)}
+</style>
+</head>
+<body>
+<header>
+  <h1>SDMx MCP Gateway Status</h1>
+  <span class="sub" id="gateway-state">loading…</span>
+  <span class="sub" id="last-run"></span>
+  <button id="refresh">Re-check now</button>
+</header>
+<div id="banner"></div>
+<div id="drift" class="sub"></div>
+<div class="grid" id="cards"></div>
+<script>
+const STATUS = {
+  healthy:       {color: "var(--good)",     icon: "✓", label: "Healthy"},
+  degraded:      {color: "var(--warning)",  icon: "⚠", label: "Degraded"},
+  gateway_issue: {color: "var(--serious)",  icon: "⚙", label: "Gateway issue"},
+  provider_down: {color: "var(--critical)", icon: "✕", label: "Provider down"},
+  unknown:       {color: "var(--unknown)",  icon: "?",      label: "Unknown"},
+};
+const meta = (s) => STATUS[s] || STATUS.unknown;
+const esc = (t) => String(t ?? "").replace(/[&<>"]/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function checkRow(c){
+  const state = c.skipped ? "skipped" : (c.ok ? "✓ ok" : "✕ fail");
+  return "<tr><td>" + esc(c.path) + "</td><td>" + esc(c.kind) + "</td><td>" + state +
+    "</td><td>" + (c.latency_ms ?? "") + (c.latency_ms != null ? " ms" : "") +
+    "</td><td>" + (c.http_status ?? "") + "</td><td>" + (c.obs_count ?? "") +
+    "</td><td class=err>" + esc(c.error || "") +
+    (c.attempts > 1 ? " (retried)" : "") + "</td></tr>";
+}
+
+function card(ep, series){
+  const m = meta(ep.status);
+  const latencies = ep.checks.map((c) => c.latency_ms).filter((v) => v != null);
+  const worst = latencies.length ? Math.max(...latencies) + " ms" : "";
+  const cells = (series || []).map((p) =>
+    '<span style="background:' + meta(p.status).color + '" title="' +
+    esc(p.started_at) + " — " + esc(meta(p.status).label) + '"></span>').join("");
+  return '<div class="card">' +
+    '<div class="row">' +
+      '<span class="dot" style="background:' + m.color + '"></span>' +
+      '<span class="status-label">' + m.icon + " " + m.label + "</span>" +
+      '<span class="name">' + esc(ep.name) + "</span>" +
+      '<span class="sub">' + esc(ep.key) + "</span>" +
+      '<span class="meta">' + worst +
+        " · last success: " + esc(ep.last_success || "never") + "</span>" +
+    "</div>" +
+    '<div class="sub">' + esc(ep.reason) + "</div>" +
+    '<div class="bar">' + cells + "</div>" +
+    "<details><summary>check details</summary><table>" +
+    "<tr><th>path</th><th>kind</th><th>result</th><th>latency</th>" +
+    "<th>HTTP</th><th>obs</th><th>error</th></tr>" +
+    ep.checks.map(checkRow).join("") + "</table></details></div>";
+}
+
+async function load(){
+  const [status, history] = await Promise.all([
+    fetch("/api/status").then((r) => r.json()),
+    fetch("/api/history?hours=168").then((r) => r.json()),
+  ]);
+  const gw = document.getElementById("gateway-state");
+  if (!status.cycle){
+    gw.textContent = "no checks recorded yet";
+  } else {
+    gw.textContent = status.cycle.gateway_up
+      ? "gateway up (" + status.cycle.gateway_latency_ms + " ms)"
+      : "gateway DOWN";
+    document.getElementById("last-run").textContent =
+      "last check: " + status.cycle.started_at;
+  }
+  const banner = document.getElementById("banner");
+  banner.style.display = status.stale ? "block" : "none";
+  banner.textContent = "Checks are stale. The scheduler may be down; " +
+    "expected every " + status.check_interval_min + " min.";
+  document.getElementById("drift").textContent =
+    (status.drift || []).map((d) => "⚠ " + d).join("  ");
+  document.getElementById("cards").innerHTML = status.endpoints
+    .map((ep) => card(ep, (history.series || {})[ep.key])).join("");
+}
+
+document.getElementById("refresh").addEventListener("click", async (ev) => {
+  const btn = ev.target;
+  btn.disabled = true;
+  btn.textContent = "Checking…";
+  try {
+    const resp = await fetch("/api/refresh", {method: "POST"});
+    if (!resp.ok){
+      const detail = (await resp.json()).detail || resp.statusText;
+      btn.textContent = detail;
+      setTimeout(() => { btn.textContent = "Re-check now"; btn.disabled = false; }, 4000);
+      return;
+    }
+    await load();
+  } finally {
+    if (btn.textContent === "Checking…"){
+      btn.textContent = "Re-check now";
+      btn.disabled = false;
+    }
+  }
+});
+
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

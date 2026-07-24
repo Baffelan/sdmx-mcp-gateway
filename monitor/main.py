@@ -1,0 +1,172 @@
+"""FastAPI app: status page, JSON API, and the in-process scheduler."""
+
+import asyncio
+import logging
+import os
+import sys
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
+
+from cycle import run_cycle
+from derive import derive_status
+from endpoints_config import ENDPOINTS
+from storage import Store
+
+logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+GATEWAY_URL = os.getenv(
+    "GATEWAY_URL", "https://sdmx-mcp-gateway-production.up.railway.app/mcp"
+)
+CHECK_INTERVAL_MIN = int(os.getenv("CHECK_INTERVAL_MIN", "30"))
+DB_PATH = os.getenv("DB_PATH", "./data/monitor.db")
+CHECK_TIMEOUT_S = float(os.getenv("CHECK_TIMEOUT_S", "30"))
+REFRESH_COOLDOWN_S = 300
+STATIC_DIR = Path(__file__).parent / "static"
+
+ENDPOINTS_BY_KEY = {ep.key: ep for ep in ENDPOINTS}
+
+
+def _parse_ts(value: str) -> datetime:
+    return datetime.fromisoformat(value)
+
+
+def _is_stale(started_at: str | None, factor: float = 2.0) -> bool:
+    if started_at is None:
+        return True
+    age = datetime.now(timezone.utc) - _parse_ts(started_at)
+    return age > timedelta(minutes=CHECK_INTERVAL_MIN * factor)
+
+
+async def _locked_cycle(app: FastAPI) -> int:
+    async with app.state.cycle_lock:
+        return await run_cycle(
+            app.state.store, ENDPOINTS, GATEWAY_URL, timeout_s=CHECK_TIMEOUT_S
+        )
+
+
+def create_app(store: Store | None = None, enable_scheduler: bool = True) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.store = store if store is not None else Store(DB_PATH)
+        app.state.cycle_lock = asyncio.Lock()
+        app.state.last_refresh: float | None = None
+        scheduler = None
+        if enable_scheduler:
+            scheduler = AsyncIOScheduler(timezone="UTC")
+            scheduler.add_job(
+                _locked_cycle, "interval", minutes=CHECK_INTERVAL_MIN, args=[app]
+            )
+            scheduler.start()
+            latest = app.state.store.latest_cycle()
+            if _is_stale(latest["started_at"] if latest else None, factor=1.0):
+                logger.info("no recent cycle found; scheduling catch-up run")
+                scheduler.add_job(_locked_cycle, args=[app])
+        try:
+            yield
+        finally:
+            if scheduler is not None:
+                scheduler.shutdown(wait=False)
+            if store is None:
+                app.state.store.close()
+
+    app = FastAPI(title="SDMx MCP Gateway Monitor", lifespan=lifespan)
+
+    @app.get("/healthz")
+    def healthz() -> dict:
+        return {"ok": True}
+
+    @app.get("/api/status")
+    def api_status(request: Request) -> dict:
+        s: Store = request.app.state.store
+        latest = s.latest_cycle()
+        if latest is None:
+            return {
+                "cycle": None,
+                "stale": True,
+                "check_interval_min": CHECK_INTERVAL_MIN,
+                "drift": [],
+                "endpoints": [],
+            }
+        by_key: dict[str, list[dict]] = {}
+        for row in latest["results"]:
+            by_key.setdefault(row["endpoint_key"], []).append(row)
+        endpoints_payload = []
+        for key, rows in sorted(by_key.items()):
+            status, reason = derive_status(rows, latest["gateway_up"])
+            ep = ENDPOINTS_BY_KEY.get(key)
+            endpoints_payload.append(
+                {
+                    "key": key,
+                    "name": ep.name if ep else key,
+                    "status": status,
+                    "reason": reason,
+                    "last_success": s.last_success(key),
+                    "checks": rows,
+                }
+            )
+        return {
+            "cycle": {
+                "id": latest["id"],
+                "started_at": latest["started_at"],
+                "finished_at": latest["finished_at"],
+                "gateway_up": latest["gateway_up"],
+                "gateway_latency_ms": latest["gateway_latency_ms"],
+            },
+            "stale": _is_stale(latest["started_at"]),
+            "check_interval_min": CHECK_INTERVAL_MIN,
+            "drift": [d for d in latest["drift"].split("; ") if d],
+            "endpoints": endpoints_payload,
+        }
+
+    @app.get("/api/history")
+    def api_history(request: Request, hours: int = 168) -> dict:
+        hours = max(1, min(hours, 24 * 90))
+        s: Store = request.app.state.store
+        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(
+            timespec="seconds"
+        )
+        series: dict[str, list[dict]] = {}
+        for cycle_row in s.cycles_since(since):
+            by_key: dict[str, list[dict]] = {}
+            for row in cycle_row["results"]:
+                by_key.setdefault(row["endpoint_key"], []).append(row)
+            for key, rows in by_key.items():
+                status, _ = derive_status(rows, cycle_row["gateway_up"])
+                series.setdefault(key, []).append(
+                    {
+                        "cycle_id": cycle_row["id"],
+                        "started_at": cycle_row["started_at"],
+                        "status": status,
+                    }
+                )
+        return {"hours": hours, "interval_min": CHECK_INTERVAL_MIN, "series": series}
+
+    @app.post("/api/refresh")
+    async def api_refresh(request: Request) -> dict:
+        app_ = request.app
+        now = time.monotonic()
+        last = app_.state.last_refresh
+        if last is not None and now - last < REFRESH_COOLDOWN_S:
+            wait = int(REFRESH_COOLDOWN_S - (now - last))
+            raise HTTPException(429, "cooldown: retry in " + str(wait) + "s")
+        if app_.state.cycle_lock.locked():
+            raise HTTPException(409, "a check cycle is already running")
+        app_.state.last_refresh = now
+        cycle_id = await _locked_cycle(app_)
+        return {"cycle_id": cycle_id}
+
+    @app.get("/")
+    def index() -> FileResponse:
+        return FileResponse(STATIC_DIR / "index.html")
+
+    return app
+
+
+app = create_app()

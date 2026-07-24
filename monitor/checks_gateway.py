@@ -1,6 +1,8 @@
 """Gateway-path checks: talk MCP to the deployed gateway like a real client.
 
-GatewaySession wraps the official mcp client over Streamable HTTP. The check
+GatewaySession wraps the official mcp client over Streamable HTTP, using our
+own certifi-backed httpx.AsyncClient as the transport (the SDK's built-in
+client does not reliably verify certificates in all environments). The check
 functions accept any object with `async call_tool(name, args) -> dict`, so
 unit tests inject a fake and CI never opens a network connection.
 """
@@ -8,10 +10,10 @@ unit tests inject a fake and CI never opens a network connection.
 import json
 import time
 from contextlib import AsyncExitStack
-from datetime import timedelta
 
+import httpx
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 from endpoints_config import Endpoint
 from storage import CheckResult
@@ -31,10 +33,14 @@ class GatewaySession:
     async def __aenter__(self) -> "GatewaySession":
         self._stack = AsyncExitStack()
         try:
-            transport = await self._stack.enter_async_context(
-                streamablehttp_client(
-                    self._url, timeout=timedelta(seconds=self._timeout_s)
+            http_client = await self._stack.enter_async_context(
+                httpx.AsyncClient(
+                    timeout=httpx.Timeout(self._timeout_s, read=300.0),
+                    follow_redirects=True,
                 )
+            )
+            transport = await self._stack.enter_async_context(
+                streamable_http_client(self._url, http_client=http_client)
             )
             read_stream, write_stream = transport[0], transport[1]
             self._session = await self._stack.enter_async_context(

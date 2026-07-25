@@ -302,6 +302,18 @@ async def test_auth_broken_when_a_provider_starts_demanding_a_key():
 
 
 @respx.mock
+async def test_auth_probe_never_sends_credentials(monkeypatch):
+    """Asking 'are credentials required?' only works if we withhold them."""
+    monkeypatch.setenv("SDMX_STATSNZ_KEY", "secret")
+    ep, exp = _ep("STATSNZ"), EXPECTATIONS["STATSNZ"]
+    route = respx.get(listing_url(ep)).respond(401, text="denied")
+    async with httpx.AsyncClient() as client:
+        result = await check_auth(client, ep, exp)
+    assert "Ocp-Apim-Subscription-Key" not in route.calls[0].request.headers
+    assert result.verdict == "ok"  # STATSNZ is expected to demand credentials
+
+
+@respx.mock
 async def test_encoding_broken_when_structure_comes_back_as_json():
     """Stats NZ has historically served SDMx-JSON for structural metadata
     unless format=xml is forced."""

@@ -49,6 +49,16 @@ async def _get(client: httpx.AsyncClient, ep: Endpoint, url: str
         return None, (type(exc).__name__ + ": " + str(exc))[:300]
 
 
+async def _get_unauthenticated(
+    client: httpx.AsyncClient, url: str
+) -> tuple[httpx.Response | None, str | None]:
+    """Fetch without credentials, to observe whether the provider demands them."""
+    try:
+        return await client.get(url, headers={"Accept": SDMX_STRUCTURE_XML}), None
+    except Exception as exc:
+        return None, (type(exc).__name__ + ": " + str(exc))[:300]
+
+
 def _append_note(existing: str | None, addition: str) -> str:
     return existing + "; " + addition if existing else addition
 
@@ -279,10 +289,15 @@ async def check_error_semantics(
 async def check_auth(
     client: httpx.AsyncClient, ep: Endpoint, exp: ContractExpectation
 ) -> ContractResult:
-    """Detect a provider newly demanding credentials, or dropping the demand."""
+    """Detect a provider newly demanding credentials, or dropping the demand.
+
+    Credentials are deliberately withheld here (via `_get_unauthenticated`,
+    not `_get`): the question this probe answers is "does this endpoint
+    demand credentials?", which a request that already carries them cannot
+    answer -- it would report 200 whether or not auth is actually required.
+    """
     start = time.monotonic()
-    headers_free_client = client
-    resp, error = await _get(headers_free_client, ep, listing_url(ep))
+    resp, error = await _get_unauthenticated(client, listing_url(ep))
     latency = _ms(start)
     if resp is None:
         return ContractResult(ep.key, "auth:listing", verdict="ok",

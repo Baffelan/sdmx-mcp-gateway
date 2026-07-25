@@ -69,6 +69,8 @@ function checkRow(c){
   return "<tr><td>" + esc(c.path) + "</td><td>" + esc(c.kind) + "</td><td>" + state +
     "</td><td>" + (c.latency_ms ?? "") + (c.latency_ms != null ? " ms" : "") +
     "</td><td>" + (c.http_status ?? "") + "</td><td>" + (c.obs_count ?? "") +
+    "</td><td>" + (c.sample_value ? esc(c.sample_value) +
+      (c.sample_period ? " @ " + esc(c.sample_period) : "") : "") +
     "</td><td class=err>" + esc(c.error || "") +
     (c.attempts > 1 ? " (retried)" : "") + "</td></tr>";
 }
@@ -93,7 +95,7 @@ function card(ep, series){
     '<div class="bar">' + cells + "</div>" +
     "<details><summary>check details</summary><table>" +
     "<tr><th>path</th><th>kind</th><th>result</th><th>latency</th>" +
-    "<th>HTTP</th><th>obs</th><th>error</th></tr>" +
+    "<th>HTTP</th><th>obs</th><th>sample</th><th>error</th></tr>" +
     ep.checks.map(checkRow).join("") + "</table></details></div>";
 }
 

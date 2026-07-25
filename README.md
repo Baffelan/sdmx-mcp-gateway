@@ -36,7 +36,7 @@ See [MCP Client Configuration](#mcp-client-configuration) for ready-to-paste con
 ### Health Status
 
 A standalone monitor checks the hosted gateway and every provider endpoint
-(through the gateway and directly) every 30 minutes. See `monitor/README.md`
+(through the gateway and directly) every two hours. See `monitor/README.md`
 for running or deploying it. Once deployed, its status page shows current
 health, per-endpoint history, and whether a failure sits in the gateway or
 the upstream provider.

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 GATEWAY_URL = os.getenv(
     "GATEWAY_URL", "https://sdmx-mcp-gateway-production.up.railway.app/mcp"
 )
-CHECK_INTERVAL_MIN = int(os.getenv("CHECK_INTERVAL_MIN", "30"))
+CHECK_INTERVAL_MIN = int(os.getenv("CHECK_INTERVAL_MIN", "120"))
 DB_PATH = os.getenv("DB_PATH", "./data/monitor.db")
 CHECK_TIMEOUT_S = float(os.getenv("CHECK_TIMEOUT_S", "30"))
 REFRESH_COOLDOWN_S = 300

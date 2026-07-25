@@ -140,3 +140,19 @@ def test_index_serves_status_page(client: TestClient):
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "SDMx MCP Gateway Status" in resp.text
+
+
+def test_default_check_interval_is_two_hours():
+    assert main.CHECK_INTERVAL_MIN == 120
+
+
+def test_status_exposes_sample_values(store: Store, client: TestClient):
+    cid = store.open_cycle(utcnow_iso())
+    store.add_result(cid, CheckResult("SPC", "direct", "data", ok=True, obs_count=1,
+                                      sample_value="1345.2", sample_period="2000"))
+    store.close_cycle(cid, utcnow_iso(), gateway_up=True, gateway_latency_ms=1, drift="")
+    body = client.get("/api/status").json()
+    (endpoint,) = body["endpoints"]
+    (check,) = endpoint["checks"]
+    assert check["sample_value"] == "1345.2"
+    assert check["sample_period"] == "2000"

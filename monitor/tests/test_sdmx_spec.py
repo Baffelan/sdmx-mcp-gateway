@@ -55,3 +55,8 @@ def test_server_error_on_a_legal_request_deviates():
     verdict, note = classify_status(500, legal_request=True)
     assert verdict == "deviates"
     assert note and "500" in note
+
+
+def test_not_modified_conforms_for_a_legal_request():
+    """304 is documented and is not a rejection; it must not be read as one."""
+    assert classify_status(304, legal_request=True) == ("conforms", None)

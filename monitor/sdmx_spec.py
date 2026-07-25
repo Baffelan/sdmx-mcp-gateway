@@ -2,7 +2,7 @@
 
 Hand-extracted from the OpenAPI specifications kept at the workspace root:
 `sdmx-2.1-rest.yaml` (the `references` and `detail` enums near line 2189-2244,
-and the response codes documented on all 47 operations) and
+and the response codes documented on all 46 operations) and
 `sdmx-3.0-rest.yaml` (the `/structure/{structureType}/...` path shape near
 line 144). Extracting by hand keeps 3,300 lines of YAML out of the runtime;
 the constants below are small and change only when the standard does.
@@ -33,7 +33,10 @@ DETAIL_VALUES = frozenset({
     "referencecompletestubs", "full",
 })
 
-# Every response code documented in sdmx-2.1-rest.yaml. 204 is absent.
+# Every response code documented in sdmx-2.1-rest.yaml. 204 is absent. 510 is
+# also excluded: 12 operations $ref it (e.g. line 1034) but
+# components.responses never defines a '510' entry, so it has no description
+# anywhere in the spec and cannot be treated as genuinely documented.
 DOCUMENTED_STATUS = frozenset({
     200, 304, 400, 401, 403, 404, 406, 413, 414, 500, 501, 503,
 })

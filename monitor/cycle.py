@@ -16,8 +16,10 @@ from checks_gateway import (
     gateway_drift,
     gateway_metadata_check,
 )
+from contracts import run_contracts
+from contracts_config import EXPECTATIONS
 from endpoints_config import Endpoint
-from storage import CheckResult, Store, utcnow_iso
+from storage import CheckResult, ContractResult, Store, utcnow_iso
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ USER_AGENT = "sdmx-monitor/0.1 (+https://github.com/Baffelan/sdmx-mcp-gateway)"
 
 async def _endpoint_bundle(
     ep: Endpoint, gw: GatewaySession | None, client: httpx.AsyncClient, timeout_s: float
-) -> list[CheckResult]:
+) -> tuple[list[CheckResult], list[ContractResult]]:
     results: list[CheckResult] = []
     if gw is None:
         reason = "skipped: gateway unreachable"
@@ -45,7 +47,15 @@ async def _endpoint_bundle(
                 await with_retry(lambda: gateway_data_check(gw, ep, timeout_s))
             )
     results.extend(await run_direct_checks(client, ep))
-    return results
+
+    contract_results: list[ContractResult] = []
+    expectation = EXPECTATIONS.get(ep.key)
+    if expectation is not None:
+        try:
+            contract_results = await run_contracts(client, ep, expectation)
+        except Exception as exc:
+            logger.warning("contract sweep failed for %s: %s", ep.key, exc)
+    return results, contract_results
 
 
 async def run_cycle(
@@ -94,9 +104,11 @@ async def run_cycle(
             bundles = await asyncio.gather(
                 *(_endpoint_bundle(ep, gw, client, timeout_s) for ep in endpoints)
             )
-        for bundle in bundles:
-            for result in bundle:
+        for results, contract_results in bundles:
+            for result in results:
                 store.add_result(cycle_id, result)
+            for contract_result in contract_results:
+                store.add_contract(cycle_id, contract_result)
     except Exception as exc:
         # never let a mid-cycle failure leave the cycle row open forever
         logger.exception("cycle %s aborted mid-checks", cycle_id)

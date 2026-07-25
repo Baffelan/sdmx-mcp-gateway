@@ -58,10 +58,14 @@ def _patch_checks(monkeypatch):
             CheckResult(ep.key, "direct", "json", ok=True, latency_ms=7),
         ]
 
+    async def fake_contracts(client, ep, exp):
+        return []
+
     monkeypatch.setattr(cycle, "gateway_metadata_check", fake_gw_meta)
     monkeypatch.setattr(cycle, "gateway_data_check", fake_gw_data)
     monkeypatch.setattr(cycle, "gateway_drift", fake_drift)
     monkeypatch.setattr(cycle, "run_direct_checks", fake_direct)
+    monkeypatch.setattr(cycle, "run_contracts", fake_contracts)
     monkeypatch.setattr(cycle.checks_common, "RETRY_DELAY_S", 0.0)
 
 
@@ -134,3 +138,29 @@ async def test_escaping_check_exception_still_closes_cycle(store, monkeypatch):
     assert latest["id"] == cycle_id
     assert latest["finished_at"] is not None
     assert "cycle error" in latest["drift"]
+
+
+async def test_cycle_records_contract_results(store: Store, monkeypatch):
+    async def fake_run_contracts(client, ep, exp):
+        from storage import ContractResult
+        return [ContractResult(ep.key, "references:none", verdict="ok",
+                               observed="200")]
+
+    monkeypatch.setattr(cycle, "run_contracts", fake_run_contracts)
+    cycle_id = await cycle.run_cycle(store, ENDPOINTS, "http://gw.example/mcp")
+    contracts = store.contracts_for_cycle(cycle_id)
+    assert {c["endpoint_key"] for c in contracts} == {ep.key for ep in ENDPOINTS}
+    assert all(c["assertion"] == "references:none" for c in contracts)
+
+
+async def test_contract_failure_does_not_abort_the_cycle(store: Store, monkeypatch):
+    async def exploding_contracts(client, ep, exp):
+        raise RuntimeError("contract bug")
+
+    monkeypatch.setattr(cycle, "run_contracts", exploding_contracts)
+    cycle_id = await cycle.run_cycle(store, ENDPOINTS, "http://gw.example/mcp")
+    latest = store.latest_cycle()
+    assert latest["id"] == cycle_id
+    assert latest["finished_at"] is not None
+    # the ordinary checks still recorded
+    assert latest["results"]

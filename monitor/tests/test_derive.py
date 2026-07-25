@@ -101,3 +101,34 @@ def test_json_failure_blocks_gateway_issue_claim():
     """The direct path is not 'OK' when its JSON check failed."""
     status, _ = derive_status(_rows_with_json(gd=False, dj=False), gateway_up=True)
     assert status == "degraded"
+
+
+def _contract(assertion="references:parents", verdict="broken") -> dict:
+    return {"assertion": assertion, "verdict": verdict}
+
+
+def test_broken_contract_degrades_an_otherwise_healthy_endpoint():
+    status, reason = derive_status(
+        _rows_with_json(), gateway_up=True, contracts=[_contract()])
+    assert status == "degraded"
+    assert "references:parents" in reason
+
+
+def test_informational_contract_verdicts_do_not_degrade():
+    for verdict in ("ok", "capability_appeared", "ignored", "skipped"):
+        status, _ = derive_status(
+            _rows_with_json(), gateway_up=True,
+            contracts=[_contract(verdict=verdict)])
+        assert status == "healthy", verdict
+
+
+def test_contracts_are_optional():
+    status, _ = derive_status(_rows_with_json(), gateway_up=True)
+    assert status == "healthy"
+
+
+def test_broken_contract_does_not_mask_a_worse_check_failure():
+    status, _ = derive_status(
+        _rows_with_json(dm=False, gm=False), gateway_up=True,
+        contracts=[_contract()])
+    assert status == "provider_down"

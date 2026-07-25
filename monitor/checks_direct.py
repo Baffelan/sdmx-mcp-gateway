@@ -6,6 +6,8 @@ Success criteria:
   (CSV data row, or an Obs element for XML responses)
 """
 
+import csv
+import io
 import time
 
 import httpx
@@ -15,9 +17,51 @@ from endpoints_config import Endpoint
 from storage import CheckResult
 
 
-def count_csv_observations(text: str) -> int:
-    lines = [line for line in text.strip().splitlines()[1:] if line.strip()]
-    return len(lines)
+def parse_csv_observations(text: str) -> tuple[int, str | None, str | None, str | None]:
+    """Verify an SDMx-CSV body really carries observations.
+
+    An HTTP 200 proves the request was answered, not that data came back:
+    providers have been observed returning notices, wrong formats, and empty
+    result sets with a 200. So require the SDMx-CSV OBS_VALUE column and at
+    least one row whose value parses as a number.
+
+    Empty values are normal in SDMx (confidential or unpublished points), so
+    the rule is "some value in the slice is numeric", not "the first one is".
+
+    Returns (numeric_count, sample_value, sample_period, error).
+    """
+    rows = list(csv.reader(io.StringIO(text)))
+    if not rows:
+        return 0, None, None, "empty response body"
+    header = [cell.strip() for cell in rows[0]]
+    if "OBS_VALUE" not in header:
+        return 0, None, None, "response has no OBS_VALUE column (not SDMx-CSV)"
+    value_index = header.index("OBS_VALUE")
+    period_index = header.index("TIME_PERIOD") if "TIME_PERIOD" in header else None
+    data_rows = [row for row in rows[1:] if any(cell.strip() for cell in row)]
+    if not data_rows:
+        return 0, None, None, "no observation rows in response"
+    numeric_count = 0
+    sample_value: str | None = None
+    sample_period: str | None = None
+    for row in data_rows:
+        if len(row) <= value_index:
+            continue
+        raw = row[value_index].strip()
+        if not raw:
+            continue
+        try:
+            float(raw)
+        except ValueError:
+            continue
+        numeric_count += 1
+        if sample_value is None:
+            sample_value = raw
+            if period_index is not None and len(row) > period_index:
+                sample_period = row[period_index].strip() or None
+    if numeric_count == 0:
+        return 0, None, None, "no numeric observation value in " + str(len(data_rows)) + " rows"
+    return numeric_count, sample_value, sample_period, None
 
 
 def looks_like_xml_data(text: str) -> bool:
@@ -61,12 +105,15 @@ async def _data_once(client: httpx.AsyncClient, ep: Endpoint) -> CheckResult:
         if "xml" in content_type or resp.text.lstrip().startswith("<"):
             ok = looks_like_xml_data(resp.text)
             obs: int | None = None
+            error = None if ok else "no observations in response"
+            return CheckResult(ep.key, "direct", "data", ok=ok, latency_ms=_ms(start),
+                               http_status=resp.status_code, obs_count=obs, error=error)
         else:
-            obs = count_csv_observations(resp.text)
-            ok = obs >= 1
-        error = None if ok else "no observations in response"
-        return CheckResult(ep.key, "direct", "data", ok=ok, latency_ms=_ms(start),
-                           http_status=resp.status_code, obs_count=obs, error=error)
+            obs, sample_value, sample_period, parse_error = parse_csv_observations(resp.text)
+            return CheckResult(ep.key, "direct", "data", ok=parse_error is None,
+                               latency_ms=_ms(start), http_status=resp.status_code,
+                               obs_count=obs, sample_value=sample_value,
+                               sample_period=sample_period, error=parse_error)
     except Exception as exc:
         error_str = type(exc).__name__ + ": " + str(exc)
         return CheckResult(ep.key, "direct", "data", ok=False,

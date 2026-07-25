@@ -27,10 +27,10 @@ _REFERENCE_KEYWORDS = frozenset({
 })
 REFERENCES_VALUES = _REFERENCE_KEYWORDS | _STRUCTURE_TYPES
 
-# sdmx-2.1-rest.yaml: structure query `detail` enum.
+# sdmx-2.1-rest.yaml line 2204: structure query `detail` enum.
 DETAIL_VALUES = frozenset({
-    "allstubs", "referencestubs", "allcompletestubs", "referencecompletestubs",
-    "full",
+    "allstubs", "referencestubs", "referencepartial", "allcompletestubs",
+    "referencecompletestubs", "full",
 })
 
 # Every response code documented in sdmx-2.1-rest.yaml. 204 is absent.

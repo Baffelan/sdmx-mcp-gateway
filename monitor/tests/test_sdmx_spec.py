@@ -1,4 +1,5 @@
 from sdmx_spec import (
+    DETAIL_VALUES,
     DOCUMENTED_STATUS,
     REFERENCES_VALUES,
     classify_status,
@@ -12,6 +13,14 @@ def test_reference_enum_matches_the_standard():
         assert is_legal_reference(value), value
     assert not is_legal_reference("sideways")
     assert "codelist" in REFERENCES_VALUES  # specific resource types are legal too
+
+
+def test_detail_enum_matches_the_standard():
+    """sdmx-2.1-rest.yaml line 2204 lists exactly these six values."""
+    assert DETAIL_VALUES == {
+        "allstubs", "referencestubs", "referencepartial",
+        "allcompletestubs", "referencecompletestubs", "full",
+    }
 
 
 def test_204_is_not_a_documented_status():

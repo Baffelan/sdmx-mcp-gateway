@@ -128,6 +128,8 @@ async def test_none_itself_is_never_flagged_as_ignored():
 
 @respx.mock
 async def test_transport_error_is_captured_not_raised():
+    """A transport error is evidence we could not look, not that the
+    assumption broke: it must be skipped, never broken or ok."""
     values = exp_values("SPC")
     bodies = {v: (200, RICHER) for v in values}
     ep, exp = _mock_references("SPC", bodies)
@@ -137,8 +139,24 @@ async def test_transport_error_is_captured_not_raised():
     async with httpx.AsyncClient() as client:
         results = await check_references(client, _ep("SPC"), EXPECTATIONS["SPC"])
     parents = _by_assertion(results, "references:parents")
-    assert parents.verdict == "broken"
+    assert parents.verdict == "skipped"
+    assert parents.observed is None
     assert "boom" in (parents.error or "")
+
+
+@respx.mock
+async def test_rate_limited_probe_is_skipped_not_broken():
+    """429 means the provider throttled us, not that its behaviour changed."""
+    values = exp_values("SPC")
+    bodies = {v: (200, RICHER) for v in values}
+    bodies["none"] = (200, BASELINE)
+    bodies["parents"] = (429, "slow down")
+    ep, exp = _mock_references("SPC", bodies)
+    async with httpx.AsyncClient() as client:
+        results = await check_references(client, ep, exp)
+    parents = _by_assertion(results, "references:parents")
+    assert parents.verdict == "skipped"
+    assert parents.observed is None
 
 
 @respx.mock
@@ -182,7 +200,8 @@ async def test_transport_error_on_an_undeclared_value_is_not_a_capability():
     async with httpx.AsyncClient() as client:
         results = await check_references(client, _ep("ESTAT"), EXPECTATIONS["ESTAT"])
     result = _by_assertion(results, "references:all")
-    assert result.verdict == "ok"          # a failure is not a new capability
+    assert result.verdict == "skipped"     # a failure is not a new capability
+    assert result.observed is None
     assert "boom" in (result.error or "")
 
 
@@ -250,6 +269,23 @@ async def test_constraint_capability_appears_for_an_unsupported_provider():
         results = await check_constraint(client, ep, exp)
     assert _by_assertion(
         results, "constraint:availableconstraint").verdict == "capability_appeared"
+
+
+@respx.mock
+async def test_constraint_capability_appearing_does_not_judge_type():
+    """ECB's pinned constraint_type describes what `?references=contentconstraint`
+    (its configured single-flow strategy) yields, not what /availableconstraint/
+    returns. ECB gaining /availableconstraint/ support is informational and must
+    not also fire constraint:type broken just because the body's ContentConstraint
+    type differs from the pinned one."""
+    ep, exp = _ep("ECB"), EXPECTATIONS["ECB"]
+    assert exp.availableconstraint_status != 200  # today: 404
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_ACTUAL)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    assert _by_assertion(
+        results, "constraint:availableconstraint").verdict == "capability_appeared"
+    assert not [r for r in results if r.assertion == "constraint:type"]
 
 
 @respx.mock
@@ -338,6 +374,18 @@ async def test_auth_probe_never_sends_credentials(monkeypatch):
 
 
 @respx.mock
+async def test_auth_capability_claim_needs_an_actual_200():
+    """A 503 is neither a denial nor a confirmed successful listing: claiming
+    'listing succeeded without credentials' on it would be a false positive."""
+    ep, exp = _ep("STATSNZ"), EXPECTATIONS["STATSNZ"]  # auth_required_for_listing=True
+    respx.get(listing_url(ep)).respond(503, text="maintenance")
+    async with httpx.AsyncClient() as client:
+        result = await check_auth(client, ep, exp)
+    assert result.verdict == "skipped"
+    assert result.observed == "503"
+
+
+@respx.mock
 async def test_encoding_broken_when_structure_comes_back_as_json():
     """Stats NZ has historically served SDMx-JSON for structural metadata
     unless format=xml is forced."""
@@ -348,3 +396,17 @@ async def test_encoding_broken_when_structure_comes_back_as_json():
         result = await check_encoding(client, ep, exp)
     assert result.verdict == "broken"
     assert "json" in (result.observed or "").lower()
+
+
+@respx.mock
+async def test_encoding_not_judged_on_a_non_200_response():
+    """A transient 503 serving an HTML maintenance page must not report
+    'structural metadata is no longer XML'; availability is owned by the
+    retried direct metadata check, not this probe."""
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(structure_url(ep, exp, detail="allstubs")).respond(
+        503, text="<html>maintenance</html>", headers={"content-type": "text/html"})
+    async with httpx.AsyncClient() as client:
+        result = await check_encoding(client, ep, exp)
+    assert result.verdict == "skipped"
+    assert result.observed == "503"

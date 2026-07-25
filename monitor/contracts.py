@@ -65,6 +65,30 @@ def _append_note(existing: str | None, addition: str) -> str:
 
 _BASELINE_UNAVAILABLE = "ignored-detection unavailable: no references=none baseline this cycle"
 
+# --- Unobservable-evidence policy -----------------------------------------
+# A transport error (resp is None) or an HTTP 429 means the probe could not
+# observe the provider's behaviour at all: a timeout, reset, or rate limit
+# tells us nothing about whether the assumption still holds. With ~120
+# unretried GETs per cycle, treating either as "broken" would yellow a status
+# card until the next cycle (up to two hours later) over pure noise, and
+# writing a fake "observed" value would make the changes panel flip-flop
+# (e.g. "404 -> transport error -> 404"). Every check function below must
+# therefore map both cases to verdict "skipped" with observed=None and
+# spec_verdict="n/a" -- never "broken", never "ok". Real outages are already
+# caught by the retried direct checks, and provider_down outranks contract
+# breakage in derive_status, so nothing is lost by staying quiet here.
+_RATE_LIMITED_NOTE = "provider rate-limited the probe (HTTP 429)"
+
+
+def _skip_reason(resp: httpx.Response | None, error: str | None) -> str | None:
+    """The reason this probe could not observe its target behaviour, or None
+    if it did observe something and the caller should judge it normally."""
+    if resp is None:
+        return error
+    if resp.status_code == 429:
+        return _RATE_LIMITED_NOTE
+    return None
+
 
 async def check_references(
     client: httpx.AsyncClient, ep: Endpoint, exp: ContractExpectation
@@ -96,14 +120,17 @@ async def check_references(
         resp, error = await _get(client, ep, url)
         latency = _ms(start)
 
-        if resp is None:
-            note = error
+        skip_reason = _skip_reason(resp, error)
+        if skip_reason is not None:
+            note = skip_reason
             if value != "none" and baseline_size is None:
                 note = _append_note(note, _BASELINE_UNAVAILABLE)
             results.append(ContractResult(
-                ep.key, assertion, verdict="broken" if expected_ok else "ok",
+                ep.key, assertion, verdict="skipped", spec_verdict="n/a",
                 expected="200" if expected_ok else "non-200",
-                observed="transport error", latency_ms=latency, error=note))
+                observed=None, latency_ms=latency,
+                http_status=(resp.status_code if resp is not None else None),
+                error=note))
             continue
 
         observed = str(resp.status_code)
@@ -193,11 +220,14 @@ async def check_constraint(
     expected_status = exp.availableconstraint_status
     results: list[ContractResult] = []
 
-    if resp is None:
+    skip_reason = _skip_reason(resp, error)
+    if skip_reason is not None:
         return [ContractResult(
-            ep.key, "constraint:availableconstraint", verdict="broken",
-            expected=str(expected_status), observed="transport error",
-            latency_ms=latency, error=error)]
+            ep.key, "constraint:availableconstraint", verdict="skipped",
+            spec_verdict="n/a", expected=str(expected_status), observed=None,
+            latency_ms=latency,
+            http_status=(resp.status_code if resp is not None else None),
+            error=skip_reason)]
 
     observed = str(resp.status_code)
     spec_verdict, spec_note = classify_status(resp.status_code, legal_request=True)
@@ -222,7 +252,14 @@ async def check_constraint(
         observed=observed, latency_ms=latency, http_status=resp.status_code,
         error=note or spec_note))
 
-    if exp.constraint_type is not None and ctype is not None:
+    # constraint:type judges the mechanism this expectation's pinned type
+    # describes. ECB's pinned type ("Allowed") describes what its configured
+    # single-flow strategy (?references=contentconstraint) yields, not what
+    # /availableconstraint/ returns; gating on availableconstraint_status==200
+    # keeps this probe from judging a mechanism its pinned type never spoke to
+    # (e.g. ECB gaining /availableconstraint/ support, which is informational).
+    if (exp.availableconstraint_status == 200
+            and exp.constraint_type is not None and ctype is not None):
         matches = ctype == exp.constraint_type
         results.append(ContractResult(
             ep.key, "constraint:type", verdict="ok" if matches else "broken",
@@ -240,11 +277,13 @@ async def check_dialect(
     start = time.monotonic()
     resp, error = await _get(client, ep, sdmx3_url(ep, exp))
     latency = _ms(start)
-    if resp is None:
-        return ContractResult(ep.key, "dialect:sdmx3", verdict="ok",
-                              expected=str(exp.sdmx3_status),
-                              observed="transport error", latency_ms=latency,
-                              error=error)
+    skip_reason = _skip_reason(resp, error)
+    if skip_reason is not None:
+        return ContractResult(ep.key, "dialect:sdmx3", verdict="skipped",
+                              spec_verdict="n/a", expected=str(exp.sdmx3_status),
+                              observed=None, latency_ms=latency,
+                              http_status=(resp.status_code if resp is not None else None),
+                              error=skip_reason)
     if resp.status_code == 200:
         return ContractResult(
             ep.key, "dialect:sdmx3", verdict="capability_appeared",
@@ -269,11 +308,14 @@ async def check_error_semantics(
     start = time.monotonic()
     resp, error = await _get(client, ep, missing_artefact_url(ep, exp))
     latency = _ms(start)
-    if resp is None:
-        return ContractResult(ep.key, "errors:missing_artefact", verdict="broken",
-                              expected=str(exp.missing_artefact_status),
-                              observed="transport error", latency_ms=latency,
-                              error=error)
+    skip_reason = _skip_reason(resp, error)
+    if skip_reason is not None:
+        return ContractResult(
+            ep.key, "errors:missing_artefact", verdict="skipped", spec_verdict="n/a",
+            expected=str(exp.missing_artefact_status), observed=None,
+            latency_ms=latency,
+            http_status=(resp.status_code if resp is not None else None),
+            error=skip_reason)
     observed = resp.status_code
     # This probe deliberately asks for an artefact that does not exist, so a
     # rejection is the conforming outcome (legal_request=False) rather than a
@@ -304,18 +346,28 @@ async def check_auth(
     start = time.monotonic()
     resp, error = await _get_unauthenticated(client, listing_url(ep))
     latency = _ms(start)
-    if resp is None:
-        return ContractResult(ep.key, "auth:listing", verdict="ok",
-                              observed="transport error", latency_ms=latency,
-                              error=error)
-    denied = resp.status_code in (401, 403)
     expected = "credentials required" if exp.auth_required_for_listing else "open"
+    skip_reason = _skip_reason(resp, error)
+    if skip_reason is not None:
+        return ContractResult(ep.key, "auth:listing", verdict="skipped",
+                              spec_verdict="n/a", expected=expected, observed=None,
+                              latency_ms=latency,
+                              http_status=(resp.status_code if resp is not None else None),
+                              error=skip_reason)
+    denied = resp.status_code in (401, 403)
     observed = str(resp.status_code)
     if denied and not exp.auth_required_for_listing:
         verdict, note = "broken", "provider now demands credentials"
     elif not denied and exp.auth_required_for_listing:
-        verdict, note = "capability_appeared", (
-            "listing succeeded without credentials; the gateway still sends a key")
+        if resp.status_code == 200:
+            verdict, note = "capability_appeared", (
+                "listing succeeded without credentials; the gateway still sends a key")
+        else:
+            # Neither denied nor confirmed successful: inconclusive, not a
+            # capability claim (Fix 4 -- a 503 or similar is not a success).
+            verdict, note = "skipped", (
+                "listing neither denied nor confirmed successful (HTTP "
+                + observed + ")")
     else:
         verdict, note = "ok", None
     return ContractResult(ep.key, "auth:listing", verdict=verdict,
@@ -331,10 +383,22 @@ async def check_encoding(
     start = time.monotonic()
     resp, error = await _get(client, ep, structure_url(ep, exp, detail="allstubs"))
     latency = _ms(start)
-    if resp is None:
-        return ContractResult(ep.key, "encoding:structure_xml", verdict="broken",
-                              expected="xml", observed="transport error",
-                              latency_ms=latency, error=error)
+    skip_reason = _skip_reason(resp, error)
+    if skip_reason is not None:
+        return ContractResult(ep.key, "encoding:structure_xml", verdict="skipped",
+                              spec_verdict="n/a", expected="xml", observed=None,
+                              latency_ms=latency,
+                              http_status=(resp.status_code if resp is not None else None),
+                              error=skip_reason)
+    if resp.status_code != 200:
+        # Availability is already owned by the retried direct metadata check;
+        # a non-200 here (e.g. a transient 503 maintenance page) is not
+        # evidence about the encoding of structural metadata (Fix 3).
+        return ContractResult(
+            ep.key, "encoding:structure_xml", verdict="skipped", expected="xml",
+            observed=str(resp.status_code), latency_ms=latency,
+            http_status=resp.status_code,
+            error="HTTP " + str(resp.status_code) + "; encoding not judged")
     content_type = resp.headers.get("content-type", "")
     is_xml = "xml" in content_type.lower()
     return ContractResult(

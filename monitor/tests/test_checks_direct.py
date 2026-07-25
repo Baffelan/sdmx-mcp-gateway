@@ -1,9 +1,16 @@
+import dataclasses
+
 import httpx
 import pytest
 import respx
 
 import checks_common
-from checks_direct import looks_like_xml_data, parse_csv_observations, run_direct_checks
+from checks_direct import (
+    looks_like_xml_data,
+    parse_csv_observations,
+    run_direct_checks,
+    verify_json_payload,
+)
 from endpoints_config import ENDPOINTS
 
 
@@ -68,7 +75,7 @@ async def test_happy_path_metadata_and_data():
     respx.get(ep.metadata_url).respond(200, text=XML_META)
     respx.get(ep.data_url).respond(200, text=CSV_BODY, headers={"content-type": "text/csv"})
     async with httpx.AsyncClient() as client:
-        meta, data = await run_direct_checks(client, ep)
+        meta, data, _json = await run_direct_checks(client, ep)
     assert (meta.path, meta.kind, meta.ok) == ("direct", "metadata", True)
     assert meta.http_status == 200 and meta.latency_ms is not None
     assert (data.kind, data.ok, data.obs_count) == ("data", True, 1)
@@ -80,7 +87,7 @@ async def test_http_500_fails_and_retries_once():
     meta_route = respx.get(ep.metadata_url).respond(500, text="err")
     respx.get(ep.data_url).respond(200, text=CSV_BODY)
     async with httpx.AsyncClient() as client:
-        meta, _data = await run_direct_checks(client, ep)
+        meta, _data, _json = await run_direct_checks(client, ep)
     assert meta.ok is False
     assert meta.attempts == 2
     assert meta.http_status == 500
@@ -95,7 +102,7 @@ async def test_retry_recovers_on_second_attempt():
     )
     respx.get(ep.data_url).respond(200, text=CSV_BODY)
     async with httpx.AsyncClient() as client:
-        meta, _data = await run_direct_checks(client, ep)
+        meta, _data, _json = await run_direct_checks(client, ep)
     assert meta.ok is True
     assert meta.attempts == 2
 
@@ -106,7 +113,7 @@ async def test_empty_csv_data_fails():
     respx.get(ep.metadata_url).respond(200, text=XML_META)
     respx.get(ep.data_url).respond(200, text="DATAFLOW,TIME_PERIOD,OBS_VALUE\n")
     async with httpx.AsyncClient() as client:
-        _meta, data = await run_direct_checks(client, ep)
+        _meta, data, _json = await run_direct_checks(client, ep)
     assert data.ok is False
     assert "no observation rows" in (data.error or "")
 
@@ -117,27 +124,29 @@ async def test_connection_error_is_captured_not_raised():
     respx.get(ep.metadata_url).mock(side_effect=httpx.ConnectError("boom"))
     respx.get(ep.data_url).respond(200, text=CSV_BODY)
     async with httpx.AsyncClient() as client:
-        meta, _data = await run_direct_checks(client, ep)
+        meta, _data, _json = await run_direct_checks(client, ep)
     assert meta.ok is False
     assert "boom" in (meta.error or "")
 
 
-async def test_statsnz_without_key_skips_both(monkeypatch):
+async def test_statsnz_without_key_skips_all_checks(monkeypatch):
     monkeypatch.delenv("SDMX_STATSNZ_KEY", raising=False)
     ep = _ep("STATSNZ")
     async with httpx.AsyncClient() as client:
-        meta, data = await run_direct_checks(client, ep)
-    assert meta.skipped is True and data.skipped is True
+        meta, data, json_result = await run_direct_checks(client, ep)
+    assert meta.skipped is True and data.skipped is True and json_result.skipped is True
     assert "SDMX_STATSNZ_KEY" in (meta.error or "")
 
 
 @respx.mock
 async def test_no_pinned_data_query_skips_data_only(monkeypatch):
     monkeypatch.setenv("SDMX_STATSNZ_KEY", "k")
-    ep = _ep("STATSNZ")
+    # STATSNZ itself now has a pinned data query; use a synthetic copy without
+    # one to keep exercising the "no pinned data query" skip branch.
+    ep = dataclasses.replace(_ep("STATSNZ"), data_path=None)
     route = respx.get(ep.metadata_url).respond(200, text=XML_META)
     async with httpx.AsyncClient() as client:
-        meta, data = await run_direct_checks(client, ep)
+        meta, data, _json = await run_direct_checks(client, ep)
     assert meta.ok is True
     assert route.calls[0].request.headers["Ocp-Apim-Subscription-Key"] == "k"
     assert data.skipped is True
@@ -150,10 +159,10 @@ async def test_non_httpx_exception_is_captured_not_raised():
     respx.get(ep.metadata_url).mock(side_effect=RuntimeError("surprise"))
     respx.get(ep.data_url).respond(200, text=CSV_BODY)
     async with httpx.AsyncClient() as client:
-        meta, data = await run_direct_checks(client, ep)
+        meta, data, _json = await run_direct_checks(client, ep)
     assert meta.ok is False
     assert "RuntimeError" in (meta.error or "")
-    assert data.ok is True  # contract held: both results returned
+    assert data.ok is True  # contract held: all results returned
 
 
 @respx.mock
@@ -166,7 +175,7 @@ async def test_xml_data_response_counts_as_observations():
         headers={"content-type": "application/xml"},
     )
     async with httpx.AsyncClient() as client:
-        _meta, data = await run_direct_checks(client, ep)
+        _meta, data, _json = await run_direct_checks(client, ep)
     assert data.ok is True
     assert data.obs_count is None
 
@@ -177,7 +186,7 @@ async def test_data_check_records_sample_value():
     respx.get(ep.metadata_url).respond(200, text=XML_META)
     respx.get(ep.data_url).respond(200, text=GOOD_CSV, headers={"content-type": "text/csv"})
     async with httpx.AsyncClient() as client:
-        _meta, data = await run_direct_checks(client, ep)
+        _meta, data, _json = await run_direct_checks(client, ep)
     assert data.ok is True
     assert data.obs_count == 1
     assert data.sample_value == "1345.2"
@@ -191,6 +200,93 @@ async def test_data_check_fails_on_200_with_plain_text_body():
     respx.get(ep.metadata_url).respond(200, text=XML_META)
     respx.get(ep.data_url).respond(200, text="Scheduled maintenance\nback at 09:00\n")
     async with httpx.AsyncClient() as client:
-        _meta, data = await run_direct_checks(client, ep)
+        _meta, data, _json = await run_direct_checks(client, ep)
     assert data.ok is False
     assert "OBS_VALUE" in (data.error or "")
+
+
+SDMX_JSON_2 = '{"meta":{"schema":"https://example/2.0.0/sdmx-json-data-schema.json"},"dataSets":[{"action":"Information"}]}'
+
+
+def test_verify_json_payload_accepts_matching_version():
+    assert verify_json_payload(
+        SDMX_JSON_2,
+        "application/vnd.sdmx.data+json; version=2.0.0; charset=utf-8",
+        "application/vnd.sdmx.data+json;version=2.0.0",
+    ) is None
+
+
+def test_verify_json_payload_rejects_xml_body():
+    """IMF answers a JSON request with HTTP 200 and XML; that must fail."""
+    error = verify_json_payload(
+        "<?xml version='1.0'?><message:StructureSpecificData/>",
+        "application/xml",
+        "application/vnd.sdmx.data+json;version=1.0.0",
+    )
+    assert error is not None and "not JSON" in error
+
+
+def test_verify_json_payload_rejects_csv_body():
+    """STATSNZ answers a JSON request with HTTP 200 and CSV."""
+    error = verify_json_payload(
+        "DATAFLOW,TIME_PERIOD,OBS_VALUE\nX,2020,1\n",
+        "application/vnd.sdmx.data+csv; charset=utf-8",
+        "application/vnd.sdmx.data+json;version=2.0.0",
+    )
+    assert error is not None and "not JSON" in error
+
+
+def test_verify_json_payload_rejects_version_mismatch():
+    error = verify_json_payload(
+        SDMX_JSON_2,
+        "application/vnd.sdmx.data+json; version=1.0.0",
+        "application/vnd.sdmx.data+json;version=2.0.0",
+    )
+    assert error is not None and "version" in error
+
+
+def test_verify_json_payload_rejects_missing_datasets():
+    error = verify_json_payload(
+        '{"meta":{"id":"x"}}',
+        "application/vnd.sdmx.data+json; version=2.0.0",
+        "application/vnd.sdmx.data+json;version=2.0.0",
+    )
+    assert error is not None and "dataSets" in error
+
+
+def test_verify_json_payload_accepts_untyped_json_when_shape_is_right():
+    """UNICEF and BIS return content-type application/json with no version."""
+    assert verify_json_payload(
+        '{"meta":{"id":"x"},"dataSets":[{"action":"Information"}]}',
+        "application/json;charset=UTF-8",
+        "application/vnd.sdmx.data+json;version=1.0.0",
+    ) is None
+
+
+@respx.mock
+async def test_run_direct_checks_returns_three_results_with_json_ok():
+    ep = _ep("SPC")
+    respx.get(ep.metadata_url).respond(200, text=XML_META)
+    route = respx.get(ep.data_url)
+    route.side_effect = [
+        httpx.Response(200, text=CSV_BODY, headers={"content-type": "text/csv"}),
+        httpx.Response(200, text=SDMX_JSON_2,
+                       headers={"content-type": "application/vnd.sdmx.data+json; version=2.0.0"}),
+    ]
+    async with httpx.AsyncClient() as client:
+        results = await run_direct_checks(client, ep)
+    assert [r.kind for r in results] == ["metadata", "data", "json"]
+    assert results[2].ok is True
+    assert route.calls[1].request.headers["accept"] == ep.json_accept
+
+
+@respx.mock
+async def test_json_check_skipped_when_unsupported():
+    ep = _ep("IMF")
+    respx.get(ep.metadata_url).respond(200, text=XML_META)
+    respx.get(ep.data_url).respond(200, text=CSV_BODY, headers={"content-type": "text/csv"})
+    async with httpx.AsyncClient() as client:
+        results = await run_direct_checks(client, ep)
+    json_result = results[2]
+    assert json_result.skipped is True
+    assert "does not serve" in (json_result.error or "")

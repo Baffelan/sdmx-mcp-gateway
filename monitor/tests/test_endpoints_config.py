@@ -30,10 +30,8 @@ def test_data_urls_are_observation_capped():
         assert ep.data_url == ep.base_url + ep.data_path
 
 
-def test_statsnz_is_credential_gated_and_has_no_data_probe():
+def test_statsnz_is_credential_gated():
     (statsnz,) = [ep for ep in ENDPOINTS if ep.key == "STATSNZ"]
-    assert statsnz.data_path is None
-    assert statsnz.data_url is None
     assert statsnz.requires_env == "SDMX_STATSNZ_KEY"
     assert statsnz.auth_header == "Ocp-Apim-Subscription-Key"
 
@@ -53,3 +51,31 @@ def test_ecb_uses_plain_csv_accept():
     assert ecb.data_accept == "text/csv"
     others = [ep for ep in ENDPOINTS if ep.key != "ECB" and ep.data_path is not None]
     assert all(ep.data_accept == SDMX_CSV for ep in others)
+
+
+JSON_SUPPORTED = {"SPC", "FBOS", "SBS", "ECB", "UNICEF", "OECD", "ILO", "ABS", "BIS"}
+JSON_UNSUPPORTED = {"IMF", "ESTAT", "STATSNZ"}
+
+
+def test_json_support_matches_verified_matrix():
+    by_key = {ep.key: ep for ep in ENDPOINTS}
+    for key in JSON_SUPPORTED:
+        assert by_key[key].json_accept is not None, key
+        assert "+json" in by_key[key].json_accept, key
+        assert by_key[key].json_url == by_key[key].data_url, key
+    for key in JSON_UNSUPPORTED:
+        assert by_key[key].json_accept is None, key
+        assert by_key[key].json_unsupported_reason, key
+        assert by_key[key].json_url is None, key
+
+
+def test_ecb_uses_the_draft_json_variant():
+    """Plain version=1.0.0 is a 406 from ECB; only the -wd draft works."""
+    (ecb,) = [ep for ep in ENDPOINTS if ep.key == "ECB"]
+    assert ecb.json_accept == "application/vnd.sdmx.data+json;version=1.0.0-wd"
+
+
+def test_statsnz_now_has_a_pinned_data_query():
+    (statsnz,) = [ep for ep in ENDPOINTS if ep.key == "STATSNZ"]
+    assert statsnz.data_path is not None
+    assert "AGR_AGR_001" in statsnz.data_path

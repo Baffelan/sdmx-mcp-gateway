@@ -4,10 +4,14 @@ Success criteria:
 - metadata: HTTP 200 and the body mentions a Dataflow element
 - data: HTTP 200 and the body contains at least one observation
   (CSV data row, or an Obs element for XML responses)
+- json: HTTP 200 and the body is really SDMx-JSON of the requested version
+  (some providers answer a JSON Accept header with HTTP 200 and a
+  different format entirely, so the body is parsed and checked)
 """
 
 import csv
 import io
+import json
 import time
 
 import httpx
@@ -120,12 +124,68 @@ async def _data_once(client: httpx.AsyncClient, ep: Endpoint) -> CheckResult:
                            latency_ms=_ms(start), error=error_str[:300])
 
 
+def _declared_version(content_type: str) -> str | None:
+    for part in content_type.split(";"):
+        part = part.strip()
+        if part.startswith("version="):
+            return part[len("version="):].strip()
+    return None
+
+
+def verify_json_payload(text: str, content_type: str, requested_accept: str) -> str | None:
+    """Check a JSON data response is really SDMx-JSON of the requested version.
+
+    Providers have been observed answering a JSON request with HTTP 200 and a
+    different format entirely (IMF returns XML, Stats NZ returns CSV), so the
+    body is parsed and its shape checked rather than trusting the status code.
+    Returns an error string, or None when the payload is good.
+    """
+    if "json" not in content_type.lower():
+        return "response is not JSON (content-type: " + (content_type or "none") + ")"
+    try:
+        payload = json.loads(text)
+    except ValueError as exc:
+        return "response is not JSON: " + str(exc)[:120]
+    if not isinstance(payload, dict):
+        return "response is not JSON: top level is " + type(payload).__name__
+    wanted = _declared_version(requested_accept)
+    served = _declared_version(content_type)
+    if wanted and served and served != wanted:
+        return "served SDMx-JSON version " + served + ", requested " + wanted
+    datasets = payload.get("dataSets")
+    if not isinstance(datasets, list) or not datasets:
+        return "SDMx-JSON payload has no dataSets"
+    return None
+
+
+async def _json_once(client: httpx.AsyncClient, ep: Endpoint) -> CheckResult:
+    start = time.monotonic()
+    try:
+        url = ep.json_url
+        assert url is not None and ep.json_accept is not None  # caller gates on json_accept
+        headers = {"Accept": ep.json_accept, **ep.auth_headers()}
+        resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            return CheckResult(ep.key, "direct", "json", ok=False, latency_ms=_ms(start),
+                               http_status=resp.status_code,
+                               error="HTTP " + str(resp.status_code))
+        error = verify_json_payload(
+            resp.text, resp.headers.get("content-type", ""), ep.json_accept
+        )
+        return CheckResult(ep.key, "direct", "json", ok=error is None, latency_ms=_ms(start),
+                           http_status=resp.status_code, error=error)
+    except Exception as exc:
+        return CheckResult(ep.key, "direct", "json", ok=False, latency_ms=_ms(start),
+                           error=(type(exc).__name__ + ": " + str(exc))[:300])
+
+
 async def run_direct_checks(client: httpx.AsyncClient, ep: Endpoint) -> list[CheckResult]:
     if ep.credentials_missing:
         reason = "skipped: " + str(ep.requires_env) + " not set"
         return [
             CheckResult(ep.key, "direct", "metadata", ok=False, skipped=True, error=reason),
             CheckResult(ep.key, "direct", "data", ok=False, skipped=True, error=reason),
+            CheckResult(ep.key, "direct", "json", ok=False, skipped=True, error=reason),
         ]
     meta = await with_retry(lambda: _metadata_once(client, ep))
     if ep.data_path is None:
@@ -133,4 +193,10 @@ async def run_direct_checks(client: httpx.AsyncClient, ep: Endpoint) -> list[Che
                            error="skipped: no pinned data query")
     else:
         data = await with_retry(lambda: _data_once(client, ep))
-    return [meta, data]
+    if ep.json_accept is None:
+        reason = ep.json_unsupported_reason or "provider does not serve SDMx-JSON"
+        json_result = CheckResult(ep.key, "direct", "json", ok=False, skipped=True,
+                                  error="skipped: provider does not serve SDMx-JSON (" + reason + ")")
+    else:
+        json_result = await with_retry(lambda: _json_once(client, ep))
+    return [meta, data, json_result]

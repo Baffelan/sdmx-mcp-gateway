@@ -114,8 +114,25 @@ async def gateway_data_check(gw, ep: Endpoint, timeout_s: float = 30.0) -> Check
     status = str(payload.get("status", "missing"))
     obs = int(payload.get("observation_count", 0))
     if status == "nonempty":
-        return CheckResult(ep.key, "gateway", "data", ok=True,
-                           latency_ms=_ms(start), obs_count=obs)
+        samples = payload.get("sample_observations") or []
+        sample_value: str | None = None
+        sample_period: str | None = None
+        for sample in samples:
+            if not isinstance(sample, dict) or sample.get("value") is None:
+                continue
+            sample_value = str(sample["value"])
+            dims = sample.get("dimensions") or {}
+            period = dims.get("TIME_PERIOD") if isinstance(dims, dict) else None
+            sample_period = str(period) if period else None
+            break
+        if samples and sample_value is None:
+            return CheckResult(ep.key, "gateway", "data", ok=False, latency_ms=_ms(start),
+                               obs_count=obs,
+                               error="probe returned no non-null observation value")
+        note = None if sample_value else "observation values not verified (probe returned no samples)"
+        return CheckResult(ep.key, "gateway", "data", ok=True, latency_ms=_ms(start),
+                           obs_count=obs, sample_value=sample_value,
+                           sample_period=sample_period, error=note)
     notes = "; ".join(str(n) for n in payload.get("notes", []))
     error = ("probe status: " + status + ("; " + notes if notes else ""))[:300]
     return CheckResult(ep.key, "gateway", "data", ok=False,

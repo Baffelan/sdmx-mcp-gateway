@@ -55,6 +55,7 @@ def _patch_checks(monkeypatch):
         return [
             CheckResult(ep.key, "direct", "metadata", ok=True, latency_ms=5),
             CheckResult(ep.key, "direct", "data", ok=True, latency_ms=6),
+            CheckResult(ep.key, "direct", "json", ok=True, latency_ms=7),
         ]
 
     monkeypatch.setattr(cycle, "gateway_metadata_check", fake_gw_meta)
@@ -71,17 +72,16 @@ async def test_cycle_records_all_checks(store: Store):
     assert latest["gateway_up"] is True
     assert latest["gateway_latency_ms"] is not None
     assert "NEWONE" in latest["drift"]
-    # 12 endpoints x 4 checks, minus STATSNZ data via gateway (no pinned query)
+    # 12 endpoints x 5 checks (gateway metadata/data, direct metadata/data/json)
     per_endpoint = {}
     for row in latest["results"]:
         per_endpoint.setdefault(row["endpoint_key"], []).append(row)
     assert set(per_endpoint) == {ep.key for ep in ENDPOINTS}
-    assert all(len(rows) == 4 for rows in per_endpoint.values())
-    statsnz_gw_data = [
-        r for r in per_endpoint["STATSNZ"]
-        if r["path"] == "gateway" and r["kind"] == "data"
+    assert all(len(rows) == 5 for rows in per_endpoint.values())
+    assert not [
+        r for r in latest["results"]
+        if r["path"] == "gateway" and r["kind"] == "data" and r["skipped"]
     ]
-    assert statsnz_gw_data[0]["skipped"] is True
 
 
 async def test_gateway_unreachable_marks_cycle_down_and_skips_gateway_rows(store: Store):

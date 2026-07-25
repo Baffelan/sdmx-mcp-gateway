@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS results (
     cycle_id INTEGER NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
     endpoint_key TEXT NOT NULL,
     path TEXT NOT NULL CHECK (path IN ('gateway', 'direct')),
-    kind TEXT NOT NULL CHECK (kind IN ('metadata', 'data')),
+    kind TEXT NOT NULL CHECK (kind IN ('metadata', 'data', 'json')),
     ok INTEGER NOT NULL,
     skipped INTEGER NOT NULL DEFAULT 0,
     latency_ms INTEGER,

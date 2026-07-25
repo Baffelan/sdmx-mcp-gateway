@@ -74,3 +74,30 @@ def test_unrun_direct_side_is_not_reported_as_gateway_issue():
     status, reason = derive_status(rows, gateway_up=True)
     assert status == "degraded"
     assert "direct path OK" not in reason
+
+
+def _rows_with_json(gm=True, gd=True, dm=True, dd=True, dj=True) -> list[dict]:
+    return [
+        _row("gateway", "metadata", gm),
+        _row("gateway", "data", gd),
+        _row("direct", "metadata", dm),
+        _row("direct", "data", dd),
+        _row("direct", "json", dj),
+    ]
+
+
+def test_json_failure_alone_is_degraded():
+    status, reason = derive_status(_rows_with_json(dj=False), gateway_up=True)
+    assert status == "degraded"
+    assert "json" in reason
+
+
+def test_json_passing_keeps_healthy():
+    status, _ = derive_status(_rows_with_json(), gateway_up=True)
+    assert status == "healthy"
+
+
+def test_json_failure_blocks_gateway_issue_claim():
+    """The direct path is not 'OK' when its JSON check failed."""
+    status, _ = derive_status(_rows_with_json(gd=False, dj=False), gateway_up=True)
+    assert status == "degraded"

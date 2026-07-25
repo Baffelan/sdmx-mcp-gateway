@@ -24,14 +24,15 @@ def derive_status(rows: list[dict], gateway_up: bool) -> tuple[str, str]:
     gd = _lookup(rows, "gateway", "data")
     dm = _lookup(rows, "direct", "metadata")
     dd = _lookup(rows, "direct", "data")
-    ran = [v for v in (gm, gd, dm, dd) if v is not None]
+    dj = _lookup(rows, "direct", "json")
+    ran = [v for v in (gm, gd, dm, dd, dj) if v is not None]
     if not ran:
         return "unknown", "no checks recorded"
     if all(ran):
         return "healthy", "all checks passing"
     if gm is False and dm is False:
         return "provider_down", "metadata failing on both the gateway and the direct path"
-    direct_ran = [v for v in (dm, dd) if v is not None]
+    direct_ran = [v for v in (dm, dd, dj) if v is not None]
     direct_ok = bool(direct_ran) and all(direct_ran)
     if direct_ok and (gm is False or gd is False):
         return "gateway_issue", "direct path OK; gateway path failing"
@@ -42,6 +43,7 @@ def derive_status(rows: list[dict], gateway_up: bool) -> tuple[str, str]:
             ("gateway data", gd),
             ("direct metadata", dm),
             ("direct data", dd),
+            ("direct json", dj),
         ]
         if value is False
     ]

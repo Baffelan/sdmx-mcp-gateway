@@ -86,3 +86,36 @@ async def test_drift_empty_when_lists_match():
     gw = FakeGateway({"list_available_endpoints": {
         "endpoints": [{"key": "SPC"}, {"key": "ECB"}]}})
     assert await gateway_drift(gw, ["SPC", "ECB"]) == []
+
+
+async def test_data_records_sample_value_from_probe():
+    gw = FakeGateway({"probe_data_url": {
+        "status": "nonempty", "observation_count": 5,
+        "sample_observations": [
+            {"dimensions": {"TIME_PERIOD": "2000"}, "value": None},
+            {"dimensions": {"TIME_PERIOD": "2001"}, "value": 1345.2},
+        ]}})
+    result = await gateway_data_check(gw, _ep("SPC"))
+    assert result.ok is True
+    assert result.sample_value == "1345.2"
+    assert result.sample_period == "2001"
+
+
+async def test_data_fails_when_all_probe_samples_are_null():
+    """A probe that misparses a provider's error envelope reports nonempty with
+    null-valued samples; that is not data."""
+    gw = FakeGateway({"probe_data_url": {
+        "status": "nonempty", "observation_count": 1,
+        "sample_observations": [{"dimensions": {}, "value": None}]}})
+    result = await gateway_data_check(gw, _ep("ESTAT"))
+    assert result.ok is False
+    assert "no non-null" in (result.error or "")
+
+
+async def test_data_passes_without_samples_but_notes_it():
+    gw = FakeGateway({"probe_data_url": {
+        "status": "nonempty", "observation_count": 42, "sample_observations": []}})
+    result = await gateway_data_check(gw, _ep("SPC"))
+    assert result.ok is True
+    assert result.sample_value is None
+    assert "not verified" in (result.error or "")

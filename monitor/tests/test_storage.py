@@ -207,6 +207,8 @@ def test_migration_rebuilds_table_with_stale_kind_constraint(tmp_path):
         assert row["endpoint_key"] == "SPC"
         assert row["obs_count"] == 483
         assert row["sample_value"] is None
+        # foreign key enforcement, toggled off for the rebuild, is back on afterward
+        assert store._conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         # and the new kind now inserts, which the old constraint forbade
         cid = store.open_cycle("2026-07-25T10:00:00+00:00")
         store.add_result(cid, CheckResult("SPC", "direct", "json", ok=True, latency_ms=12))
@@ -217,7 +219,7 @@ def test_migration_rebuilds_table_with_stale_kind_constraint(tmp_path):
         store.close()
 
 
-def test_migration_leaves_foreign_keys_enforced(tmp_path):
+def test_fresh_store_enforces_foreign_keys(tmp_path):
     store = Store(tmp_path / "fk.db")
     try:
         row = store._conn.execute("PRAGMA foreign_keys").fetchone()

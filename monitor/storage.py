@@ -5,6 +5,7 @@ A single connection guarded by a lock is enough at this scale; ISO-8601 UTC
 strings sort correctly, so time filters are plain string comparisons.
 """
 
+import re
 import sqlite3
 import threading
 from dataclasses import asdict, dataclass
@@ -40,6 +41,10 @@ CREATE INDEX IF NOT EXISTS idx_results_endpoint ON results(endpoint_key, cycle_i
 CREATE INDEX IF NOT EXISTS idx_cycles_started ON cycles(started_at);
 """
 
+# Matches the kind column's own CHECK clause, e.g. "CHECK (kind IN ('metadata', 'data'))",
+# not any other CHECK in the table's DDL (e.g. the one on `path`).
+_KIND_CHECK_RE = re.compile(r"CHECK\s*\(\s*kind\s+IN\s*\(([^)]*)\)\s*\)", re.IGNORECASE)
+
 
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -49,7 +54,7 @@ def utcnow_iso() -> str:
 class CheckResult:
     endpoint_key: str
     path: str  # "gateway" | "direct"
-    kind: str  # "metadata" | "data"
+    kind: str  # "metadata" | "data" | "json"
     ok: bool
     skipped: bool = False
     latency_ms: int | None = None
@@ -102,20 +107,23 @@ class Store:
             self._rebuild_results_table()
 
     def _results_kind_check_is_stale(self) -> bool:
-        """True if results has a 'kind' CHECK that predates the 'json' kind.
+        """True if results has a `CHECK (kind IN (...))` clause that omits 'json'.
 
-        A table with no CHECK at all (e.g. a hand-built test fixture) needs no
-        rebuild -- the decision is keyed on "a kind CHECK exists and it lacks
-        'json'", not on the mere presence/absence of a CHECK.
+        Matches specifically the kind column's own CHECK constraint (via
+        _KIND_CHECK_RE), not just any CHECK present in the table's DDL -- the
+        table also has one on `path`, which must not trigger a rebuild. A
+        table with no kind CHECK at all (e.g. a hand-built test fixture)
+        likewise needs no rebuild.
         """
         row = self._conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='results'"
         ).fetchone()
         if row is None or row["sql"] is None:
             return False
-        ddl = row["sql"]
-        has_kind_check = "kind" in ddl and "CHECK" in ddl.upper()
-        return has_kind_check and "'json'" not in ddl
+        match = _KIND_CHECK_RE.search(row["sql"])
+        if match is None:
+            return False
+        return "'json'" not in match.group(1)
 
     def _rebuild_results_table(self) -> None:
         """Rebuild results with the current schema, preserving every row.

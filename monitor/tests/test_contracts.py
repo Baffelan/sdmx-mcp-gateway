@@ -292,6 +292,30 @@ async def test_error_semantics_change_is_broken():
 
 
 @respx.mock
+async def test_missing_artefact_404_is_not_a_spec_deviation():
+    """404 is what the standard prescribes for a missing artefact."""
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(missing_artefact_url(ep, exp)).respond(404, text="not found")
+    async with httpx.AsyncClient() as client:
+        result = await check_error_semantics(client, ep, exp)
+    assert result.verdict == "ok"
+    assert result.spec_verdict == "conforms"
+    assert result.error is None
+
+
+@respx.mock
+async def test_missing_artefact_204_still_deviates():
+    """204 is not a documented response code anywhere in the 2.1 spec."""
+    ep, exp = _ep("IMF"), EXPECTATIONS["IMF"]
+    respx.get(missing_artefact_url(ep, exp)).respond(204)
+    async with httpx.AsyncClient() as client:
+        result = await check_error_semantics(client, ep, exp)
+    assert result.verdict == "ok"
+    assert result.spec_verdict == "deviates"
+    assert "204" in (result.error or "")
+
+
+@respx.mock
 async def test_auth_broken_when_a_provider_starts_demanding_a_key():
     ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
     respx.get(listing_url(ep)).respond(401, text="denied")

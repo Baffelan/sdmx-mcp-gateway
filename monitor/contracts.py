@@ -275,7 +275,12 @@ async def check_error_semantics(
                               observed="transport error", latency_ms=latency,
                               error=error)
     observed = resp.status_code
-    spec_verdict, spec_note = classify_status(observed, legal_request=True)
+    # This probe deliberately asks for an artefact that does not exist, so a
+    # rejection is the conforming outcome (legal_request=False) rather than a
+    # deviation; the undocumented-status check inside classify_status still
+    # runs first, so an undocumented code like IMF's 204 is correctly flagged
+    # as a deviation regardless.
+    spec_verdict, spec_note = classify_status(observed, legal_request=False)
     matches = observed == exp.missing_artefact_status
     return ContractResult(
         ep.key, "errors:missing_artefact", verdict="ok" if matches else "broken",

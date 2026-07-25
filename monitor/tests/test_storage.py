@@ -157,3 +157,84 @@ def test_migration_adds_columns_to_preexisting_db(tmp_path):
         assert store.latest_cycle()["results"][0]["sample_value"] == "1.1377"
     finally:
         store.close()
+
+
+def test_migration_rebuilds_table_with_stale_kind_constraint(tmp_path):
+    """The deployed database was created before the json check existed; its
+    CHECK constraint would reject the new rows, and SQLite cannot widen a
+    CHECK in place, so the table must be rebuilt with its rows preserved."""
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE cycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            gateway_up INTEGER NOT NULL DEFAULT 0,
+            gateway_latency_ms INTEGER,
+            drift TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE results (
+            cycle_id INTEGER NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+            endpoint_key TEXT NOT NULL,
+            path TEXT NOT NULL CHECK (path IN ('gateway', 'direct')),
+            kind TEXT NOT NULL CHECK (kind IN ('metadata', 'data')),
+            ok INTEGER NOT NULL,
+            skipped INTEGER NOT NULL DEFAULT 0,
+            latency_ms INTEGER,
+            http_status INTEGER,
+            obs_count INTEGER,
+            error TEXT,
+            attempts INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX idx_results_cycle ON results(cycle_id);
+        INSERT INTO cycles (id, started_at, finished_at, gateway_up, gateway_latency_ms, drift)
+        VALUES (1, '2026-07-25T09:00:00+00:00', '2026-07-25T09:01:00+00:00', 1, 42, '');
+        INSERT INTO results (cycle_id, endpoint_key, path, kind, ok, obs_count)
+        VALUES (1, 'SPC', 'direct', 'data', 1, 483);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = Store(db)
+    try:
+        # the pre-existing row survived the rebuild, with its values intact
+        (row,) = store.latest_cycle()["results"]
+        assert row["endpoint_key"] == "SPC"
+        assert row["obs_count"] == 483
+        assert row["sample_value"] is None
+        # and the new kind now inserts, which the old constraint forbade
+        cid = store.open_cycle("2026-07-25T10:00:00+00:00")
+        store.add_result(cid, CheckResult("SPC", "direct", "json", ok=True, latency_ms=12))
+        store.close_cycle(cid, "2026-07-25T10:01:00+00:00", True, 5, "")
+        kinds = [r["kind"] for r in store.latest_cycle()["results"]]
+        assert kinds == ["json"]
+    finally:
+        store.close()
+
+
+def test_migration_leaves_foreign_keys_enforced(tmp_path):
+    store = Store(tmp_path / "fk.db")
+    try:
+        row = store._conn.execute("PRAGMA foreign_keys").fetchone()
+        assert row[0] == 1
+    finally:
+        store.close()
+
+
+def test_migration_is_idempotent_across_reopens(tmp_path):
+    db = tmp_path / "idem.db"
+    first = Store(db)
+    cid = first.open_cycle("2026-07-25T10:00:00+00:00")
+    first.add_result(cid, CheckResult("SPC", "direct", "json", ok=True))
+    first.close_cycle(cid, "2026-07-25T10:01:00+00:00", True, 1, "")
+    first.close()
+    second = Store(db)  # reopening must not rebuild or lose anything
+    try:
+        assert [r["kind"] for r in second.latest_cycle()["results"]] == ["json"]
+    finally:
+        second.close()

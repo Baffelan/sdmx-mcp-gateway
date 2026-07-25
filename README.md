@@ -33,6 +33,14 @@ curl -X POST https://sdmx-mcp-gateway-production.up.railway.app/mcp \
 
 See [MCP Client Configuration](#mcp-client-configuration) for ready-to-paste configs for Claude Code, Claude Desktop, Codex, Cursor, Zed, and OpenCode.
 
+### Health Status
+
+A standalone monitor checks the hosted gateway and every provider endpoint
+(through the gateway and directly) every 30 minutes. See `monitor/README.md`
+for running or deploying it. Once deployed, its status page shows current
+health, per-endpoint history, and whether a failure sits in the gateway or
+the upstream provider.
+
 ### Self-Hosting
 
 If you prefer to run the server yourself (offline use, private deployments, development on the tools themselves), see [Installation](#installation) and [Running the Server](#running-the-server).

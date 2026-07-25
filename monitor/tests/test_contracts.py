@@ -129,6 +129,51 @@ async def test_transport_error_is_captured_not_raised():
     assert "boom" in (parents.error or "")
 
 
+@respx.mock
+async def test_expected_rejection_of_a_spec_legal_value_is_ok_but_deviates():
+    """ESTAT rejects `parents`, which the standard defines. The gateway already
+    assumes that, so it is not broken, but it is still a deviation."""
+    values = exp_values("ESTAT")
+    bodies = {v: (400, "nope") for v in values}
+    bodies["none"] = (200, BASELINE)
+    bodies["children"] = (200, RICHER)
+    bodies["descendants"] = (200, RICHER)
+    ep, exp = _mock_references("ESTAT", bodies)
+    async with httpx.AsyncClient() as client:
+        results = await check_references(client, ep, exp)
+    parents = _by_assertion(results, "references:parents")
+    assert parents.verdict == "ok"
+    assert parents.spec_verdict == "deviates"
+
+
+@respx.mock
+async def test_missing_baseline_is_reported_on_later_probes():
+    values = exp_values("SPC")
+    bodies = {v: (200, RICHER) for v in values}
+    bodies["none"] = (500, "server error")
+    ep, exp = _mock_references("SPC", bodies)
+    async with httpx.AsyncClient() as client:
+        results = await check_references(client, ep, exp)
+    later = _by_assertion(results, "references:children")
+    assert "ignored-detection unavailable" in (later.error or "")
+
+
+@respx.mock
+async def test_transport_error_on_an_undeclared_value_is_not_a_capability():
+    values = exp_values("ESTAT")
+    bodies = {v: (200, RICHER) for v in values}
+    bodies["none"] = (200, BASELINE)
+    ep, exp = _mock_references("ESTAT", bodies)
+    respx.get(structure_url(_ep("ESTAT"), EXPECTATIONS["ESTAT"],
+                            references="all", detail="allstubs")).mock(
+        side_effect=httpx.ConnectError("boom"))
+    async with httpx.AsyncClient() as client:
+        results = await check_references(client, _ep("ESTAT"), EXPECTATIONS["ESTAT"])
+    result = _by_assertion(results, "references:all")
+    assert result.verdict == "ok"          # a failure is not a new capability
+    assert "boom" in (result.error or "")
+
+
 def exp_values(key: str) -> tuple[str, ...]:
     from contracts_config import REFERENCE_PROBES
     return REFERENCE_PROBES

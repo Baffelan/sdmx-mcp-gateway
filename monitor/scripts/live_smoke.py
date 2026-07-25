@@ -38,6 +38,9 @@ async def main() -> int:
     by_key: dict[str, list[dict]] = {}
     for row in latest["results"]:
         by_key.setdefault(row["endpoint_key"], []).append(row)
+    contracts_by_key: dict[str, list[dict]] = {}
+    for row in store.contracts_for_cycle(latest["id"]):
+        contracts_by_key.setdefault(row["endpoint_key"], []).append(row)
     failures = 0
     for key in sorted(by_key):
         status, reason = derive_status(by_key[key], latest["gateway_up"])
@@ -51,6 +54,11 @@ async def main() -> int:
             if not row["ok"] and not row["skipped"]:
                 print("          " + row["path"] + "/" + row["kind"]
                       + ": " + str(row["error"]))
+        for row in contracts_by_key.get(key, []):
+            if row["verdict"] != "ok":
+                print("          contract " + row["assertion"] + ": " + row["verdict"]
+                      + " (expected " + str(row["expected"]) + ", got "
+                      + str(row["observed"]) + ")")
     print(str(len(by_key)) + " endpoints, " + str(failures) + " not healthy")
     return 0
 

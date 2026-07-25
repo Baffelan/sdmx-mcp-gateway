@@ -54,6 +54,47 @@ REST API (`metadata`, `data`, `json`).
   `dataSets` array. IMF, Eurostat, and Stats NZ do not serve SDMx-JSON,
   so their `json` checks are recorded as skipped rather than failed.
 
+## API contracts
+
+Beyond the five checks above, each cycle also asserts a set of behavioural
+contracts per provider: not "does this dataflow exist" but "does the SDMx
+API still behave the way the gateway assumes it behaves". An assertion is a
+single probe of one such assumption, e.g. "`references=parents` returns
+HTTP 200 for this provider" or "a missing artefact returns HTTP 404". Every
+probe uses `detail=allstubs` so the sweep stays small: it shrinks IMF's
+`references=all` response from 2.8 MB to 18 KB while still exercising the
+parameter.
+
+Each assertion resolves to one of four verdicts:
+
+- **ok** - the provider still behaves the way the gateway assumes.
+- **broken** - the provider stopped behaving the way the gateway assumes;
+  a query the gateway relies on will now fail or return nothing.
+- **ignored** - the provider accepts the parameter but its answer does not
+  change (e.g. `references=parents` returns exactly what `references=none`
+  would); the request is not rejected, but it does not do anything either.
+- **capability_appeared** - the provider now supports something the gateway
+  assumed it did not; not a failure, but worth knowing so the gateway's
+  fallback logic can eventually be simplified.
+
+`broken` degrades an endpoint's status (folded into the same `degraded`
+state the five basic checks use); `ignored` and `capability_appeared` are
+informational and never change the endpoint's health.
+
+Each result also carries a `spec_verdict` (`conforms` or `deviates`)
+judging the observation against the SDMx REST standard itself, independent
+of what the gateway expects. A provider can deviate from the standard while
+still matching the gateway's (already-adjusted-for-that-deviation)
+expectation; the two verdicts answer different questions: "did the gateway's
+assumption survive" versus "does the standard's own rule hold".
+
+The pinned expectations live in `contracts_config.py` and were verified live
+against every provider on 2026-07-25. The `/api/contracts` endpoint and the
+conformance view on the status page are the living replacement for the
+February 2026 snapshot in `sdmx-api-interoperability-issues.md` at the
+workspace root: instead of a one-time write-up, provider conformance is
+now re-checked every cycle and any drift shows up automatically.
+
 ## Configuration (env vars)
 
 | Var | Default | Meaning |

@@ -279,3 +279,16 @@ def test_cycle_endpoint_handles_a_cycle_with_no_contracts(store: Store, client: 
     cid = _seed_unicef_outage(store, utcnow_iso())
     (endpoint,) = client.get("/api/cycle/" + str(cid)).json()["endpoints"]
     assert endpoint["contracts"]["total"] == 0
+
+
+def test_history_summary_handles_rows_without_error_text(store: Store, client: TestClient):
+    """A failing row with no error text must not render as "HTTP None"."""
+    cid = store.open_cycle(utcnow_iso())
+    store.add_result(cid, CheckResult("SPC", "direct", "metadata", ok=False,
+                                      http_status=502))
+    store.add_result(cid, CheckResult("SPC", "direct", "data", ok=False))
+    store.close_cycle(cid, utcnow_iso(), gateway_up=True, gateway_latency_ms=5, drift="")
+    (point,) = client.get("/api/history?hours=24").json()["series"]["SPC"]
+    assert "direct metadata: HTTP 502" in point["failing"]
+    assert "direct data: no response" in point["failing"]
+    assert not any("None" in entry for entry in point["failing"])

@@ -204,7 +204,11 @@ def create_app(store: Store | None = None, enable_scheduler: bool = True) -> Fas
                     for row in rows:
                         if row["ok"] or row["skipped"]:
                             continue
-                        detail = (row["error"] or "").strip() or ("HTTP " + str(row["http_status"]))
+                        detail = (row["error"] or "").strip()
+                        if not detail:
+                            detail = ("HTTP " + str(row["http_status"])
+                                      if row["http_status"] is not None
+                                      else "no response")
                         failing.append(row["path"] + " " + row["kind"] + ": " + detail[:120])
                 series.setdefault(key, []).append(
                     {

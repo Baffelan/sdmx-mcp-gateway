@@ -156,3 +156,56 @@ def test_status_exposes_sample_values(store: Store, client: TestClient):
     (check,) = endpoint["checks"]
     assert check["sample_value"] == "1345.2"
     assert check["sample_period"] == "2000"
+
+
+def _seed_contract(store: Store, cid: int, **kw):
+    from storage import ContractResult
+    defaults = dict(endpoint_key="SPC", assertion="references:parents",
+                    verdict="ok", observed="200")
+    defaults.update(kw)
+    store.add_contract(cid, ContractResult(**defaults))
+
+
+def test_status_summarises_contracts(store: Store, client: TestClient):
+    cid = store.open_cycle(utcnow_iso())
+    store.add_result(cid, CheckResult("SPC", "direct", "metadata", ok=True))
+    _seed_contract(store, cid)
+    _seed_contract(store, cid, assertion="references:all", verdict="broken",
+                   observed="400")
+    _seed_contract(store, cid, assertion="dialect:sdmx3",
+                   verdict="capability_appeared", observed="200")
+    store.close_cycle(cid, utcnow_iso(), gateway_up=True, gateway_latency_ms=1, drift="")
+    body = client.get("/api/status").json()
+    (endpoint,) = body["endpoints"]
+    assert endpoint["contracts"]["total"] == 3
+    assert endpoint["contracts"]["broken"] == ["references:all"]
+    assert "dialect:sdmx3" in endpoint["contracts"]["informational"]
+    # a broken contract degrades the endpoint
+    assert endpoint["status"] == "degraded"
+
+
+def test_contracts_endpoint_reports_changes_since_the_previous_cycle(
+    store: Store, client: TestClient
+):
+    first = store.open_cycle("2026-07-25T08:00:00+00:00")
+    _seed_contract(store, first, assertion="constraint:availableconstraint",
+                   observed="500")
+    store.close_cycle(first, "2026-07-25T08:01:00+00:00", True, 1, "")
+    second = store.open_cycle(utcnow_iso())
+    _seed_contract(store, second, assertion="constraint:availableconstraint",
+                   observed="200", verdict="capability_appeared")
+    store.close_cycle(second, utcnow_iso(), True, 1, "")
+
+    body = client.get("/api/contracts").json()
+    (change,) = body["changes"]
+    assert change["endpoint_key"] == "SPC"
+    assert change["assertion"] == "constraint:availableconstraint"
+    assert change["was"] == "500"
+    assert change["now"] == "200"
+    assert "SPC" in body["matrix"]
+
+
+def test_contracts_endpoint_is_empty_on_a_fresh_store(client: TestClient):
+    body = client.get("/api/contracts").json()
+    assert body["changes"] == []
+    assert body["matrix"] == {}

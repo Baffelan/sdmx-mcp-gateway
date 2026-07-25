@@ -97,9 +97,13 @@ def create_app(store: Store | None = None, enable_scheduler: bool = True) -> Fas
         by_key: dict[str, list[dict]] = {}
         for row in latest["results"]:
             by_key.setdefault(row["endpoint_key"], []).append(row)
+        contracts_by_key: dict[str, list[dict]] = {}
+        for row in s.contracts_for_cycle(latest["id"]):
+            contracts_by_key.setdefault(row["endpoint_key"], []).append(row)
         endpoints_payload = []
         for key, rows in sorted(by_key.items()):
-            status, reason = derive_status(rows, latest["gateway_up"])
+            contract_rows = contracts_by_key.get(key, [])
+            status, reason = derive_status(rows, latest["gateway_up"], contract_rows)
             ep = ENDPOINTS_BY_KEY.get(key)
             endpoints_payload.append(
                 {
@@ -109,6 +113,16 @@ def create_app(store: Store | None = None, enable_scheduler: bool = True) -> Fas
                     "reason": reason,
                     "last_success": s.last_success(key),
                     "checks": rows,
+                    "contracts": {
+                        "total": len(contract_rows),
+                        "broken": [c["assertion"] for c in contract_rows
+                                   if c["verdict"] == "broken"],
+                        "informational": [
+                            c["assertion"] for c in contract_rows
+                            if c["verdict"] in ("capability_appeared", "ignored")
+                        ],
+                        "rows": contract_rows,
+                    },
                 }
             )
         return {
@@ -123,6 +137,34 @@ def create_app(store: Store | None = None, enable_scheduler: bool = True) -> Fas
             "check_interval_min": CHECK_INTERVAL_MIN,
             "drift": [d for d in latest["drift"].split("; ") if d],
             "endpoints": endpoints_payload,
+        }
+
+    @app.get("/api/contracts")
+    def api_contracts(request: Request) -> dict:
+        s: Store = request.app.state.store
+        latest = s.latest_cycle()
+        if latest is None:
+            return {"cycle": None, "changes": [], "matrix": {}}
+        rows = s.contracts_for_cycle(latest["id"])
+        previous = s.previous_contract_values(latest["id"])
+        changes = []
+        matrix: dict[str, list[dict]] = {}
+        for row in rows:
+            matrix.setdefault(row["endpoint_key"], []).append(row)
+            was = previous.get((row["endpoint_key"], row["assertion"]))
+            if was is not None and row["observed"] is not None and was != row["observed"]:
+                changes.append({
+                    "endpoint_key": row["endpoint_key"],
+                    "assertion": row["assertion"],
+                    "was": was,
+                    "now": row["observed"],
+                    "verdict": row["verdict"],
+                    "spec_verdict": row["spec_verdict"],
+                })
+        return {
+            "cycle": {"id": latest["id"], "started_at": latest["started_at"]},
+            "changes": changes,
+            "matrix": matrix,
         }
 
     @app.get("/api/history")

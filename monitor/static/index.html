@@ -40,6 +40,12 @@ table{border-collapse:collapse;width:100%;margin-top:8px;font-size:13px}
 th,td{text-align:left;padding:4px 8px;border-bottom:1px solid rgba(137,135,129,.25)}
 th{color:var(--muted);font-weight:500}
 .err{color:var(--critical)}
+#changes{margin-top:8px}
+#changes h2{font-size:15px;margin:12px 0 4px}
+.matrix-wrap{display:none;overflow-x:auto;margin-top:24px}
+.matrix-wrap h2{font-size:15px;margin:0 0 8px}
+.matrix{white-space:nowrap}
+.matrix th,.matrix td{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -51,7 +57,12 @@ th{color:var(--muted);font-weight:500}
 </header>
 <div id="banner"></div>
 <div id="drift" class="sub"></div>
+<div id="changes"></div>
 <div class="grid" id="cards"></div>
+<div class="matrix-wrap" id="matrix-wrap">
+  <h2>API conformance matrix</h2>
+  <table class="matrix" id="matrix"></table>
+</div>
 <script>
 const STATUS = {
   healthy:       {color: "var(--good)",     icon: "✓", label: "Healthy"},
@@ -82,6 +93,17 @@ function card(ep, series){
   const cells = (series || []).map((p) =>
     '<span style="background:' + meta(p.status).color + '" title="' +
     esc(p.started_at) + " · " + esc(meta(p.status).label) + '"></span>').join("");
+  const con = ep.contracts || {total: 0, broken: [], informational: []};
+  const conLine = con.total
+    ? '<div class="sub">API contract: ' +
+      (con.broken.length
+        ? '<span class="err">' + con.broken.length + ' broken (' +
+          esc(con.broken.join(", ")) + ')</span>'
+        : con.total + "/" + con.total + " ok") +
+      (con.informational.length
+        ? " &middot; " + esc(con.informational.length) + " informational"
+        : "") + "</div>"
+    : "";
   return '<div class="card">' +
     '<div class="row">' +
       '<span class="dot" style="background:' + m.color + '"></span>' +
@@ -92,11 +114,55 @@ function card(ep, series){
         " · last success: " + esc(ep.last_success || "never") + "</span>" +
     "</div>" +
     '<div class="sub">' + esc(ep.reason) + "</div>" +
+    conLine +
     '<div class="bar">' + cells + "</div>" +
     "<details><summary>check details</summary><table>" +
     "<tr><th>path</th><th>kind</th><th>result</th><th>latency</th>" +
     "<th>HTTP</th><th>obs</th><th>sample</th><th>error</th></tr>" +
     ep.checks.map(checkRow).join("") + "</table></details></div>";
+}
+
+function renderMatrix(matrix){
+  const wrap = document.getElementById("matrix-wrap");
+  const el = document.getElementById("matrix");
+  const keys = Object.keys(matrix || {}).sort();
+  if (!keys.length){
+    wrap.style.display = "none";
+    el.innerHTML = "";
+    return;
+  }
+  wrap.style.display = "";
+  const assertions = [...new Set(keys.flatMap((k) => matrix[k].map((r) => r.assertion)))].sort();
+  const header = "<tr><th>endpoint</th>" +
+    assertions.map((a) => "<th>" + esc(a) + "</th>").join("") + "</tr>";
+  const rows = keys.map((k) => {
+    const byAssertion = {};
+    matrix[k].forEach((r) => { byAssertion[r.assertion] = r; });
+    const cells = assertions.map((a) => {
+      const r = byAssertion[a];
+      if (!r) return "<td></td>";
+      const cls = r.verdict === "broken" ? ' class="err"' : "";
+      return "<td" + cls + ">" + esc(r.verdict) + "</td>";
+    }).join("");
+    return "<tr><td>" + esc(k) + "</td>" + cells + "</tr>";
+  }).join("");
+  el.innerHTML = header + rows;
+}
+
+async function loadContracts(){
+  const data = await fetch("/api/contracts").then((r) => r.json());
+  const el = document.getElementById("changes");
+  if (!data.changes.length){
+    el.innerHTML = "";
+  } else {
+    el.innerHTML = "<h2>Contract changes since the previous check</h2>" +
+      data.changes.map((c) =>
+        '<div class="sub">' + esc(c.endpoint_key) + " " + esc(c.assertion) +
+        ": " + esc(c.was) + " &rarr; " + esc(c.now) +
+        (c.spec_verdict === "deviates" ? " (deviates from the SDMx standard)" : "") +
+        "</div>").join("");
+  }
+  renderMatrix(data.matrix);
 }
 
 async function load(){
@@ -126,6 +192,11 @@ async function load(){
   } catch (err) {
     document.getElementById("gateway-state").textContent = "status API unreachable";
     return;
+  }
+  try {
+    await loadContracts();
+  } catch (err) {
+    // contract data is supplementary; the core status page still works without it
   }
 }
 

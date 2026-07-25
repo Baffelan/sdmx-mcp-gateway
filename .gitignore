@@ -16,3 +16,6 @@ wheels/
 
 # Tool artifacts
 .codex
+
+# Monitor service data
+monitor/data/

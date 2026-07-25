@@ -70,6 +70,17 @@ def test_last_success_ignores_failing_and_skipped_cycles(store: Store):
     assert store.last_success("SPC") == "2026-07-24T12:00:00+00:00"
 
 
+def test_unfinished_cycles_are_invisible_to_readers(store: Store):
+    done = store.open_cycle("2026-07-24T10:00:00+00:00")
+    store.add_result(done, _result())
+    store.close_cycle(done, "2026-07-24T10:01:00+00:00", True, 5, "")
+    store.open_cycle("2026-07-24T10:30:00+00:00")  # in progress, never closed
+    latest = store.latest_cycle()
+    assert latest is not None and latest["id"] == done
+    since = store.cycles_since("2026-07-24T00:00:00+00:00")
+    assert [c["id"] for c in since] == [done]
+
+
 def test_prune_removes_old_cycles_and_results(store: Store):
     old = store.open_cycle("2026-01-01T00:00:00+00:00")
     store.add_result(old, _result())

@@ -134,7 +134,7 @@ class Store:
     def latest_cycle(self) -> dict | None:
         with self._lock:
             row = self._conn.execute(
-                "SELECT * FROM cycles ORDER BY id DESC LIMIT 1"
+                "SELECT * FROM cycles WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1"
             ).fetchone()
         if row is None:
             return None
@@ -143,7 +143,8 @@ class Store:
     def cycles_since(self, since_iso: str) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM cycles WHERE started_at >= ? ORDER BY id ASC",
+                "SELECT * FROM cycles WHERE started_at >= ? AND finished_at IS NOT NULL "
+                "ORDER BY id ASC",
                 (since_iso,),
             ).fetchall()
         return [self._cycle_dict(r) for r in rows]

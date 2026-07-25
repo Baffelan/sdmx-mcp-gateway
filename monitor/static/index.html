@@ -79,7 +79,7 @@ function card(ep, series){
   const worst = latencies.length ? Math.max(...latencies) + " ms" : "";
   const cells = (series || []).map((p) =>
     '<span style="background:' + meta(p.status).color + '" title="' +
-    esc(p.started_at) + " — " + esc(meta(p.status).label) + '"></span>').join("");
+    esc(p.started_at) + " · " + esc(meta(p.status).label) + '"></span>').join("");
   return '<div class="card">' +
     '<div class="row">' +
       '<span class="dot" style="background:' + m.color + '"></span>' +
@@ -98,28 +98,33 @@ function card(ep, series){
 }
 
 async function load(){
-  const [status, history] = await Promise.all([
-    fetch("/api/status").then((r) => r.json()),
-    fetch("/api/history?hours=168").then((r) => r.json()),
-  ]);
-  const gw = document.getElementById("gateway-state");
-  if (!status.cycle){
-    gw.textContent = "no checks recorded yet";
-  } else {
-    gw.textContent = status.cycle.gateway_up
-      ? "gateway up (" + status.cycle.gateway_latency_ms + " ms)"
-      : "gateway DOWN";
-    document.getElementById("last-run").textContent =
-      "last check: " + status.cycle.started_at;
+  try {
+    const [status, history] = await Promise.all([
+      fetch("/api/status").then((r) => r.json()),
+      fetch("/api/history?hours=168").then((r) => r.json()),
+    ]);
+    const gw = document.getElementById("gateway-state");
+    if (!status.cycle){
+      gw.textContent = "no checks recorded yet";
+    } else {
+      gw.textContent = status.cycle.gateway_up
+        ? "gateway up (" + status.cycle.gateway_latency_ms + " ms)"
+        : "gateway DOWN";
+      document.getElementById("last-run").textContent =
+        "last check: " + status.cycle.started_at;
+    }
+    const banner = document.getElementById("banner");
+    banner.style.display = status.stale ? "block" : "none";
+    banner.textContent = "Checks are stale. The scheduler may be down; " +
+      "expected every " + status.check_interval_min + " min.";
+    document.getElementById("drift").textContent =
+      (status.drift || []).map((d) => "⚠ " + d).join("  ");
+    document.getElementById("cards").innerHTML = status.endpoints
+      .map((ep) => card(ep, (history.series || {})[ep.key])).join("");
+  } catch (err) {
+    document.getElementById("gateway-state").textContent = "status API unreachable";
+    return;
   }
-  const banner = document.getElementById("banner");
-  banner.style.display = status.stale ? "block" : "none";
-  banner.textContent = "Checks are stale. The scheduler may be down; " +
-    "expected every " + status.check_interval_min + " min.";
-  document.getElementById("drift").textContent =
-    (status.drift || []).map((d) => "⚠ " + d).join("  ");
-  document.getElementById("cards").innerHTML = status.endpoints
-    .map((ep) => card(ep, (history.series || {})[ep.key])).join("");
 }
 
 document.getElementById("refresh").addEventListener("click", async (ev) => {

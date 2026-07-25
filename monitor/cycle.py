@@ -103,7 +103,10 @@ async def run_cycle(
         cycle_error = ("cycle error: " + str(exc))[:300]
     finally:
         if gw_cm is not None and entered:
-            await gw_cm.__aexit__(None, None, None)
+            try:
+                await gw_cm.__aexit__(None, None, None)
+            except Exception as exc:
+                logger.warning("gateway session close failed: %s", exc)
 
     if cycle_error:
         drift = (drift + "; " if drift else "") + cycle_error

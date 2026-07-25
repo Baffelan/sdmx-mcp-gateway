@@ -90,3 +90,70 @@ def test_prune_removes_old_cycles_and_results(store: Store):
     removed = store.prune("2026-06-01T00:00:00+00:00")
     assert removed == 1
     assert [c["id"] for c in store.cycles_since("2020-01-01T00:00:00+00:00")] == [keep]
+
+
+def test_sample_value_roundtrip(store: Store):
+    cid = store.open_cycle("2026-07-25T10:00:00+00:00")
+    store.add_result(cid, CheckResult("SPC", "direct", "data", ok=True, obs_count=483,
+                                      sample_value="1345.2", sample_period="2000"))
+    store.close_cycle(cid, "2026-07-25T10:01:00+00:00", True, 10, "")
+    (row,) = store.latest_cycle()["results"]
+    assert row["sample_value"] == "1345.2"
+    assert row["sample_period"] == "2000"
+
+
+def test_migration_adds_columns_to_preexisting_db(tmp_path):
+    """A database created before this change must gain the new columns in place,
+    keeping its existing rows (the production DB lives on a Railway volume)."""
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE cycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            gateway_up INTEGER NOT NULL DEFAULT 0,
+            gateway_latency_ms INTEGER,
+            drift TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE results (
+            cycle_id INTEGER NOT NULL,
+            endpoint_key TEXT NOT NULL,
+            path TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            ok INTEGER NOT NULL,
+            skipped INTEGER NOT NULL DEFAULT 0,
+            latency_ms INTEGER,
+            http_status INTEGER,
+            obs_count INTEGER,
+            error TEXT,
+            attempts INTEGER NOT NULL DEFAULT 1
+        );
+        INSERT INTO cycles (id, started_at, finished_at, gateway_up, gateway_latency_ms, drift)
+        VALUES (1, '2026-07-25T09:00:00+00:00', '2026-07-25T09:01:00+00:00', 1, 42, '');
+        INSERT INTO results (cycle_id, endpoint_key, path, kind, ok)
+        VALUES (1, 'SPC', 'direct', 'data', 1);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = Store(db)  # must migrate, not crash
+    try:
+        latest = store.latest_cycle()
+        assert latest["id"] == 1
+        (row,) = latest["results"]
+        assert row["endpoint_key"] == "SPC"
+        assert row["sample_value"] is None
+        assert row["sample_period"] is None
+        # and new writes work against the migrated table
+        cid = store.open_cycle("2026-07-25T10:00:00+00:00")
+        store.add_result(cid, CheckResult("ECB", "direct", "data", ok=True,
+                                          sample_value="1.1377", sample_period="2026-07-24"))
+        store.close_cycle(cid, "2026-07-25T10:01:00+00:00", True, 5, "")
+        assert store.latest_cycle()["results"][0]["sample_value"] == "1.1377"
+    finally:
+        store.close()

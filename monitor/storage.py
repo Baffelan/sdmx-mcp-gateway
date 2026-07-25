@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS results (
     latency_ms INTEGER,
     http_status INTEGER,
     obs_count INTEGER,
+    sample_value TEXT,
+    sample_period TEXT,
     error TEXT,
     attempts INTEGER NOT NULL DEFAULT 1
 );
@@ -53,6 +55,8 @@ class CheckResult:
     latency_ms: int | None = None
     http_status: int | None = None
     obs_count: int | None = None
+    sample_value: str | None = None
+    sample_period: str | None = None
     error: str | None = None
     attempts: int = 1
 
@@ -67,6 +71,22 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was first created.
+
+        CREATE TABLE IF NOT EXISTS leaves an existing table untouched, so a
+        database created by an earlier version (the deployed one lives on a
+        Railway volume) needs its new columns added in place.
+        """
+        existing = {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(results)").fetchall()
+        }
+        for column in ("sample_value", "sample_period"):
+            if column not in existing:
+                self._conn.execute("ALTER TABLE results ADD COLUMN " + column + " TEXT")
+        self._conn.commit()
 
     def open_cycle(self, started_at: str) -> int:
         with self._lock:
@@ -97,8 +117,9 @@ class Store:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO results (cycle_id, endpoint_key, path, kind, ok, skipped, "
-                "latency_ms, http_status, obs_count, error, attempts) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "latency_ms, http_status, obs_count, sample_value, sample_period, "
+                "error, attempts) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     cycle_id,
                     fields["endpoint_key"],
@@ -109,6 +130,8 @@ class Store:
                     fields["latency_ms"],
                     fields["http_status"],
                     fields["obs_count"],
+                    fields["sample_value"],
+                    fields["sample_period"],
                     fields["error"],
                     fields["attempts"],
                 ),

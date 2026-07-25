@@ -45,6 +45,9 @@ async def main() -> int:
             failures += 1
         print(f"{key:9s} {status:14s} {reason}")
         for row in by_key[key]:
+            if row["ok"] and row["kind"] == "data" and row.get("sample_value"):
+                print("          " + row["path"] + "/data sample: " + str(row["sample_value"])
+                      + " @ " + str(row.get("sample_period")))
             if not row["ok"] and not row["skipped"]:
                 print("          " + row["path"] + "/" + row["kind"]
                       + ": " + str(row["error"]))

@@ -61,6 +61,8 @@ async def test_data_ok_on_nonempty_probe():
     assert name == "probe_data_url"
     assert args["data_url"] == ep.data_url
     assert args["timeout_ms"] == 30000
+    assert args["sample_observations_limit"] == 50
+    assert args["endpoint"] == ep.key
 
 
 async def test_data_fails_on_empty_or_error_probe():
@@ -119,3 +121,25 @@ async def test_data_passes_without_samples_but_notes_it():
     assert result.ok is True
     assert result.sample_value is None
     assert "not verified" in (result.error or "")
+
+
+async def test_data_passes_when_null_samples_do_not_cover_the_result():
+    """Sparse slices are normal: several providers return empty values for part
+    of a slice, and the probe only samples the first rows."""
+    gw = FakeGateway({"probe_data_url": {
+        "status": "nonempty", "observation_count": 70,
+        "sample_observations": [{"dimensions": {}, "value": None} for _ in range(5)]}})
+    result = await gateway_data_check(gw, _ep("FBOS"))
+    assert result.ok is True
+    assert result.sample_value is None
+    assert "not verified" in (result.error or "")
+
+
+async def test_data_fails_when_null_samples_cover_the_whole_result():
+    """Every observation was sampled and none had a value: that is not data."""
+    gw = FakeGateway({"probe_data_url": {
+        "status": "nonempty", "observation_count": 1,
+        "sample_observations": [{"dimensions": {}, "value": None}]}})
+    result = await gateway_data_check(gw, _ep("ESTAT"))
+    assert result.ok is False
+    assert "no non-null" in (result.error or "")

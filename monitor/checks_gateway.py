@@ -106,7 +106,12 @@ async def gateway_data_check(gw, ep: Endpoint, timeout_s: float = 30.0) -> Check
     try:
         payload = await gw.call_tool(
             "probe_data_url",
-            {"data_url": ep.data_url, "timeout_ms": int(timeout_s * 1000)},
+            {
+                "data_url": ep.data_url,
+                "timeout_ms": int(timeout_s * 1000),
+                "sample_observations_limit": 50,
+                "endpoint": ep.key,
+            },
         )
     except Exception as exc:
         return CheckResult(ep.key, "gateway", "data", ok=False,
@@ -125,11 +130,16 @@ async def gateway_data_check(gw, ep: Endpoint, timeout_s: float = 30.0) -> Check
             period = dims.get("TIME_PERIOD") if isinstance(dims, dict) else None
             sample_period = str(period) if period else None
             break
-        if samples and sample_value is None:
+        if samples and sample_value is None and obs <= len(samples):
             return CheckResult(ep.key, "gateway", "data", ok=False, latency_ms=_ms(start),
                                obs_count=obs,
                                error="probe returned no non-null observation value")
-        note = None if sample_value else "observation values not verified (probe returned no samples)"
+        if sample_value is not None:
+            note = None
+        elif samples:
+            note = "observation values not verified (sampled observations had no values)"
+        else:
+            note = "observation values not verified (probe returned no samples)"
         return CheckResult(ep.key, "gateway", "data", ok=True, latency_ms=_ms(start),
                            obs_count=obs, sample_value=sample_value,
                            sample_period=sample_period, error=note)

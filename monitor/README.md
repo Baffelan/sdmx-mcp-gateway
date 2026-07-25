@@ -35,9 +35,9 @@ Trust the deployed monitor for real status.
 
 ## What each check verifies
 
-Each cycle runs up to four checks per provider: two through the gateway
-(`metadata`, `data`) and two direct against the provider's own SDMx REST
-API (`metadata`, `data`, plus a `json` check).
+Each cycle runs up to five checks per provider: two through the gateway
+(`metadata`, `data`) and three direct against the provider's own SDMx
+REST API (`metadata`, `data`, `json`).
 
 - **gateway metadata**: the gateway's `list_dataflows` tool returns at
   least one dataflow for the provider.

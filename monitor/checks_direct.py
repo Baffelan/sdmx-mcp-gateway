@@ -138,6 +138,12 @@ def verify_json_payload(text: str, content_type: str, requested_accept: str) -> 
     Providers have been observed answering a JSON request with HTTP 200 and a
     different format entirely (IMF returns XML, Stats NZ returns CSV), so the
     body is parsed and its shape checked rather than trusting the status code.
+
+    `dataSets` also isn't in one consistent place: SDMx-JSON 2.0.0 and most
+    1.0.0 responses (SPC, FBOS, SBS, OECD, ILO, ABS, BIS, UNICEF) nest it
+    under a top-level `data` object; ECB's 1.0.0-wd draft variant puts it at
+    the top level instead. Both layouts are accepted.
+
     Returns an error string, or None when the payload is good.
     """
     if "json" not in content_type.lower():
@@ -153,6 +159,8 @@ def verify_json_payload(text: str, content_type: str, requested_accept: str) -> 
     if wanted and served and served != wanted:
         return "served SDMx-JSON version " + served + ", requested " + wanted
     datasets = payload.get("dataSets")
+    if datasets is None and isinstance(payload.get("data"), dict):
+        datasets = payload["data"].get("dataSets")
     if not isinstance(datasets, list) or not datasets:
         return "SDMx-JSON payload has no dataSets"
     return None

@@ -263,6 +263,30 @@ def test_verify_json_payload_accepts_untyped_json_when_shape_is_right():
     ) is None
 
 
+SDMX_JSON_2_NESTED = (
+    '{"meta":{"schema":"https://example/2.0.0/x.json"},'
+    '"data":{"dataSets":[{"action":"Information"}],"structures":[]},"errors":[]}'
+)
+
+
+def test_verify_json_payload_accepts_datasets_nested_under_data():
+    """SDMx-JSON 2.0.0 and most 1.0.0 responses nest dataSets under `data`."""
+    assert verify_json_payload(
+        SDMX_JSON_2_NESTED,
+        "application/vnd.sdmx.data+json; version=2.0.0",
+        "application/vnd.sdmx.data+json;version=2.0.0",
+    ) is None
+
+
+def test_verify_json_payload_rejects_empty_nested_datasets():
+    error = verify_json_payload(
+        '{"meta":{},"data":{"dataSets":[]}}',
+        "application/vnd.sdmx.data+json; version=2.0.0",
+        "application/vnd.sdmx.data+json;version=2.0.0",
+    )
+    assert error is not None and "dataSets" in error
+
+
 @respx.mock
 async def test_run_direct_checks_returns_three_results_with_json_ok():
     ep = _ep("SPC")

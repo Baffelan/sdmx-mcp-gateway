@@ -296,3 +296,25 @@ def test_contracts_are_pruned_with_their_cycle(store: Store):
     store.close_cycle(old, "2026-01-01T00:01:00+00:00", True, 5, "")
     store.prune("2026-06-01T00:00:00+00:00")
     assert store.contracts_for_cycle(old) == []
+
+
+def test_cycle_by_id_returns_a_past_cycle(store: Store):
+    first = store.open_cycle("2026-07-25T05:52:47+00:00")
+    store.add_result(first, CheckResult("UNICEF", "direct", "metadata", ok=False,
+                                        http_status=503, error="HTTP 503"))
+    store.close_cycle(first, "2026-07-25T05:53:00+00:00", True, 40, "")
+    second = store.open_cycle("2026-07-25T06:22:47+00:00")
+    store.close_cycle(second, "2026-07-25T06:23:00+00:00", True, 40, "")
+
+    got = store.cycle_by_id(first)
+    assert got is not None
+    assert got["id"] == first
+    (row,) = got["results"]
+    assert row["endpoint_key"] == "UNICEF"
+    assert row["error"] == "HTTP 503"
+
+
+def test_cycle_by_id_is_none_for_unknown_or_unfinished(store: Store):
+    assert store.cycle_by_id(9999) is None
+    open_cycle = store.open_cycle("2026-07-25T10:00:00+00:00")
+    assert store.cycle_by_id(open_cycle) is None

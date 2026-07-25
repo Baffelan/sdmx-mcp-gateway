@@ -352,6 +352,22 @@ class Store:
             return None
         return self._cycle_dict(row)
 
+    def cycle_by_id(self, cycle_id: int) -> dict | None:
+        """One finished cycle, for looking at a point in the history.
+
+        Unfinished cycles stay invisible here for the same reason they do in
+        `latest_cycle`: a cycle mid-sweep has only some of its rows, and would
+        read as a wave of failures that never happened.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM cycles WHERE id = ? AND finished_at IS NOT NULL",
+                (cycle_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._cycle_dict(row)
+
     def cycles_since(self, since_iso: str) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(

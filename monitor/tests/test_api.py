@@ -209,3 +209,73 @@ def test_contracts_endpoint_is_empty_on_a_fresh_store(client: TestClient):
     body = client.get("/api/contracts").json()
     assert body["changes"] == []
     assert body["matrix"] == {}
+
+
+def _seed_unicef_outage(store: Store, started_at: str) -> int:
+    """The real cycle 2: UNICEF answered 503 on every check, so both metadata
+    checks failed and the endpoint derived as provider_down."""
+    cid = store.open_cycle(started_at)
+    for path, kind in (("gateway", "metadata"), ("gateway", "data"),
+                       ("direct", "metadata"), ("direct", "data")):
+        store.add_result(cid, CheckResult("UNICEF", path, kind, ok=False,
+                                          http_status=503, error="HTTP 503",
+                                          attempts=2))
+    store.close_cycle(cid, started_at, gateway_up=True, gateway_latency_ms=40, drift="")
+    return cid
+
+
+def test_history_summarises_why_a_point_is_red(store: Store, client: TestClient):
+    _seed_unicef_outage(store, utcnow_iso())
+    body = client.get("/api/history?hours=24").json()
+    (point,) = body["series"]["UNICEF"]
+    assert point["status"] == "provider_down"
+    assert len(point["failing"]) == 4
+    assert "direct metadata: HTTP 503" in point["failing"]
+
+
+def test_history_omits_failure_detail_for_healthy_points(store: Store, client: TestClient):
+    cid = store.open_cycle(utcnow_iso())
+    store.add_result(cid, CheckResult("SPC", "direct", "metadata", ok=True))
+    store.close_cycle(cid, utcnow_iso(), gateway_up=True, gateway_latency_ms=5, drift="")
+    (point,) = client.get("/api/history?hours=24").json()["series"]["SPC"]
+    assert point["status"] == "healthy"
+    assert point["failing"] == []
+
+
+def test_history_skips_skipped_checks_in_the_summary(store: Store, client: TestClient):
+    cid = store.open_cycle(utcnow_iso())
+    store.add_result(cid, CheckResult("IMF", "direct", "metadata", ok=False,
+                                      error="HTTP 500"))
+    store.add_result(cid, CheckResult("IMF", "direct", "json", ok=False, skipped=True,
+                                      error="skipped: provider does not serve SDMx-JSON"))
+    store.close_cycle(cid, utcnow_iso(), gateway_up=True, gateway_latency_ms=5, drift="")
+    (point,) = client.get("/api/history?hours=24").json()["series"]["IMF"]
+    assert point["failing"] == ["direct metadata: HTTP 500"]
+
+
+def test_cycle_endpoint_returns_a_past_cycle(store: Store, client: TestClient):
+    cid = _seed_unicef_outage(store, "2026-07-25T05:52:47+00:00")
+    newer = store.open_cycle(utcnow_iso())
+    store.add_result(newer, CheckResult("UNICEF", "direct", "metadata", ok=True))
+    store.close_cycle(newer, utcnow_iso(), gateway_up=True, gateway_latency_ms=5, drift="")
+
+    body = client.get("/api/cycle/" + str(cid)).json()
+    assert body["cycle"]["id"] == cid
+    assert body["cycle"]["started_at"] == "2026-07-25T05:52:47+00:00"
+    (endpoint,) = body["endpoints"]
+    assert endpoint["key"] == "UNICEF"
+    assert endpoint["status"] == "provider_down"
+    assert len(endpoint["checks"]) == 4
+    # the latest cycle is unaffected by asking for an old one
+    assert client.get("/api/status").json()["cycle"]["id"] == newer
+
+
+def test_cycle_endpoint_404s_for_unknown_cycle(client: TestClient):
+    assert client.get("/api/cycle/4242").status_code == 404
+
+
+def test_cycle_endpoint_handles_a_cycle_with_no_contracts(store: Store, client: TestClient):
+    """Cycles recorded before the contract layer must still render."""
+    cid = _seed_unicef_outage(store, utcnow_iso())
+    (endpoint,) = client.get("/api/cycle/" + str(cid)).json()["endpoints"]
+    assert endpoint["contracts"]["total"] == 0

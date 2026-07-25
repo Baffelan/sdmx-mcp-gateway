@@ -33,6 +33,38 @@ STATIC_DIR = Path(__file__).parent / "static"
 ENDPOINTS_BY_KEY = {ep.key: ep for ep in ENDPOINTS}
 
 
+def _endpoint_payloads(store: Store, cycle: dict) -> list[dict]:
+    """Per-endpoint payload for one cycle: derived status plus its raw rows."""
+    contracts_by_key: dict[str, list[dict]] = {}
+    for row in store.contracts_for_cycle(cycle["id"]):
+        contracts_by_key.setdefault(row["endpoint_key"], []).append(row)
+    by_key: dict[str, list[dict]] = {}
+    for row in cycle["results"]:
+        by_key.setdefault(row["endpoint_key"], []).append(row)
+    payloads = []
+    for key, rows in sorted(by_key.items()):
+        contract_rows = contracts_by_key.get(key, [])
+        status, reason = derive_status(rows, cycle["gateway_up"], contract_rows)
+        ep = ENDPOINTS_BY_KEY.get(key)
+        payloads.append({
+            "key": key,
+            "name": ep.name if ep else key,
+            "status": status,
+            "reason": reason,
+            "last_success": store.last_success(key),
+            "checks": rows,
+            "contracts": {
+                "total": len(contract_rows),
+                "broken": [c["assertion"] for c in contract_rows
+                           if c["verdict"] == "broken"],
+                "informational": [c["assertion"] for c in contract_rows
+                                  if c["verdict"] in ("capability_appeared", "ignored")],
+                "rows": contract_rows,
+            },
+        })
+    return payloads
+
+
 def _parse_ts(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
@@ -94,37 +126,6 @@ def create_app(store: Store | None = None, enable_scheduler: bool = True) -> Fas
                 "drift": [],
                 "endpoints": [],
             }
-        by_key: dict[str, list[dict]] = {}
-        for row in latest["results"]:
-            by_key.setdefault(row["endpoint_key"], []).append(row)
-        contracts_by_key: dict[str, list[dict]] = {}
-        for row in s.contracts_for_cycle(latest["id"]):
-            contracts_by_key.setdefault(row["endpoint_key"], []).append(row)
-        endpoints_payload = []
-        for key, rows in sorted(by_key.items()):
-            contract_rows = contracts_by_key.get(key, [])
-            status, reason = derive_status(rows, latest["gateway_up"], contract_rows)
-            ep = ENDPOINTS_BY_KEY.get(key)
-            endpoints_payload.append(
-                {
-                    "key": key,
-                    "name": ep.name if ep else key,
-                    "status": status,
-                    "reason": reason,
-                    "last_success": s.last_success(key),
-                    "checks": rows,
-                    "contracts": {
-                        "total": len(contract_rows),
-                        "broken": [c["assertion"] for c in contract_rows
-                                   if c["verdict"] == "broken"],
-                        "informational": [
-                            c["assertion"] for c in contract_rows
-                            if c["verdict"] in ("capability_appeared", "ignored")
-                        ],
-                        "rows": contract_rows,
-                    },
-                }
-            )
         return {
             "cycle": {
                 "id": latest["id"],
@@ -136,7 +137,24 @@ def create_app(store: Store | None = None, enable_scheduler: bool = True) -> Fas
             "stale": _is_stale(latest["started_at"]),
             "check_interval_min": CHECK_INTERVAL_MIN,
             "drift": [d for d in latest["drift"].split("; ") if d],
-            "endpoints": endpoints_payload,
+            "endpoints": _endpoint_payloads(s, latest),
+        }
+
+    @app.get("/api/cycle/{cycle_id}")
+    def api_cycle(request: Request, cycle_id: int) -> dict:
+        s: Store = request.app.state.store
+        cycle = s.cycle_by_id(cycle_id)
+        if cycle is None:
+            raise HTTPException(404, "no finished cycle with id " + str(cycle_id))
+        return {
+            "cycle": {
+                "id": cycle["id"],
+                "started_at": cycle["started_at"],
+                "finished_at": cycle["finished_at"],
+                "gateway_up": cycle["gateway_up"],
+                "gateway_latency_ms": cycle["gateway_latency_ms"],
+            },
+            "endpoints": _endpoint_payloads(s, cycle),
         }
 
     @app.get("/api/contracts")
@@ -181,11 +199,19 @@ def create_app(store: Store | None = None, enable_scheduler: bool = True) -> Fas
                 by_key.setdefault(row["endpoint_key"], []).append(row)
             for key, rows in by_key.items():
                 status, _ = derive_status(rows, cycle_row["gateway_up"])
+                failing = []
+                if status != "healthy":
+                    for row in rows:
+                        if row["ok"] or row["skipped"]:
+                            continue
+                        detail = (row["error"] or "").strip() or ("HTTP " + str(row["http_status"]))
+                        failing.append(row["path"] + " " + row["kind"] + ": " + detail[:120])
                 series.setdefault(key, []).append(
                     {
                         "cycle_id": cycle_row["id"],
                         "started_at": cycle_row["started_at"],
                         "status": status,
+                        "failing": failing,
                     }
                 )
         return {"hours": hours, "interval_min": CHECK_INTERVAL_MIN, "series": series}

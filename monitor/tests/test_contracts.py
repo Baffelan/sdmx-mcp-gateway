@@ -1,7 +1,19 @@
 import httpx
 import respx
 
-from contracts import check_references, structure_url
+from contracts import (
+    availableconstraint_url,
+    check_auth,
+    check_constraint,
+    check_dialect,
+    check_encoding,
+    check_error_semantics,
+    check_references,
+    listing_url,
+    missing_artefact_url,
+    sdmx3_url,
+    structure_url,
+)
 from contracts_config import EXPECTATIONS
 from endpoints_config import ENDPOINTS
 
@@ -182,3 +194,121 @@ def exp_values(key: str) -> tuple[str, ...]:
 def _by_assertion(results, assertion):
     (match,) = [r for r in results if r.assertion == assertion]
     return match
+
+
+CONSTRAINT_ACTUAL = (
+    "<Structure><ContentConstraint type='Actual'>"
+    "<CubeRegion><KeyValue id='GEO_PICT'><Value>FJ</Value></KeyValue></CubeRegion>"
+    "</ContentConstraint></Structure>"
+)
+CONSTRAINT_ALLOWED = CONSTRAINT_ACTUAL.replace("Actual", "Allowed")
+CONSTRAINT_EMPTY = "<Structure><ContentConstraint type='Actual'/></Structure>"
+
+
+@respx.mock
+async def test_constraint_ok_when_the_configured_mechanism_works():
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_ACTUAL)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    status = _by_assertion(results, "constraint:availableconstraint")
+    assert status.verdict == "ok"
+    assert _by_assertion(results, "constraint:type").observed == "Actual"
+
+
+@respx.mock
+async def test_constraint_broken_when_it_returns_no_key_values():
+    """A 200 carrying an empty constraint is not usable data."""
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_EMPTY)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    assert _by_assertion(results, "constraint:availableconstraint").verdict == "broken"
+
+
+@respx.mock
+async def test_constraint_type_change_is_reported():
+    """A silent switch from Actual to Allowed would make every availability
+    answer over-optimistic without any error surfacing."""
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_ALLOWED)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    type_result = _by_assertion(results, "constraint:type")
+    assert type_result.verdict == "broken"
+    assert type_result.expected == "Actual"
+    assert type_result.observed == "Allowed"
+
+
+@respx.mock
+async def test_constraint_capability_appears_for_an_unsupported_provider():
+    """ILO's /availableconstraint/ returns 500 today; a working one would let
+    the gateway drop its references=all workaround."""
+    ep, exp = _ep("ILO"), EXPECTATIONS["ILO"]
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_ACTUAL)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    assert _by_assertion(
+        results, "constraint:availableconstraint").verdict == "capability_appeared"
+
+
+@respx.mock
+async def test_dialect_reports_sdmx3_appearing():
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(sdmx3_url(ep, exp)).respond(200, text="<Structures/>")
+    async with httpx.AsyncClient() as client:
+        result = await check_dialect(client, ep, exp)
+    assert result.verdict == "capability_appeared"
+    assert "3.0" in (result.error or "")
+
+
+@respx.mock
+async def test_dialect_ok_when_still_refused():
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(sdmx3_url(ep, exp)).respond(404, text="no")
+    async with httpx.AsyncClient() as client:
+        result = await check_dialect(client, ep, exp)
+    assert result.verdict == "ok"
+
+
+@respx.mock
+async def test_error_semantics_match_baseline_and_flag_spec_deviation():
+    ep, exp = _ep("IMF"), EXPECTATIONS["IMF"]
+    respx.get(missing_artefact_url(ep, exp)).respond(204)
+    async with httpx.AsyncClient() as client:
+        result = await check_error_semantics(client, ep, exp)
+    assert result.verdict == "ok"          # matches IMF's recorded baseline
+    assert result.spec_verdict == "deviates"  # 204 is undocumented in the standard
+
+
+@respx.mock
+async def test_error_semantics_change_is_broken():
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(missing_artefact_url(ep, exp)).respond(200, text="<Structure/>")
+    async with httpx.AsyncClient() as client:
+        result = await check_error_semantics(client, ep, exp)
+    assert result.verdict == "broken"
+    assert result.observed == "200"
+
+
+@respx.mock
+async def test_auth_broken_when_a_provider_starts_demanding_a_key():
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(listing_url(ep)).respond(401, text="denied")
+    async with httpx.AsyncClient() as client:
+        result = await check_auth(client, ep, exp)
+    assert result.verdict == "broken"
+    assert result.observed == "401"
+
+
+@respx.mock
+async def test_encoding_broken_when_structure_comes_back_as_json():
+    """Stats NZ has historically served SDMx-JSON for structural metadata
+    unless format=xml is forced."""
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(structure_url(ep, exp, detail="allstubs")).respond(
+        200, text='{"data":{}}', headers={"content-type": "application/json"})
+    async with httpx.AsyncClient() as client:
+        result = await check_encoding(client, ep, exp)
+    assert result.verdict == "broken"
+    assert "json" in (result.observed or "").lower()

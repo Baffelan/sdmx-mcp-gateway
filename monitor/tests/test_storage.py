@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from storage import CheckResult, Store, utcnow_iso
+from storage import CheckResult, ContractResult, Store, utcnow_iso
 
 
 @pytest.fixture()
@@ -240,3 +240,59 @@ def test_migration_is_idempotent_across_reopens(tmp_path):
         assert [r["kind"] for r in second.latest_cycle()["results"]] == ["json"]
     finally:
         second.close()
+
+
+def _contract(key="SPC", assertion="references:parents", verdict="ok", **kw) -> ContractResult:
+    return ContractResult(endpoint_key=key, assertion=assertion, verdict=verdict, **kw)
+
+
+def test_contract_roundtrip(store: Store):
+    cid = store.open_cycle("2026-07-25T10:00:00+00:00")
+    store.add_contract(cid, _contract(
+        spec_verdict="deviates", expected="200", observed="400",
+        verdict="broken", http_status=400, error="rejected", latency_ms=12))
+    store.close_cycle(cid, "2026-07-25T10:01:00+00:00", True, 5, "")
+    (row,) = store.contracts_for_cycle(cid)
+    assert row["endpoint_key"] == "SPC"
+    assert row["assertion"] == "references:parents"
+    assert row["verdict"] == "broken"
+    assert row["spec_verdict"] == "deviates"
+    assert row["expected"] == "200"
+    assert row["observed"] == "400"
+
+
+def test_contracts_for_cycle_is_empty_for_a_cycle_without_contracts(store: Store):
+    cid = store.open_cycle("2026-07-25T10:00:00+00:00")
+    store.close_cycle(cid, "2026-07-25T10:01:00+00:00", True, 5, "")
+    assert store.contracts_for_cycle(cid) == []
+
+
+def test_previous_contract_values_reads_the_most_recent_earlier_cycle(store: Store):
+    first = store.open_cycle("2026-07-25T08:00:00+00:00")
+    store.add_contract(first, _contract(observed="404"))
+    store.add_contract(first, _contract(assertion="dialect:sdmx3", observed="404"))
+    store.close_cycle(first, "2026-07-25T08:01:00+00:00", True, 5, "")
+
+    second = store.open_cycle("2026-07-25T10:00:00+00:00")
+    store.add_contract(second, _contract(observed="200"))  # changed since `first`
+    store.close_cycle(second, "2026-07-25T10:01:00+00:00", True, 5, "")
+
+    third = store.open_cycle("2026-07-25T12:00:00+00:00")
+    previous = store.previous_contract_values(third)
+    # the newest earlier value wins for an assertion recorded twice
+    assert previous[("SPC", "references:parents")] == "200"
+    # and an assertion only seen in an older cycle is still visible
+    assert previous[("SPC", "dialect:sdmx3")] == "404"
+
+
+def test_previous_contract_values_is_empty_on_a_fresh_store(store: Store):
+    cid = store.open_cycle("2026-07-25T10:00:00+00:00")
+    assert store.previous_contract_values(cid) == {}
+
+
+def test_contracts_are_pruned_with_their_cycle(store: Store):
+    old = store.open_cycle("2026-01-01T00:00:00+00:00")
+    store.add_contract(old, _contract())
+    store.close_cycle(old, "2026-01-01T00:01:00+00:00", True, 5, "")
+    store.prune("2026-06-01T00:00:00+00:00")
+    assert store.contracts_for_cycle(old) == []

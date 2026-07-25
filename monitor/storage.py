@@ -39,6 +39,21 @@ CREATE TABLE IF NOT EXISTS results (
 CREATE INDEX IF NOT EXISTS idx_results_cycle ON results(cycle_id);
 CREATE INDEX IF NOT EXISTS idx_results_endpoint ON results(endpoint_key, cycle_id);
 CREATE INDEX IF NOT EXISTS idx_cycles_started ON cycles(started_at);
+CREATE TABLE IF NOT EXISTS contracts (
+    cycle_id INTEGER NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+    endpoint_key TEXT NOT NULL,
+    assertion TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    spec_verdict TEXT NOT NULL DEFAULT 'n/a',
+    expected TEXT,
+    observed TEXT,
+    latency_ms INTEGER,
+    http_status INTEGER,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_contracts_cycle ON contracts(cycle_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_assertion
+    ON contracts(endpoint_key, assertion, cycle_id);
 """
 
 # Matches the kind column's own CHECK clause, e.g. "CHECK (kind IN ('metadata', 'data'))",
@@ -64,6 +79,27 @@ class CheckResult:
     sample_period: str | None = None
     error: str | None = None
     attempts: int = 1
+
+
+@dataclass
+class ContractResult:
+    """One assertion about how a provider's API behaves.
+
+    `expected` is what the gateway assumes, `observed` is what happened, and
+    `spec_verdict` says whether the observation conforms to the SDMx standard.
+    A broken assumption is our problem; a conforming-but-deviating provider is
+    theirs.
+    """
+
+    endpoint_key: str
+    assertion: str
+    verdict: str  # ok | broken | capability_appeared | ignored | skipped
+    spec_verdict: str = "n/a"  # conforms | deviates | n/a
+    expected: str | None = None
+    observed: str | None = None
+    latency_ms: int | None = None
+    http_status: int | None = None
+    error: str | None = None
 
 
 class Store:
@@ -248,6 +284,49 @@ class Store:
             )
             self._conn.commit()
 
+    def add_contract(self, cycle_id: int, result: ContractResult) -> None:
+        f = asdict(result)
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO contracts (cycle_id, endpoint_key, assertion, verdict, "
+                "spec_verdict, expected, observed, latency_ms, http_status, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (cycle_id, f["endpoint_key"], f["assertion"], f["verdict"],
+                 f["spec_verdict"], f["expected"], f["observed"], f["latency_ms"],
+                 f["http_status"], f["error"]),
+            )
+            self._conn.commit()
+
+    def contracts_for_cycle(self, cycle_id: int) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM contracts WHERE cycle_id = ? "
+                "ORDER BY endpoint_key, assertion",
+                (cycle_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def previous_contract_values(self, cycle_id: int) -> dict[tuple[str, str], str]:
+        """The most recent `observed` for each assertion before this cycle.
+
+        Used to report what changed since the last time we looked, without
+        storing a separate diff.
+        """
+        query = """
+            SELECT endpoint_key, assertion, observed FROM contracts
+            WHERE cycle_id < ? AND observed IS NOT NULL
+              AND cycle_id = (
+                SELECT MAX(c2.cycle_id) FROM contracts c2
+                WHERE c2.cycle_id < ?
+                  AND c2.endpoint_key = contracts.endpoint_key
+                  AND c2.assertion = contracts.assertion
+                  AND c2.observed IS NOT NULL
+              )
+        """
+        with self._lock:
+            rows = self._conn.execute(query, (cycle_id, cycle_id)).fetchall()
+        return {(r["endpoint_key"], r["assertion"]): r["observed"] for r in rows}
+
     def _cycle_dict(self, row: sqlite3.Row) -> dict:
         cycle = dict(row)
         cycle["gateway_up"] = bool(cycle["gateway_up"])
@@ -309,6 +388,7 @@ class Store:
             ]
             if ids:
                 marks = ",".join("?" for _ in ids)
+                self._conn.execute(f"DELETE FROM contracts WHERE cycle_id IN ({marks})", ids)
                 self._conn.execute(f"DELETE FROM results WHERE cycle_id IN ({marks})", ids)
                 self._conn.execute(f"DELETE FROM cycles WHERE id IN ({marks})", ids)
                 self._conn.commit()

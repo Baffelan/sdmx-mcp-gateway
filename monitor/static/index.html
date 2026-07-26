@@ -84,6 +84,11 @@ const esc = (t) => String(t ?? "").replace(/[&<>"]/g,
 // null when showing the live cycle; the id of the cycle being viewed otherwise
 let viewing = null;
 let refreshTimer = null;
+// Bumped at the start of every load()/showCycle() call; a response whose
+// generation no longer matches the current value is stale and must not be
+// rendered (the request that started later, or a switch to/from history
+// mode, has already superseded it).
+let renderGeneration = 0;
 
 function startAutoRefresh(){
   if (refreshTimer === null){
@@ -216,6 +221,7 @@ function showHistoryBanner(cycle){
 }
 
 function returnToLatest(){
+  renderGeneration++;
   viewing = null;
   hideHistoryBanner();
   document.getElementById("refresh").disabled = false;
@@ -224,23 +230,34 @@ function returnToLatest(){
 }
 
 async function showCycle(cycleId){
-  const resp = await fetch("/api/cycle/" + cycleId);
-  if (!resp.ok) return;
-  const data = await resp.json();
-  viewing = data.cycle.id;
-  stopAutoRefresh();
-  document.getElementById("refresh").disabled = true;
-  renderCards(data.endpoints, {});
-  showHistoryBanner(data.cycle);
+  const generation = ++renderGeneration;
+  try {
+    const resp = await fetch("/api/cycle/" + cycleId);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (generation !== renderGeneration) return;
+    viewing = data.cycle.id;
+    stopAutoRefresh();
+    document.getElementById("refresh").disabled = true;
+    renderCards(data.endpoints, {});
+    showHistoryBanner(data.cycle);
+  } catch (err) {
+    if (generation !== renderGeneration) return;
+    const banner = document.getElementById("cycle-banner");
+    banner.innerHTML = esc("could not load cycle " + cycleId);
+    banner.style.display = "flex";
+  }
 }
 
 async function load(){
   if (viewing !== null) return;
+  const generation = ++renderGeneration;
   try {
     const [status, history] = await Promise.all([
       fetch("/api/status").then((r) => r.json()),
       fetch("/api/history?hours=168").then((r) => r.json()),
     ]);
+    if (generation !== renderGeneration || viewing !== null) return;
     const gw = document.getElementById("gateway-state");
     if (!status.cycle){
       gw.textContent = "no checks recorded yet";

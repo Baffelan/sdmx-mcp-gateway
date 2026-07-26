@@ -23,6 +23,11 @@ h1{font-size:20px;margin:0}
 #refresh:disabled{opacity:.5;cursor:default}
 #banner{display:none;background:var(--critical);color:#fff;padding:8px 12px;
         border-radius:6px;margin:14px 0 0}
+#cycle-banner{display:none;align-items:center;gap:10px;flex-wrap:wrap;
+        background:var(--surface);border:1px solid var(--muted);color:var(--ink);
+        padding:8px 12px;border-radius:6px;margin:14px 0 0}
+#cycle-banner button{background:var(--page);color:var(--ink);
+        border:1px solid var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer}
 #drift{margin-top:8px}
 .grid{display:grid;gap:12px;margin-top:16px}
 .card{background:var(--surface);border:1px solid rgba(137,135,129,.35);
@@ -33,7 +38,7 @@ h1{font-size:20px;margin:0}
 .name{font-weight:600}
 .meta{color:var(--ink2);font-size:13px;margin-left:auto}
 .bar{display:flex;gap:1px;margin-top:10px;height:14px}
-.bar span{flex:1 1 2px;min-width:2px;border-radius:2px}
+.bar span{flex:1 1 2px;min-width:2px;border-radius:2px;cursor:pointer}
 details{margin-top:8px}
 summary{cursor:pointer;color:var(--ink2);font-size:13px}
 table{border-collapse:collapse;width:100%;margin-top:8px;font-size:13px}
@@ -58,6 +63,7 @@ th{color:var(--muted);font-weight:500}
 <div id="banner"></div>
 <div id="drift" class="sub"></div>
 <div id="changes"></div>
+<div id="cycle-banner"></div>
 <div class="grid" id="cards"></div>
 <div class="matrix-wrap" id="matrix-wrap">
   <h2>API conformance matrix</h2>
@@ -75,6 +81,23 @@ const meta = (s) => STATUS[s] || STATUS.unknown;
 const esc = (t) => String(t ?? "").replace(/[&<>"]/g,
   (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+// null when showing the live cycle; the id of the cycle being viewed otherwise
+let viewing = null;
+let refreshTimer = null;
+
+function startAutoRefresh(){
+  if (refreshTimer === null){
+    refreshTimer = setInterval(load, 60000);
+  }
+}
+
+function stopAutoRefresh(){
+  if (refreshTimer !== null){
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
 function checkRow(c){
   const state = c.skipped ? "skipped" : (c.ok ? "✓ ok" : "✕ fail");
   return "<tr><td>" + esc(c.path) + "</td><td>" + esc(c.kind) + "</td><td>" + state +
@@ -90,9 +113,18 @@ function card(ep, series){
   const m = meta(ep.status);
   const latencies = ep.checks.map((c) => c.latency_ms).filter((v) => v != null);
   const worst = latencies.length ? Math.max(...latencies) + " ms" : "";
-  const cells = (series || []).map((p) =>
-    '<span style="background:' + meta(p.status).color + '" title="' +
-    esc(p.started_at) + " · " + esc(meta(p.status).label) + '"></span>').join("");
+  const cells = (series || []).map((p) => {
+    const failing = p.failing || [];
+    let title = esc(p.started_at) + " · " + esc(meta(p.status).label);
+    if (failing.length){
+      title += " · " + esc(failing[0]);
+      if (failing.length > 1){
+        title += " (+" + (failing.length - 1) + " more)";
+      }
+    }
+    return '<span style="background:' + meta(p.status).color + '" title="' +
+      title + '" data-cycle="' + esc(p.cycle_id) + '"></span>';
+  }).join("");
   const con = ep.contracts || {total: 0, broken: [], informational: []};
   const conLine = con.total
     ? '<div class="sub">API contract: ' +
@@ -165,7 +197,45 @@ async function loadContracts(){
   renderMatrix(data.matrix);
 }
 
+function renderCards(endpoints, seriesByKey){
+  document.getElementById("cards").innerHTML = (endpoints || [])
+    .map((ep) => card(ep, (seriesByKey || {})[ep.key])).join("");
+}
+
+function hideHistoryBanner(){
+  const banner = document.getElementById("cycle-banner");
+  banner.style.display = "none";
+  banner.innerHTML = "";
+}
+
+function showHistoryBanner(cycle){
+  const banner = document.getElementById("cycle-banner");
+  banner.innerHTML = "Showing cycle " + esc(cycle.id) + " from " + esc(cycle.started_at) +
+    ' <button id="back-to-latest" type="button">Back to latest</button>';
+  banner.style.display = "flex";
+}
+
+function returnToLatest(){
+  viewing = null;
+  hideHistoryBanner();
+  document.getElementById("refresh").disabled = false;
+  startAutoRefresh();
+  load();
+}
+
+async function showCycle(cycleId){
+  const resp = await fetch("/api/cycle/" + cycleId);
+  if (!resp.ok) return;
+  const data = await resp.json();
+  viewing = data.cycle.id;
+  stopAutoRefresh();
+  document.getElementById("refresh").disabled = true;
+  renderCards(data.endpoints, {});
+  showHistoryBanner(data.cycle);
+}
+
 async function load(){
+  if (viewing !== null) return;
   try {
     const [status, history] = await Promise.all([
       fetch("/api/status").then((r) => r.json()),
@@ -187,8 +257,7 @@ async function load(){
       "expected every " + status.check_interval_min + " min.";
     document.getElementById("drift").textContent =
       (status.drift || []).map((d) => "⚠ " + d).join("  ");
-    document.getElementById("cards").innerHTML = status.endpoints
-      .map((ep) => card(ep, (history.series || {})[ep.key])).join("");
+    renderCards(status.endpoints, history.series);
   } catch (err) {
     document.getElementById("gateway-state").textContent = "status API unreachable";
     return;
@@ -199,6 +268,16 @@ async function load(){
     // contract data is supplementary; the core status page still works without it
   }
 }
+
+document.getElementById("cards").addEventListener("click", (ev) => {
+  const cell = ev.target.closest("[data-cycle]");
+  if (!cell) return;
+  showCycle(cell.getAttribute("data-cycle"));
+});
+
+document.getElementById("cycle-banner").addEventListener("click", (ev) => {
+  if (ev.target.id === "back-to-latest") returnToLatest();
+});
 
 document.getElementById("refresh").addEventListener("click", async (ev) => {
   const btn = ev.target;
@@ -222,7 +301,7 @@ document.getElementById("refresh").addEventListener("click", async (ev) => {
 });
 
 load();
-setInterval(load, 60000);
+startAutoRefresh();
 </script>
 </body>
 </html>

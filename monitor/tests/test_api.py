@@ -142,6 +142,13 @@ def test_index_serves_status_page(client: TestClient):
     assert "SDMx MCP Gateway Status" in resp.text
 
 
+def test_index_includes_history_drilldown(client: TestClient):
+    page = client.get("/").text
+    assert "data-cycle" in page
+    assert "/api/cycle/" in page
+    assert "Back to latest" in page
+
+
 def test_default_check_interval_is_two_hours():
     assert main.CHECK_INTERVAL_MIN == 120
 

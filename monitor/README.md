@@ -54,6 +54,16 @@ REST API (`metadata`, `data`, `json`).
   `dataSets` array. IMF, Eurostat, and Stats NZ do not serve SDMx-JSON,
   so their `json` checks are recorded as skipped rather than failed.
 
+## Status page and history drill-down
+
+The status page displays endpoint health via uptime bars. Each cell in a bar represents one check cycle, with green indicating all checks passed and red indicating at least one failure.
+
+Hovering over a failing cell names the checks that failed and why, for example "direct metadata: HTTP 503".
+
+Clicking any cell opens that cycle's full detail view, showing results for every endpoint with a timestamp banner and a "Back to latest" control. While viewing history, the page stops auto-refreshing and the re-check button is disabled.
+
+For scripted access, `GET /api/cycle/{id}` serves any completed cycle; it returns HTTP 404 for an unknown or still-running cycle ID.
+
 ## API contracts
 
 Beyond the five checks above, each cycle also asserts a set of behavioural

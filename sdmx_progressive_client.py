@@ -961,8 +961,17 @@ class SDMXProgressiveClient:
         ctx: Context[Any, Any, Any] | None = None,
     ) -> dict[str, Any]:
         """
-        Get actual data availability from ContentConstraint.
-        This shows what data actually exists vs what's theoretically possible.
+        Get data availability from ContentConstraint, preferring Actual over Allowed.
+
+        Two constraint types exist and carry different meanings. Actual means
+        codes confirmed to hold data: the provider is asserting that queries
+        using those codes will return observations. Allowed means codes the
+        schema permits, which may be far broader than what has data; some
+        providers (ECB among them) publish only Allowed constraints and never
+        an Actual one. When only Allowed is available this method falls back
+        to it rather than reporting nothing, but the caller must not read an
+        Allowed result as confirmation that data exists. It means only that
+        the query is well-formed, not that it will return observations.
         """
         from config import get_best_references
 
@@ -974,6 +983,7 @@ class SDMXProgressiveClient:
             return {
                 "dataflow_id": dataflow_id,
                 "has_constraint": False,
+                "constraint_type": None,
                 "note": "Endpoint does not support constraint references",
             }
 

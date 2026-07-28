@@ -182,21 +182,38 @@ class CubeRegionInfo(TypedDict):
 
 
 class DataAvailability(TypedDict):
-    """Result from get_actual_availability() when constraint found."""
+    """Result from get_actual_availability() when constraint found.
+
+    constraint_type distinguishes what the constraint means: "Actual" means
+    the codes are confirmed to hold data, while "Allowed" means the codes
+    are merely permitted by the schema and may be far broader than what has
+    data (some providers, such as ECB, publish only Allowed constraints).
+    interpretation carries caller-facing caveats, notably the Allowed warning
+    that the result must not be read as confirmation that data exists.
+    """
 
     dataflow_id: str
     has_constraint: Literal[True]
     constraint_id: str
+    constraint_type: Literal["Actual", "Allowed"]
     cube_regions: list[CubeRegionInfo]
     key_sets: list[dict[str, str]]
     time_range: TimeRangeInfo | None
+    interpretation: list[str]
 
 
 class DataAvailabilityNotFound(TypedDict):
-    """Result when no availability constraint exists."""
+    """Result when no availability constraint exists.
+
+    constraint_type is always None here, matching the shape of the
+    "endpoint does not support constraint references" exit as well as the
+    "no constraint found" exit, so callers can check constraint_type
+    uniformly across both no-constraint cases.
+    """
 
     dataflow_id: str
     has_constraint: Literal[False]
+    constraint_type: None
     note: str
 
 

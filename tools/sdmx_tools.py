@@ -794,27 +794,11 @@ async def validate_query(
         return validation_results
 
 
-def _get_accept_header(output_format: str) -> str:
-    """
-    Get the Accept header value for a given output format.
+def _get_accept_header(output_format: str, endpoint_key: str | None = None) -> str:
+    """Accept header for a data format, honouring per-provider divergence."""
+    from config import get_data_accept
 
-    Args:
-        output_format: One of 'csv', 'json', 'xml', 'generic', 'structurespecific'
-
-    Returns:
-        MIME type string for Accept header
-    """
-    format_map = {
-        "csv": "application/vnd.sdmx.data+csv;version=1.0.0",
-        "json": "application/vnd.sdmx.data+json;version=1.0.0",
-        "xml": "application/vnd.sdmx.genericdata+xml;version=2.1",
-        "generic": "application/vnd.sdmx.genericdata+xml;version=2.1",
-        "structurespecific": "application/vnd.sdmx.structurespecificdata+xml;version=2.1",
-        "sdmx-json": "application/vnd.sdmx.data+json;version=1.0.0",
-        "sdmx-csv": "application/vnd.sdmx.data+csv;version=1.0.0",
-        "sdmx-xml": "application/vnd.sdmx.genericdata+xml;version=2.1",
-    }
-    return format_map.get(output_format.lower(), format_map["csv"])
+    return get_data_accept(endpoint_key, output_format)
 
 
 async def build_data_url(

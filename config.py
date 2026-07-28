@@ -84,6 +84,10 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
             "bulk": "contentconstraint",
         },
         "references_support": ["none", "children", "parents", "all"],
+        # ECB never implemented standard SDMx-CSV. Its own 406 body lists
+        # text/csv and application/vnd.ecb.data+csv;version=1.0.0 instead.
+        # Verified live 2026-07-27.
+        "data_formats": {"csv": "text/csv"},
     },
     "UNICEF": {
         "name": "UNICEF",
@@ -270,6 +274,33 @@ def get_best_references(endpoint_key: str | None, desired: str) -> str | None:
     if desired == "all" and "descendants" in supported:
         return "descendants"
     return None
+
+
+_STANDARD_DATA_ACCEPT: dict[str, str] = {
+    "csv": "application/vnd.sdmx.data+csv;version=1.0.0",
+    "json": "application/vnd.sdmx.data+json;version=1.0.0",
+    "xml": "application/vnd.sdmx.genericdata+xml;version=2.1",
+    "generic": "application/vnd.sdmx.genericdata+xml;version=2.1",
+    "structurespecific": "application/vnd.sdmx.structurespecificdata+xml;version=2.1",
+    "sdmx-json": "application/vnd.sdmx.data+json;version=1.0.0",
+    "sdmx-csv": "application/vnd.sdmx.data+csv;version=1.0.0",
+    "sdmx-xml": "application/vnd.sdmx.genericdata+xml;version=2.1",
+}
+
+
+def get_data_accept(endpoint_key: str | None, output_format: str) -> str:
+    """The media type this endpoint actually accepts for a data format.
+
+    Most providers take the standard SDMx types. Where one does not, its
+    entry declares a `data_formats` override; ECB is the case that forced
+    this, answering 406 to standard SDMx-CSV.
+    """
+    fmt = output_format.lower()
+    standard = _STANDARD_DATA_ACCEPT.get(fmt, _STANDARD_DATA_ACCEPT["csv"])
+    ep = SDMX_ENDPOINTS.get(endpoint_key) if endpoint_key else None
+    if not ep:
+        return standard
+    return ep.get("data_formats", {}).get(fmt, standard)
 
 
 def get_current_config() -> dict[str, Any]:

@@ -995,19 +995,26 @@ class SDMXProgressiveClient:
 
             root = ET.fromstring(response.content)
 
-            # Find ContentConstraint with type="Actual"
-            actual_constraint = None
-            for constraint in root.findall(
-                './/str:ContentConstraint[@type="Actual"]', SDMX_NAMESPACES
-            ):
-                actual_constraint = constraint
-                break
+            # Prefer an Actual constraint (codes confirmed to hold data). Fall
+            # back to Allowed (codes the schema permits, possibly far broader):
+            # ECB publishes only Allowed, and reporting nothing at all hides
+            # information the provider is giving us.
+            constraint = None
+            constraint_type = None
+            for candidate in root.findall(".//str:ContentConstraint", SDMX_NAMESPACES):
+                kind = candidate.get("type")
+                if kind == "Actual":
+                    constraint, constraint_type = candidate, "Actual"
+                    break
+                if constraint is None and kind == "Allowed":
+                    constraint, constraint_type = candidate, "Allowed"
 
-            if not actual_constraint:
+            if constraint is None:
                 return {
                     "dataflow_id": dataflow_id,
                     "has_constraint": False,
-                    "note": "No actual data availability constraint found",
+                    "constraint_type": None,
+                    "note": "No content constraint published for this dataflow",
                 }
 
             cube_regions: list[dict[str, Any]] = []
@@ -1015,7 +1022,7 @@ class SDMXProgressiveClient:
             time_range: dict[str, str] | None = None
 
             # Parse CubeRegions (shows available dimension combinations)
-            for cube_region in actual_constraint.findall(".//str:CubeRegion", SDMX_NAMESPACES):
+            for cube_region in constraint.findall(".//str:CubeRegion", SDMX_NAMESPACES):
                 region_keys: dict[str, list[str]] = {}
 
                 for key_value in cube_region.findall(".//com:KeyValue", SDMX_NAMESPACES):
@@ -1047,7 +1054,7 @@ class SDMXProgressiveClient:
                 cube_regions.append(region_info)
 
             # Parse KeySets (alternative representation)
-            for key_set in actual_constraint.findall(".//str:KeySet", SDMX_NAMESPACES):
+            for key_set in constraint.findall(".//str:KeySet", SDMX_NAMESPACES):
                 for key in key_set.findall(".//str:Key", SDMX_NAMESPACES):
                     key_values: dict[str, str] = {}
                     for key_value in key.findall(".//com:KeyValue", SDMX_NAMESPACES):
@@ -1056,13 +1063,22 @@ class SDMXProgressiveClient:
                             key_values[key_value.get("id", "")] = value_elem.text
                     key_sets.append(key_values)
 
+            interpretation: list[str] = []
+            if constraint_type == "Allowed":
+                interpretation.append(
+                    "Note: Allowed constraint (codes permitted by the schema, "
+                    "not confirmed to have data)."
+                )
+
             return {
                 "dataflow_id": dataflow_id,
                 "has_constraint": True,
-                "constraint_id": actual_constraint.get("id"),
+                "constraint_id": constraint.get("id"),
+                "constraint_type": constraint_type,
                 "cube_regions": cube_regions,
                 "key_sets": key_sets,
                 "time_range": time_range,
+                "interpretation": interpretation,
             }
 
         except Exception as e:

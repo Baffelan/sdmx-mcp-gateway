@@ -241,6 +241,10 @@ class DataAvailabilityResult(BaseModel):
     constraint_id: Optional[str] = Field(
         default=None, description="Constraint identifier if available"
     )
+    constraint_type: Optional[str] = Field(
+        default=None, description="Actual (confirmed data) or Allowed (schema-permitted)"
+    )
+    note: Optional[str] = Field(default=None, description="Why the answer is empty, when it is")
     time_range: Optional[TimeRange] = Field(default=None, description="Available time period range")
     cube_regions: list[CubeRegion] = Field(
         default_factory=list, description="Specific data regions available"

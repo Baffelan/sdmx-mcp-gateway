@@ -561,6 +561,100 @@ class TestGetDataAvailability:
         assert any("sentinel time range" in line for line in result["interpretation"])
 
 
+class TestActualAvailabilityFallback:
+    """get_actual_availability() must fall back to Allowed constraints (ECB
+    publishes only Allowed) and must explain itself when nothing is published,
+    rather than silently returning an empty result."""
+
+    ALLOWED_ONLY_XML = (
+        '<?xml version="1.0"?>'
+        '<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message"'
+        ' xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"'
+        ' xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+        "<mes:Structures><str:Constraints>"
+        '<str:ContentConstraint id="EXR_CONSTRAINTS" type="Allowed">'
+        '<str:CubeRegion include="true">'
+        '<com:KeyValue id="CURRENCY"><com:Value>USD</com:Value>'
+        "<com:Value>GBP</com:Value></com:KeyValue>"
+        "</str:CubeRegion>"
+        "</str:ContentConstraint>"
+        "</str:Constraints></mes:Structures></mes:Structure>"
+    )
+
+    # The Allowed constraint appears first in document order; the Actual one
+    # comes second. If the parser ever regresses to "first match wins" this
+    # fixture will catch it, since the naive result would be "Allowed".
+    ACTUAL_AND_ALLOWED_XML = (
+        '<?xml version="1.0"?>'
+        '<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message"'
+        ' xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"'
+        ' xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+        "<mes:Structures><str:Constraints>"
+        '<str:ContentConstraint id="CC_ALLOWED" type="Allowed">'
+        '<str:CubeRegion include="true">'
+        '<com:KeyValue id="FREQ"><com:Value>A</com:Value>'
+        "<com:Value>M</com:Value></com:KeyValue>"
+        "</str:CubeRegion>"
+        "</str:ContentConstraint>"
+        '<str:ContentConstraint id="CC_ACTUAL" type="Actual">'
+        '<str:CubeRegion include="true">'
+        '<com:KeyValue id="FREQ"><com:Value>A</com:Value></com:KeyValue>'
+        "</str:CubeRegion>"
+        "</str:ContentConstraint>"
+        "</str:Constraints></mes:Structures></mes:Structure>"
+    )
+
+    NO_CONSTRAINT_XML = (
+        '<?xml version="1.0"?>'
+        '<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message"'
+        ' xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure"'
+        ' xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+        "<mes:Structures><str:Constraints>"
+        "</str:Constraints></mes:Structures></mes:Structure>"
+    )
+
+    def _client_returning(self, xml_text, endpoint_key):
+        """Real SDMXProgressiveClient whose HTTP session is mocked to return xml_text."""
+        client = SDMXProgressiveClient(
+            base_url="https://example.com/rest",
+            agency_id=endpoint_key,
+            endpoint_key=endpoint_key,
+        )
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.content = xml_text.encode("utf-8")
+        resp.raise_for_status = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=resp)
+        client._get_session = AsyncMock(return_value=mock_session)
+        return client
+
+    @pytest.mark.asyncio
+    async def test_availability_falls_back_to_an_allowed_constraint(self):
+        """ECB publishes Allowed constraints only. Returning nothing at all,
+        as the tool used to, hides data the provider is telling us about."""
+        client = self._client_returning(self.ALLOWED_ONLY_XML, endpoint_key="ECB")
+        result = await client.get_actual_availability("EXR", agency_id="ECB")
+        assert result["has_constraint"] is True
+        assert result["constraint_type"] == "Allowed"
+        assert any("CURRENCY" in str(r) for r in result["cube_regions"])
+
+    @pytest.mark.asyncio
+    async def test_availability_prefers_actual_when_both_exist(self):
+        client = self._client_returning(self.ACTUAL_AND_ALLOWED_XML, endpoint_key="SPC")
+        result = await client.get_actual_availability("DF_X", agency_id="SPC")
+        assert result["constraint_type"] == "Actual"
+        assert result["constraint_id"] == "CC_ACTUAL"
+
+    @pytest.mark.asyncio
+    async def test_availability_result_explains_an_empty_answer(self):
+        """An empty availability answer must say why, not just be empty."""
+        client = self._client_returning(self.NO_CONSTRAINT_XML, endpoint_key="ESTAT")
+        out = await get_data_availability(client, "nama_10_gdp", agency_id="ESTAT")
+        assert out["has_constraint"] is False
+        assert out["note"]
+
+
 class TestContextIntegration:
     """Test MCP Context integration."""
 

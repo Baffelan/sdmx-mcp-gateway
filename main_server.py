@@ -2197,6 +2197,8 @@ async def get_data_availability(
         dataflow_id=result.get("dataflow_id", dataflow_id),
         has_constraint=result.get("has_constraint", False),
         constraint_id=result.get("constraint_id"),
+        constraint_type=result.get("constraint_type"),
+        note=result.get("note"),
         time_range=time_range,
         cube_regions=result.get("cube_regions", []),
         interpretation=interpretation,

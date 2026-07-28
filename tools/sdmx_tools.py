@@ -415,6 +415,8 @@ async def get_data_availability(
             "agency_id": agency_id,
             "has_constraint": availability.get("has_constraint", False),
             "constraint_id": availability.get("constraint_id"),
+            "constraint_type": availability.get("constraint_type"),
+            "note": availability.get("note"),
             "time_range": availability.get("time_range"),
             "cube_regions": availability.get("cube_regions", []),
             "interpretation": availability.get("interpretation", []),

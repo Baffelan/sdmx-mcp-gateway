@@ -485,9 +485,10 @@ async def _build_availableconstraint_key(
     client: SDMXProgressiveClient,
     dataflow_id: str,
     agency_id: str,
-    filters: dict[str, str],
+    filters: dict[str, str] | None,
 ) -> tuple[str, str | None]:
     """Build a correctly ordered key and extract any time-period filter."""
+    filters = filters or {}
     structure = await client.get_structure_summary(
         dataflow_id=dataflow_id,
         agency_id=agency_id,
@@ -501,7 +502,15 @@ async def _build_availableconstraint_key(
             continue
         key_parts.append(filters.get(dim.id, ""))
 
-    return ".".join(key_parts) if key_parts else "all", time_period
+    # A key with no filters set joins to e.g. "..": path normalisation then
+    # collapses ".../<dataflow_id>/.." to "...", silently dropping the
+    # dataflow from the request URL (see incident notes for DF_ADBKI/SPC).
+    # Only fall back to the wildcard when every part is empty; a partially
+    # filled key (e.g. "A..FJ") is legitimate SDMx and must be preserved.
+    if not any(key_parts):
+        return "all", time_period
+
+    return ".".join(key_parts), time_period
 
 
 def _parse_availableconstraint_response(

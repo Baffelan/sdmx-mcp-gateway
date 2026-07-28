@@ -216,8 +216,13 @@ class SDMXProgressiveClient:
     ) -> tuple[int, str]:
         """Fetch data from an SDMX data URL for probing.
 
-        Makes a GET request and returns (status_code, response_text).
-        Returns (0, "") on network/transport errors.
+        Returns (status_code, response_text), or (0, "") on transport error.
+
+        A 406 against an SDMx-CSV Accept is retried once as `text/csv`:
+        ECB never implemented the standard type and answers 406, while
+        serving the same data happily as plain CSV. Retrying by observed
+        behaviour rather than by provider name means any provider with the
+        same divergence is handled without a config change.
         """
         session = await self._get_session()
         try:
@@ -226,6 +231,15 @@ class SDMXProgressiveClient:
                 headers={"Accept": accept, "Accept-Language": "en"},
                 timeout=timeout,
             )
+            if response.status_code == 406 and "vnd.sdmx" in accept and "csv" in accept:
+                logger.info(
+                    "%s rejected %s; retrying as text/csv", self.endpoint_key, accept
+                )
+                response = await session.get(
+                    data_url,
+                    headers={"Accept": "text/csv", "Accept-Language": "en"},
+                    timeout=timeout,
+                )
             return response.status_code, response.text
         except Exception:
             return 0, ""

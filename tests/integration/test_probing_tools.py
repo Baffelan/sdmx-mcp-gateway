@@ -590,3 +590,88 @@ class TestSuggestNonemptyHandler:
 
         assert isinstance(result, SuggestionResult)
         assert result.original_status == "nonempty"
+
+
+class TestFetchDataProbe406Retry:
+    """SDMXProgressiveClient.fetch_data_probe retries a 406 as text/csv.
+
+    ECB answers 406 to the standard SDMx-CSV Accept type but 200 to plain
+    text/csv (verified live 2026-07-27). The retry keys on the observed
+    406 + SDMx-CSV Accept combination, not on provider name, so any
+    provider with the same divergence is handled automatically.
+    """
+
+    @pytest.mark.asyncio
+    async def test_probe_retries_with_plain_csv_on_406(self):
+        calls = []
+
+        class FakeSession:
+            async def get(self, url, headers=None, timeout=None):
+                calls.append(headers["Accept"])
+
+                class R:
+                    status_code = 406 if "vnd.sdmx" in headers["Accept"] else 200
+                    text = "" if status_code == 406 else "K,TIME_PERIOD,OBS_VALUE\nx,2020,1\n"
+
+                return R()
+
+        client = SDMXProgressiveClient(base_url="https://x/service", agency_id="ECB")
+        client.session = FakeSession()
+
+        status, text = await client.fetch_data_probe("https://x/service/data/EXR/D.USD")
+
+        assert status == 200
+        assert "OBS_VALUE" in text
+        assert len(calls) == 2
+        assert "vnd.sdmx" in calls[0]
+        assert calls[1] == "text/csv"
+
+    @pytest.mark.asyncio
+    async def test_probe_does_not_retry_when_the_first_attempt_succeeds(self):
+        calls = []
+
+        class FakeSession:
+            async def get(self, url, headers=None, timeout=None):
+                calls.append(headers["Accept"])
+
+                class R:
+                    status_code = 200
+                    text = "K,TIME_PERIOD,OBS_VALUE\nx,2020,1\n"
+
+                return R()
+
+        client = SDMXProgressiveClient(base_url="https://x/service", agency_id="SPC")
+        client.session = FakeSession()
+
+        status, _text = await client.fetch_data_probe("https://x/service/data/DF/all")
+
+        assert status == 200
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_probe_does_not_retry_a_406_for_a_non_csv_accept(self):
+        """A 406 against XML/JSON Accept types is not retried: the retry is
+        scoped to the SDMx-CSV divergence, not to 406 in general."""
+        calls = []
+
+        class FakeSession:
+            async def get(self, url, headers=None, timeout=None):
+                calls.append(headers["Accept"])
+
+                class R:
+                    status_code = 406
+                    text = ""
+
+                return R()
+
+        client = SDMXProgressiveClient(base_url="https://x/service", agency_id="ECB")
+        client.session = FakeSession()
+
+        status, text = await client.fetch_data_probe(
+            "https://x/service/data/EXR/D.USD",
+            accept="application/vnd.sdmx.genericdata+xml;version=2.1",
+        )
+
+        assert status == 406
+        assert text == ""
+        assert len(calls) == 1

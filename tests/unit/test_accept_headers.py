@@ -39,3 +39,32 @@ def test_accept_header_helper_is_unchanged_without_an_endpoint():
 def test_accept_header_helper_honours_the_endpoint():
     assert _get_accept_header("csv", "ECB") == "text/csv"
     assert _get_accept_header("csv", "SPC") == SDMX_CSV
+
+
+def test_ecb_sdmx_csv_alias_also_uses_plain_text_csv():
+    """The 'sdmx-csv' alias resolves to the same standard type as 'csv'
+    everywhere else, so ECB's override must cover it too."""
+    assert get_data_accept("ECB", "sdmx-csv") == "text/csv"
+    assert get_data_accept("SPC", "sdmx-csv") == SDMX_CSV
+
+
+@pytest.mark.asyncio
+async def test_build_data_url_usage_line_uses_the_endpoint_media_type():
+    """The curl line the tool hands the user must actually work."""
+    from tools import sdmx_tools
+
+    class FakeClient:
+        agency_id = "ECB"
+        base_url = "https://data-api.ecb.europa.eu/service"
+        endpoint_key = "ECB"
+
+        async def get_structure_summary(self, *a, **k):
+            return {"dimensions": []}
+
+    result = await sdmx_tools.build_data_url(
+        client=FakeClient(), dataflow_id="EXR", key="D.USD.EUR.SP00.A",
+        output_format="csv",
+    )
+    assert "text/csv" in result["usage"]
+    assert "vnd.sdmx.data+csv" not in result["usage"]
+    assert result["headers"]["Accept"] == "text/csv"

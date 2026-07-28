@@ -915,9 +915,13 @@ async def build_data_url(
             "format": output_format,
         }
 
+        # Computed once so the returned headers and the usage curl line can
+        # never disagree about which media type the endpoint actually accepts.
+        accept = _get_accept_header(output_format, getattr(client, "endpoint_key", None))
+
         if include_headers:
             result["headers"] = {
-                "Accept": _get_accept_header(output_format),
+                "Accept": accept,
                 "Accept-Language": "en",
             }
 
@@ -930,7 +934,7 @@ async def build_data_url(
         if validation_warnings:
             result["warnings"] = validation_warnings
 
-        result["usage"] = f"curl -H 'Accept: {_get_accept_header(output_format)}' '{url}'"
+        result["usage"] = f"curl -H 'Accept: {accept}' '{url}'"
 
         return result
 

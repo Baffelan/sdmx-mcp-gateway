@@ -86,8 +86,11 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
         "references_support": ["none", "children", "parents", "all"],
         # ECB never implemented standard SDMx-CSV. Its own 406 body lists
         # text/csv and application/vnd.ecb.data+csv;version=1.0.0 instead.
-        # Verified live 2026-07-27.
-        "data_formats": {"csv": "text/csv"},
+        # Verified live 2026-07-27. Both the "csv" and "sdmx-csv" aliases
+        # resolve to the same standard type elsewhere, so both are overridden
+        # here; otherwise a caller passing output_format="sdmx-csv" would
+        # still hit the 406.
+        "data_formats": {"csv": "text/csv", "sdmx-csv": "text/csv"},
     },
     "UNICEF": {
         "name": "UNICEF",

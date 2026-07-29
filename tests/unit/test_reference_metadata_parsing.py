@@ -83,3 +83,30 @@ def test_providers_without_a_v2_endpoint_return_none():
 def test_unknown_endpoint_returns_none():
     assert get_metadata_support(None) is None
     assert get_metadata_support("NOT_A_PROVIDER") is None
+
+
+def test_every_endpoint_is_classified_exactly_once():
+    """Assert the whole partition, so a newly added provider cannot quietly
+    default into 'no metadata support' without someone deciding that."""
+    from config import SDMX_ENDPOINTS
+
+    supported = {"SPC", "OECD", "FBOS", "SBS"}
+    routed_but_failing = {"ABS", "ILO"}
+    no_v2 = {"ECB", "UNICEF", "IMF", "ESTAT", "BIS", "STATSNZ"}
+
+    assert supported | routed_but_failing | no_v2 == set(SDMX_ENDPOINTS)
+    assert not (supported & routed_but_failing)
+    assert not (supported & no_v2)
+    assert not (routed_but_failing & no_v2)
+
+    for key in supported:
+        assert get_metadata_support(key) == {"v2_path": "/v2", "status": "supported"}, key
+    for key in routed_but_failing:
+        assert get_metadata_support(key)["status"] == "unsupported", key
+    for key in no_v2:
+        assert get_metadata_support(key) is None, key
+
+
+def test_unsupported_reasons_name_the_observed_failure():
+    assert "404" in get_metadata_support("ABS")["reason"]
+    assert "500" in get_metadata_support("ILO")["reason"]

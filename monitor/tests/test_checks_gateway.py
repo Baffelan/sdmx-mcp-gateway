@@ -165,6 +165,23 @@ async def test_call_tool_gives_up_rather_than_hanging(monkeypatch):
     assert "timed out" in str(excinfo.value).lower()
 
 
+@pytest.mark.asyncio
+async def test_tool_count_gives_up_rather_than_hanging():
+    import asyncio
+
+    import checks_gateway
+
+    class HangingSession:
+        async def list_tools(self):
+            await asyncio.sleep(3600)
+
+    gw = checks_gateway.GatewaySession("http://gw.example/mcp", timeout_s=0.01)
+    gw._session = HangingSession()
+    with pytest.raises(checks_gateway.GatewayError) as excinfo:
+        await gw.tool_count()
+    assert "timed out" in str(excinfo.value).lower()
+
+
 def test_read_timeout_scales_with_the_configured_timeout():
     """The read timeout used to be hardcoded at 300s regardless of config."""
     import checks_gateway

@@ -189,3 +189,27 @@ async def test_a_normal_cycle_is_unaffected_by_the_deadline(store: Store):
     assert latest["id"] == cycle_id
     assert "deadline" not in (latest["drift"] or "").lower()
     assert latest["results"]
+
+
+async def test_a_hanging_liveness_check_does_not_stall_the_cycle(store: Store, monkeypatch):
+    """The liveness probe runs before the deadline-protected block, so it needs
+    its own bound or a hang there stops all monitoring."""
+
+    class HangingSession:
+        def __init__(self, url, timeout_s=30.0):
+            pass
+
+        async def __aenter__(self):
+            await asyncio.sleep(3600)
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+    monkeypatch.setattr(cycle, "GatewaySession", HangingSession)
+    cycle_id = await cycle.run_cycle(
+        store, ENDPOINTS[:2], "http://gw.example/mcp", timeout_s=0.01
+    )
+    latest = store.latest_cycle()
+    assert latest["id"] == cycle_id
+    assert latest["finished_at"] is not None   # the cycle still closed
+    assert latest["gateway_up"] is False       # and reported the gateway as down

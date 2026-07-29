@@ -37,6 +37,20 @@ def _read_timeout(timeout_s: float) -> float:
     return max(float(timeout_s), READ_TIMEOUT_FLOOR_S)
 
 
+async def _await_bounded(coro, budget: float, what: str):
+    """Await `coro`, converting a timeout into a `GatewayError`.
+
+    An HTTP read timeout does not fire while a server holds an SSE stream
+    open without answering, so any single round trip to the gateway (an MCP
+    initialize handshake, list_tools, or call_tool) can otherwise wait
+    forever. Shared by every unbounded await on the MCP session.
+    """
+    try:
+        return await asyncio.wait_for(coro, timeout=budget)
+    except asyncio.TimeoutError as exc:
+        raise GatewayError(what + " timed out after " + str(budget) + "s") from exc
+
+
 class GatewaySession:
     def __init__(self, url: str, timeout_s: float = 30.0) -> None:
         self._url = url
@@ -73,20 +87,16 @@ class GatewaySession:
 
     async def tool_count(self) -> int:
         assert self._session is not None
-        result = await self._session.list_tools()
+        budget = self._timeout_s * 2
+        result = await _await_bounded(self._session.list_tools(), budget, "list_tools")
         return len(result.tools)
 
     async def call_tool(self, name: str, args: dict) -> dict:
         assert self._session is not None
         budget = self._timeout_s * 2
-        try:
-            result = await asyncio.wait_for(
-                self._session.call_tool(name, args), timeout=budget
-            )
-        except asyncio.TimeoutError as exc:
-            raise GatewayError(
-                "tool call " + name + " timed out after " + str(budget) + "s"
-            ) from exc
+        result = await _await_bounded(
+            self._session.call_tool(name, args), budget, "tool call " + name
+        )
         payload = result.structuredContent
         if payload is None:
             text = result.content[0].text if result.content else ""

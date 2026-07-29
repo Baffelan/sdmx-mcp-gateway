@@ -76,15 +76,22 @@ async def run_cycle(
     gateway_latency_ms: int | None = None
     start = time.monotonic()
     try:
-        gw_cm = GatewaySession(gateway_url, timeout_s)
-        gw = await gw_cm.__aenter__()
-        entered = True
-        tool_count = await gw.tool_count()
+        async def _liveness() -> int:
+            nonlocal gw, gw_cm, entered
+            gw_cm = GatewaySession(gateway_url, timeout_s)
+            gw = await gw_cm.__aenter__()
+            entered = True
+            return await gw.tool_count()
+
+        tool_count = await asyncio.wait_for(_liveness(), timeout=timeout_s * 2)
         gateway_latency_ms = int((time.monotonic() - start) * 1000)
         if tool_count == 0:
             raise RuntimeError("gateway lists zero tools")
     except Exception as exc:
-        # any failure here means "gateway down"; cancellation still propagates
+        # any failure here means "gateway down", including our own timeout
+        # (an unanswered initialize/list_tools round trip is our limit, not
+        # necessarily proof the provider is broken); cancellation still
+        # propagates
         logger.warning("gateway liveness failed: %s", exc)
         gw = None
 

@@ -2667,7 +2667,7 @@ async def get_reference_metadata(
     channels = result.get("channels", {})
     confirmed = channels.get("msd_v2") in ("found", "empty", "too_broad") or channels.get(
         "dsd_attributes"
-    ) in ("found", "empty")
+    ) in ("found", "empty", "too_broad")
     notes = list(result.get("notes", []))
     if confirmed:
         _register_dataflow_if_possible(ctx, ep_key, dataflow_id)

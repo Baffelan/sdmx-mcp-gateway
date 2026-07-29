@@ -755,6 +755,40 @@ async def test_the_wrapper_does_not_register_on_unsupported_or_inconclusive_chan
 
 
 @pytest.mark.asyncio
+async def test_the_wrapper_registers_when_dsd_attributes_is_too_broad():
+    """When dsd_attributes returns too_broad (200 response refused for size),
+    that still proves the dataflow exists on the endpoint and should be
+    registered as confirmed, preventing spurious mismatch hints."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def too_broad_impl(client, dataflow_id, key=None, agency_id=None, ctx=None):
+        return {
+            "dataflow_id": dataflow_id,
+            "agency_id": agency_id or client.agency_id,
+            "endpoint": "ECB",
+            "version": None,
+            "metadata_attributes": [],
+            "channels": {"msd_v2": "unsupported", "dsd_attributes": "too_broad"},
+            "notes": ["DSD fallback response too large to process unkeyed"],
+        }
+
+    with patch("tools.reference_metadata.get_reference_metadata", side_effect=too_broad_impl):
+        from main_server import get_reference_metadata as handler
+
+        await handler(dataflow_id="EXR", endpoint="ECB", ctx=ctx)
+
+    session = app_ctx.get_session(ctx)
+    assert "EXR" in session.snapshot_known_dataflows().get("ECB", frozenset())
+
+
+@pytest.mark.asyncio
 async def test_the_wrapper_carries_key_context_through_for_a_partial_key_attribute():
     """A caller reading the MCP tool's structured `ReferenceMetadataResult`,
     not the raw dict `get_reference_metadata_impl` returns, must still be

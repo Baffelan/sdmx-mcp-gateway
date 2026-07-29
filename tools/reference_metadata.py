@@ -15,6 +15,7 @@ import html
 import io
 import logging
 import re
+import xml.etree.ElementTree as ET
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -209,3 +210,68 @@ async def fetch_msd_metadata(
         logger.info("reference metadata body for %s was not SDMx-CSV", dataflow_id)
         return [], "inconclusive"
     return [], "empty"
+
+
+STRUCTURE_SPECIFIC_DATA = "application/vnd.sdmx.structurespecificdata+xml;version=2.1"
+
+# Dimensions and the measure are not reference metadata, and neither are the
+# SDMx envelope attributes that every message carries.
+_NOT_METADATA = frozenset({"TIME_PERIOD", "OBS_VALUE", "OBS_STATUS", "action"})
+_LEVEL_BY_TAG = {"DataSet": "dataset", "Series": "series", "Obs": "observation"}
+
+
+async def fetch_dsd_attribute_metadata(
+    client: Any,
+    dataflow_id: str,
+    agency_id: str,
+    key: str,
+    ctx: Any | None = None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Read descriptive material carried as ordinary DSD attributes.
+
+    Providers without a `/v2/` endpoint still publish useful metadata this
+    way, at whichever level they chose: IMF at dataset level, ECB at series
+    level, ILO at observation level. One tiny keyed slice captures all three.
+    """
+    url = (client.base_url + "/data/" + agency_id + "," + dataflow_id + "/"
+           + (key or "all") + "?firstNObservations=1")
+    try:
+        session = await client._get_session()
+        response = await session.get(
+            url, headers={"Accept": STRUCTURE_SPECIFIC_DATA, "Accept-Language": "en"}
+        )
+    except Exception as exc:
+        logger.info("attribute metadata request failed for %s: %s", dataflow_id, exc)
+        return [], "inconclusive"
+
+    if response.status_code != 200:
+        return [], "inconclusive"
+
+    try:
+        root = ET.fromstring(response.content)
+    except ET.ParseError:
+        return [], "inconclusive"
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for element in root.iter():
+        level = _LEVEL_BY_TAG.get(element.tag.rsplit("}", 1)[-1])
+        if level is None:
+            continue
+        for name, raw in element.attrib.items():
+            # Namespaced attributes are envelope plumbing, not metadata.
+            if "}" in name or name in _NOT_METADATA or name in seen:
+                continue
+            value, language = parse_localised_value(raw)
+            if value is None:
+                continue
+            seen.add(name)
+            out.append({
+                "id": name,
+                "path": name,
+                "label": None,
+                "value": value,
+                "language": language,
+                "level": level,
+            })
+    return out, ("found" if out else "empty")

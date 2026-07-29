@@ -2,7 +2,11 @@ import httpx
 import pytest
 import respx
 
-from tools.reference_metadata import fetch_msd_metadata, parse_msd_csv
+from tools.reference_metadata import (
+    fetch_dsd_attribute_metadata,
+    fetch_msd_metadata,
+    parse_msd_csv,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -202,3 +206,70 @@ async def test_a_keyed_response_is_never_refused_for_size():
         FakeClient(), "DF_SDG", "SPC", "A.G.SI_POV_DAY1")
     assert status == "found"
     assert attrs
+
+
+DATA_XML = (
+    '<?xml version="1.0"?>'
+    '<mes:StructureSpecificData '
+    'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+    'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+    '<mes:DataSet ss:dataScope="DataStructure" '
+    'FULL_DESCRIPTION="The Consumer Price Index dataset includes national indexes." '
+    'LICENSE="(c) IMF. All rights reserved." CONTACT_POINT="datahelp@imf.org">'
+    '<Series FREQ="A" SOURCE_AGENCY="4F0">'
+    '<Obs TIME_PERIOD="2020" OBS_VALUE="1.5" NOTE_INDICATOR="Micro data processing"/>'
+    '</Series></mes:DataSet></mes:StructureSpecificData>'
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_reads_all_three_attachment_levels():
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    assert status == "found"
+    levels = {a["id"]: a["level"] for a in attrs}
+    assert levels["FULL_DESCRIPTION"] == "dataset"
+    assert levels["SOURCE_AGENCY"] == "series"
+    assert levels["NOTE_INDICATOR"] == "observation"
+    full = [a for a in attrs if a["id"] == "FULL_DESCRIPTION"][0]
+    assert full["value"].startswith("The Consumer Price Index")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_skips_structural_and_dimension_noise():
+    """Envelope attributes and dimensions are not reference metadata."""
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
+    attrs, _status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    ids = {a["id"] for a in attrs}
+    assert "dataScope" not in ids
+    assert "TIME_PERIOD" not in ids
+    assert "OBS_VALUE" not in ids
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_reports_empty_when_only_envelope_attributes():
+    bare = ('<?xml version="1.0"?><mes:StructureSpecificData '
+            'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+            'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+            '<mes:DataSet ss:dataScope="DataStructure"/></mes:StructureSpecificData>')
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=bare)
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    assert attrs == []
+    assert status == "empty"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_reports_transport_failure():
+    respx.get(url__startswith="https://example.org/rest/data/").mock(
+        side_effect=httpx.ConnectError("boom"))
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    assert attrs == []
+    assert status == "inconclusive"

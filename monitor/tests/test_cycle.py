@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -163,4 +164,28 @@ async def test_contract_failure_does_not_abort_the_cycle(store: Store, monkeypat
     assert latest["id"] == cycle_id
     assert latest["finished_at"] is not None
     # the ordinary checks still recorded
+    assert latest["results"]
+
+
+async def test_cycle_deadline_closes_the_cycle_instead_of_hanging(store: Store, monkeypatch):
+    """A hung check must not hold the lock forever and silence the monitor."""
+    async def hanging_direct(client, ep):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(cycle, "run_direct_checks", hanging_direct)
+    cycle_id = await cycle.run_cycle(
+        store, ENDPOINTS[:2], "http://gw.example/mcp", cycle_timeout_s=0.05
+    )
+    latest = store.latest_cycle()
+    assert latest["id"] == cycle_id
+    assert latest["finished_at"] is not None      # the cycle closed
+    assert "deadline" in latest["drift"].lower()  # and said why
+
+
+async def test_a_normal_cycle_is_unaffected_by_the_deadline(store: Store):
+    """The deadline must not change anything about a healthy run."""
+    cycle_id = await cycle.run_cycle(store, ENDPOINTS, "http://gw.example/mcp")
+    latest = store.latest_cycle()
+    assert latest["id"] == cycle_id
+    assert "deadline" not in (latest["drift"] or "").lower()
     assert latest["results"]

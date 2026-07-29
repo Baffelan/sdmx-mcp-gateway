@@ -85,7 +85,8 @@ def test_history_hours_clamped(store: Store, client: TestClient):
 def test_refresh_runs_cycle_and_cooldown(store: Store, client: TestClient, monkeypatch):
     calls = []
 
-    async def fake_run_cycle(store_arg, endpoints, url, *, timeout_s=30.0):
+    async def fake_run_cycle(store_arg, endpoints, url, *, timeout_s=30.0,
+                             cycle_timeout_s=900.0):
         calls.append(url)
         return 41
 
@@ -125,7 +126,8 @@ def test_scheduler_catchup_runs_on_stale_store(store: Store, monkeypatch):
 
     ran = threading.Event()
 
-    async def fake_run_cycle(store_arg, endpoints, url, *, timeout_s=30.0):
+    async def fake_run_cycle(store_arg, endpoints, url, *, timeout_s=30.0,
+                             cycle_timeout_s=900.0):
         ran.set()
         return 1
 

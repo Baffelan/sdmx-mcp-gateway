@@ -1,6 +1,8 @@
 """Gateway checks are tested against a fake session object; the real
 GatewaySession is exercised by scripts/live_smoke.py, not in CI."""
 
+import pytest
+
 from checks_gateway import (
     GatewayError,
     gateway_data_check,
@@ -143,3 +145,29 @@ async def test_data_fails_when_null_samples_cover_the_whole_result():
     result = await gateway_data_check(gw, _ep("ESTAT"))
     assert result.ok is False
     assert "no non-null" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_call_tool_gives_up_rather_than_hanging(monkeypatch):
+    """An SSE stream held open without an answer must not stall a cycle."""
+    import asyncio
+
+    import checks_gateway
+
+    class HangingSession:
+        async def call_tool(self, name, args):
+            await asyncio.sleep(3600)
+
+    gw = checks_gateway.GatewaySession("http://gw.example/mcp", timeout_s=0.01)
+    gw._session = HangingSession()
+    with pytest.raises(checks_gateway.GatewayError) as excinfo:
+        await gw.call_tool("list_dataflows", {})
+    assert "timed out" in str(excinfo.value).lower()
+
+
+def test_read_timeout_scales_with_the_configured_timeout():
+    """The read timeout used to be hardcoded at 300s regardless of config."""
+    import checks_gateway
+
+    assert checks_gateway._read_timeout(30.0) == 60.0    # floor applies
+    assert checks_gateway._read_timeout(120.0) == 120.0  # scales above the floor

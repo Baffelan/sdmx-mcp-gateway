@@ -27,6 +27,7 @@ GATEWAY_URL = os.getenv(
 CHECK_INTERVAL_MIN = int(os.getenv("CHECK_INTERVAL_MIN", "120"))
 DB_PATH = os.getenv("DB_PATH", "./data/monitor.db")
 CHECK_TIMEOUT_S = float(os.getenv("CHECK_TIMEOUT_S", "30"))
+CYCLE_TIMEOUT_S = float(os.getenv("CYCLE_TIMEOUT_S", "900"))
 REFRESH_COOLDOWN_S = 300
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -79,7 +80,8 @@ def _is_stale(started_at: str | None, factor: float = 2.0) -> bool:
 async def _locked_cycle(app: FastAPI) -> int:
     async with app.state.cycle_lock:
         return await run_cycle(
-            app.state.store, ENDPOINTS, GATEWAY_URL, timeout_s=CHECK_TIMEOUT_S
+            app.state.store, ENDPOINTS, GATEWAY_URL,
+            timeout_s=CHECK_TIMEOUT_S, cycle_timeout_s=CYCLE_TIMEOUT_S,
         )
 
 
@@ -93,7 +95,8 @@ def create_app(store: Store | None = None, enable_scheduler: bool = True) -> Fas
         if enable_scheduler:
             scheduler = AsyncIOScheduler(timezone="UTC")
             scheduler.add_job(
-                _locked_cycle, "interval", minutes=CHECK_INTERVAL_MIN, args=[app]
+                _locked_cycle, "interval", minutes=CHECK_INTERVAL_MIN, args=[app],
+                max_instances=1, coalesce=True,
             )
             scheduler.start()
             latest = app.state.store.latest_cycle()

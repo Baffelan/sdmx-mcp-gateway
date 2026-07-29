@@ -64,6 +64,7 @@ async def run_cycle(
     gateway_url: str,
     *,
     timeout_s: float = 30.0,
+    cycle_timeout_s: float = 900.0,
 ) -> int:
     started_at = utcnow_iso()
     cycle_id = store.open_cycle(started_at)
@@ -98,17 +99,25 @@ async def run_cycle(
             except Exception as exc:
                 drift = ("drift check failed: " + str(exc))[:300]
 
-        async with httpx.AsyncClient(
-            timeout=timeout_s, follow_redirects=True, headers={"User-Agent": USER_AGENT}
-        ) as client:
-            bundles = await asyncio.gather(
-                *(_endpoint_bundle(ep, gw, client, timeout_s) for ep in endpoints)
-            )
-        for results, contract_results in bundles:
-            for result in results:
-                store.add_result(cycle_id, result)
-            for contract_result in contract_results:
-                store.add_contract(cycle_id, contract_result)
+        async with asyncio.timeout(cycle_timeout_s):
+            async with httpx.AsyncClient(
+                timeout=timeout_s, follow_redirects=True, headers={"User-Agent": USER_AGENT}
+            ) as client:
+                bundles = await asyncio.gather(
+                    *(_endpoint_bundle(ep, gw, client, timeout_s) for ep in endpoints)
+                )
+            for results, contract_results in bundles:
+                for result in results:
+                    store.add_result(cycle_id, result)
+                for contract_result in contract_results:
+                    store.add_contract(cycle_id, contract_result)
+    except asyncio.TimeoutError:
+        # our own limit, not a provider fault: record drift, mark no endpoint broken
+        logger.warning("cycle %s exceeded its %ss deadline", cycle_id, cycle_timeout_s)
+        cycle_error = (
+            "cycle deadline exceeded after " + str(cycle_timeout_s)
+            + "s; results for this cycle may be incomplete"
+        )
     except Exception as exc:
         # never let a mid-cycle failure leave the cycle row open forever
         logger.exception("cycle %s aborted mid-checks", cycle_id)

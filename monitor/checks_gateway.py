@@ -7,6 +7,7 @@ functions accept any object with `async call_tool(name, args) -> dict`, so
 unit tests inject a fake and CI never opens a network connection.
 """
 
+import asyncio
 import json
 import time
 from contextlib import AsyncExitStack
@@ -23,6 +24,19 @@ class GatewayError(Exception):
     pass
 
 
+READ_TIMEOUT_FLOOR_S = 60.0
+
+
+def _read_timeout(timeout_s: float) -> float:
+    """Read timeout for the MCP transport.
+
+    Derived from the configured timeout rather than hardcoded: a fixed five
+    minutes meant a 30 second configuration could still stall a cycle for far
+    longer than intended. The floor keeps ordinary slow tool calls alive.
+    """
+    return max(float(timeout_s), READ_TIMEOUT_FLOOR_S)
+
+
 class GatewaySession:
     def __init__(self, url: str, timeout_s: float = 30.0) -> None:
         self._url = url
@@ -35,7 +49,7 @@ class GatewaySession:
         try:
             http_client = await self._stack.enter_async_context(
                 httpx.AsyncClient(
-                    timeout=httpx.Timeout(self._timeout_s, read=300.0),
+                    timeout=httpx.Timeout(self._timeout_s, read=_read_timeout(self._timeout_s)),
                     follow_redirects=True,
                 )
             )
@@ -64,7 +78,15 @@ class GatewaySession:
 
     async def call_tool(self, name: str, args: dict) -> dict:
         assert self._session is not None
-        result = await self._session.call_tool(name, args)
+        budget = self._timeout_s * 2
+        try:
+            result = await asyncio.wait_for(
+                self._session.call_tool(name, args), timeout=budget
+            )
+        except asyncio.TimeoutError as exc:
+            raise GatewayError(
+                "tool call " + name + " timed out after " + str(budget) + "s"
+            ) from exc
         payload = result.structuredContent
         if payload is None:
             text = result.content[0].text if result.content else ""

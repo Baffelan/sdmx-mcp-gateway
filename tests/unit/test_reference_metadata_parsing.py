@@ -3,6 +3,7 @@
 
 import pytest
 
+from config import get_metadata_support
 from tools.reference_metadata import parse_localised_value, strip_markup
 
 pytestmark = pytest.mark.unit
@@ -55,3 +56,30 @@ def test_links_keep_their_text_and_href():
 
 def test_strip_markup_collapses_whitespace_and_entities():
     assert strip_markup("<p>a&nbsp;b</p>\n<p>c</p>") == "a b c"
+
+
+def test_providers_verified_serving_msd_metadata():
+    for key in ("SPC", "OECD", "FBOS", "SBS"):
+        support = get_metadata_support(key)
+        assert support is not None, key
+        assert support["status"] == "supported", key
+        assert support["v2_path"] == "/v2", key
+
+
+def test_providers_that_route_v2_but_fail_are_marked_unsupported():
+    """ABS 404s and ILO 500s on the metadata query (verified 2026-07-29)."""
+    for key in ("ABS", "ILO"):
+        support = get_metadata_support(key)
+        assert support is not None, key
+        assert support["status"] == "unsupported", key
+        assert support["reason"], key
+
+
+def test_providers_without_a_v2_endpoint_return_none():
+    for key in ("ECB", "UNICEF", "BIS", "ESTAT"):
+        assert get_metadata_support(key) is None, key
+
+
+def test_unknown_endpoint_returns_none():
+    assert get_metadata_support(None) is None
+    assert get_metadata_support("NOT_A_PROVIDER") is None

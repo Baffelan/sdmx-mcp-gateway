@@ -48,6 +48,8 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
             "bulk": "contentconstraint",
         },
         "references_support": ["none", "children", "parents", "all"],
+        # Reference metadata via the .Stat Suite v2 MSD query. Verified 2026-07-29.
+        "metadata": {"v2_path": "/v2", "status": "supported"},
     },
     "FBOS": {
         "name": "Fiji Bureau of Statistics",
@@ -59,6 +61,8 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
             "bulk": "contentconstraint",
         },
         "references_support": ["none", "children", "parents", "all"],
+        # Reference metadata via the .Stat Suite v2 MSD query. Verified 2026-07-29.
+        "metadata": {"v2_path": "/v2", "status": "supported"},
     },
     "SBS": {
         "name": "Samoa Bureau of Statistics",
@@ -70,6 +74,8 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
             "bulk": "contentconstraint",
         },
         "references_support": ["none", "children", "parents", "all"],
+        # Reference metadata via the .Stat Suite v2 MSD query. Verified 2026-07-29.
+        "metadata": {"v2_path": "/v2", "status": "supported"},
     },
     "ECB": {
         "name": "European Central Bank",
@@ -130,6 +136,8 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
         # not under bare "OECD". Use "all" to list dataflows across sub-agencies.
         "dataflow_agency": "all",
         "references_support": ["none", "children", "parents", "all"],
+        # Reference metadata via the .Stat Suite v2 MSD query. Verified 2026-07-29.
+        "metadata": {"v2_path": "/v2", "status": "supported"},
     },
     "ESTAT": {
         "name": "Eurostat",
@@ -157,6 +165,10 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
             "bulk": None,
         },
         "references_support": ["none", "children", "parents", "all"],
+        # ILO: /v2/ routes but the metadata query answers 500
+        # "The method or operation is not implemented". Verified 2026-07-29.
+        "metadata": {"status": "unsupported",
+                     "reason": "v2 metadata query is not implemented (HTTP 500)"},
     },
     "ABS": {
         "name": "Australian Bureau of Statistics",
@@ -170,6 +182,10 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
             "bulk": None,
         },
         "references_support": ["none", "children", "parents", "all"],
+        # ABS: /v2/ routes but the metadata query answers 404
+        # "Could not find Dataflow and/or DSD". Verified 2026-07-29.
+        "metadata": {"status": "unsupported",
+                     "reason": "v2 metadata query returns 404 for known dataflows"},
     },
     "BIS": {
         "name": "Bank for International Settlements",
@@ -233,6 +249,19 @@ def get_constraint_strategy(endpoint_key: str, kind: str = "single_flow") -> str
     if constraints is None:
         return None
     return constraints.get(kind)
+
+
+def get_metadata_support(endpoint_key: str | None) -> dict[str, str] | None:
+    """What this endpoint offers for reference metadata, if anything.
+
+    None means the provider exposes no `/v2/` endpoint at all, so the MSD
+    channel does not apply and only the DSD attribute fallback is available.
+    """
+    ep = SDMX_ENDPOINTS.get(endpoint_key) if endpoint_key else None
+    if not ep:
+        return None
+    support = ep.get("metadata")
+    return dict(support) if support else None
 
 
 def get_dataflow_agency(endpoint_key: str) -> str | None:

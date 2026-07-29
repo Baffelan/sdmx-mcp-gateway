@@ -254,10 +254,12 @@ async def fetch_dsd_attribute_metadata(
 
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
+    saw_data_message = False
     for element in root.iter():
         level = _LEVEL_BY_TAG.get(element.tag.rsplit("}", 1)[-1])
         if level is None:
             continue
+        saw_data_message = True
         for name, raw in element.attrib.items():
             # Namespaced attributes are envelope plumbing, not metadata.
             if "}" in name or name in _NOT_METADATA or name in seen:
@@ -274,4 +276,14 @@ async def fetch_dsd_attribute_metadata(
                 "language": language,
                 "level": level,
             })
-    return out, ("found" if out else "empty")
+    if out:
+        return out, "found"
+    # A well-formed XML document that never mentions DataSet/Series/Obs is not
+    # a structure-specific data message at all -- an HTML error page or a
+    # wrong-schema body parses fine here, since ET.fromstring only rejects
+    # syntactically invalid XML. That is not evidence the provider carries no
+    # metadata, so it must not be reported as `empty`.
+    if not saw_data_message:
+        logger.info("attribute metadata body for %s was not a data message", dataflow_id)
+        return [], "inconclusive"
+    return [], "empty"

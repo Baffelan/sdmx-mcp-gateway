@@ -273,3 +273,26 @@ async def test_dsd_fallback_reports_transport_failure():
         FakeClient(), "CPI", "IMF.STA", "all")
     assert attrs == []
     assert status == "inconclusive"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_reports_html_error_page_as_inconclusive():
+    """ET.fromstring parses HTML happily, so 'it parsed' is not evidence we
+    got the message we asked for."""
+    respx.get(url__startswith="https://example.org/rest/data/").respond(
+        200, text="<!DOCTYPE html><html><body>Service unavailable</body></html>")
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    assert attrs == []
+    assert status == "inconclusive"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_reports_non_200_as_inconclusive():
+    respx.get(url__startswith="https://example.org/rest/data/").respond(500)
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    assert attrs == []
+    assert status == "inconclusive"

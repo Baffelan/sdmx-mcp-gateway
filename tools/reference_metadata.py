@@ -113,11 +113,22 @@ def parse_msd_csv(text: str, prefer: str = "en") -> list[dict[str, Any]]:
     return out
 
 
+def _looks_like_sdmx_csv(text: str) -> bool:
+    """Cheap discriminator between a genuine SDMx-CSV body and an HTML error
+    page or JSON fault served with HTTP 200. SDMx-CSV bodies from this
+    endpoint begin with a `STRUCTURE` column; check only the first line
+    rather than re-parsing the whole body.
+    """
+    first_line = text.split("\n", 1)[0]
+    first_column = first_line.split(",", 1)[0].strip()
+    return first_column == "STRUCTURE"
+
+
 async def fetch_msd_metadata(
     client: Any,
     dataflow_id: str,
     agency_id: str,
-    key: str,
+    key: str | None,
     ctx: Any | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     """Read reference metadata through the .Stat Suite v2 MSD query.
@@ -146,7 +157,7 @@ async def fetch_msd_metadata(
     except Exception as exc:
         logger.info("could not resolve version for %s: %s", dataflow_id, exc)
         return [], "inconclusive"
-    url = (client.base_url + support["v2_path"] + "/data/dataflow/" + agency_id
+    url = (client.base_url + support.get("v2_path", "/v2") + "/data/dataflow/" + agency_id
            + "/" + dataflow_id + "/" + version + "/" + (key or "all")
            + "?" + MSD_QUERY)
 
@@ -188,4 +199,13 @@ async def fetch_msd_metadata(
             "could not parse reference metadata response for %s: %s", dataflow_id, exc
         )
         return [], "inconclusive"
-    return attributes, ("found" if attributes else "empty")
+    if attributes:
+        return attributes, "found"
+    # A 200 carrying an HTML error page or JSON fault parses as "no dot
+    # columns", which is indistinguishable from genuine emptiness unless we
+    # check the body really is the SDMx-CSV we asked for. This is the same
+    # mistake the 204 handling above exists to prevent, one level down.
+    if not _looks_like_sdmx_csv(response.text):
+        logger.info("reference metadata body for %s was not SDMx-CSV", dataflow_id)
+        return [], "inconclusive"
+    return [], "empty"

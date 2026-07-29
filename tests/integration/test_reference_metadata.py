@@ -102,6 +102,30 @@ async def test_a_200_with_no_metadata_columns_is_empty():
 
 
 @pytest.mark.asyncio
+@respx.mock
+async def test_a_200_carrying_an_html_error_page_is_inconclusive():
+    """A maintenance page served with 200 must not read as 'no metadata'."""
+    respx.get(url__startswith=_msd_url()).respond(
+        200, text="<!DOCTYPE html><html><body>Service unavailable</body></html>")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    assert attrs == []
+    assert status == "inconclusive"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_genuine_sdmx_csv_with_no_metadata_columns_is_empty():
+    """SBS's DF_CPI is a real case: the endpoint works, the dataflow has none."""
+    respx.get(url__startswith=_msd_url()).respond(
+        200, text="STRUCTURE,STRUCTURE_ID,ACTION,FREQ,Frequency of observation\n"
+                  "dataflow,SBS:DF_CPI(1.0),I,A,Annual\n")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    assert attrs == []
+    assert status == "empty"
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_an_endpoint_without_v2_is_unsupported_without_a_request():
     class EcbClient(FakeClient):
         endpoint_key = "ECB"

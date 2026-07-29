@@ -20,7 +20,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# `en:"<p>text</p>",fr:""` — a language tag, a colon, then a quoted value.
+# `en:"<p>text</p>",fr:""`: a language tag, a colon, then a quoted value.
 _LOCALISED = re.compile(r'([A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?):"((?:[^"\\]|\\.)*)"')
 _TAG = re.compile(r"<[^>]+>")
 _HREF = re.compile(r'<a\s[^>]*href=\\?"([^"\\]+)\\?"[^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
@@ -86,6 +86,44 @@ _STRUCTURAL_COLUMNS = frozenset({
 })
 
 
+# Above this many data rows an MSD response is truncated rather than read in
+# full, so a pathological or misbehaving response cannot spin forever. Real
+# responses are nowhere near this: OECD's HICP metadata query, the largest
+# seen in practice, is 111 rows.
+_MAX_MSD_DATA_ROWS = 5000
+
+# When a metadata column carries several distinct values across rows, this
+# many are kept in the result (in first-seen order, with a dataflow-level
+# one moved to the front as the headline) so the payload stays small;
+# `distinct_value_count` on the result records the true, uncapped total.
+_MAX_DISTINCT_VALUES = 3
+
+
+def _row_level(
+    row: list[str], dimension_columns: list[tuple[int, str]]
+) -> tuple[str, dict[str, str]]:
+    """Classify one MSD data row from its own dimension cells.
+
+    A row where every dimension cell is a wildcard (`~`) or empty was not
+    narrowed by a key, so whatever metadata it carries describes the
+    dataflow as a whole. A row with even one concrete dimension value only
+    describes that slice -- e.g. row 1 of OECD's HICP response is
+    REF_AREA=GBR with every other dimension wildcarded, so its COVERAGE
+    value is the United Kingdom's, not the dataflow's.
+
+    Returns (level, key_context): level is `"dataflow"` or `"partial_key"`;
+    key_context holds the row's concrete dimension values, empty for a
+    dataflow-level row.
+    """
+    key_context: dict[str, str] = {}
+    for index, dim_id in dimension_columns:
+        cell = row[index].strip() if index < len(row) else ""
+        if cell and cell != "~":
+            key_context[dim_id] = cell
+    level = "partial_key" if key_context else "dataflow"
+    return level, key_context
+
+
 def parse_msd_csv(
     text: str,
     dimension_ids: set[str] | frozenset[str] = frozenset(),
@@ -109,21 +147,31 @@ def parse_msd_csv(
     column name so SPC's hierarchy is preserved; `id` is the part after the
     last dot.
 
-    Only the header and the first data row are read, and lazily: a keyed
-    request is exempt from the size cap in `fetch_msd_metadata`, so a
-    provider could in principle still return a very large body, and any rows
-    beyond the first carry nothing this function uses. Materialising the
-    whole body into `csv.reader` would both waste the parse and risk
-    Python's default 131072-byte csv field-size limit on an oversized row
-    this function was never going to read anyway.
+    An unkeyed MSD response is one row per attachment target, not one row
+    for the whole dataflow. OECD's HICP metadata query returns 111 rows, and
+    a metadata column can be populated in some rows and empty in others: of
+    the 8 columns that carry a value somewhere in that response, row 1 alone
+    carries only 5, missing DATA_COMP, QUALITY_ASSMNT and REC_USE_LIM (the
+    dataflow's recommended-uses-and-limitations text) entirely. Every row is
+    read here, up to `_MAX_MSD_DATA_ROWS`, and each metadata column's
+    distinct non-empty values are collected across all of them. `level` and
+    `key_context` come from each row's own dimension cells (`_row_level`): a
+    value attaches to the whole dataflow only when the row that carried it
+    had every dimension wildcarded, otherwise it attaches to that row's
+    partial key. When a column carries several distinct values, the
+    headline `value` prefers a dataflow-level one over a partial-key one;
+    `values` keeps up to `_MAX_DISTINCT_VALUES` of them (headline first,
+    including its `key_context` when it is partial-key) and
+    `distinct_value_count` records the true, uncapped total.
     """
     reader = csv.reader(io.StringIO(text))
     try:
         header = next(reader)
-        first = next(reader)
     except StopIteration:
         return []
-    out: list[dict[str, Any]] = []
+
+    dimension_columns: list[tuple[int, str]] = []
+    meta_columns: list[tuple[int, str, str, str | None]] = []
     for index, column in enumerate(header):
         if not _SDMX_IDENTIFIER.fullmatch(column):
             continue
@@ -131,18 +179,60 @@ def parse_msd_csv(
             continue
         attr_id = column.rsplit(".", 1)[-1]
         if attr_id in dimension_ids:
-            continue
-        raw = first[index] if index < len(first) else ""
-        value, language = parse_localised_value(raw, prefer=prefer)
-        if value is None:
+            dimension_columns.append((index, attr_id))
             continue
         label = header[index + 1] if index + 1 < len(header) else None
+        meta_columns.append((index, column, attr_id, label))
+
+    if not meta_columns:
+        return []
+
+    # Per metadata column index: every distinct value seen, in first-seen
+    # order, uncapped -- `distinct_value_count` needs the true total even
+    # though the assembled result below keeps only `_MAX_DISTINCT_VALUES`.
+    collected: dict[int, list[dict[str, Any]]] = {index: [] for index, *_ in meta_columns}
+    seen: dict[int, set[str]] = {index: set() for index, *_ in meta_columns}
+
+    for row_number, row in enumerate(reader):
+        if row_number >= _MAX_MSD_DATA_ROWS:
+            logger.info(
+                "reference metadata response had more than %s data rows; truncating",
+                _MAX_MSD_DATA_ROWS,
+            )
+            break
+        level, key_context = _row_level(row, dimension_columns)
+        for index, _column, _attr_id, _label in meta_columns:
+            raw = row[index] if index < len(row) else ""
+            value, language = parse_localised_value(raw, prefer=prefer)
+            if value is None or value in seen[index]:
+                continue
+            seen[index].add(value)
+            collected[index].append({
+                "value": value,
+                "language": language,
+                "level": level,
+                "key_context": key_context or None,
+            })
+
+    out: list[dict[str, Any]] = []
+    for index, column, attr_id, label in meta_columns:
+        values = collected[index]
+        if not values:
+            continue
+        headline = next((v for v in values if v["level"] == "dataflow"), values[0])
+        capped = values[:_MAX_DISTINCT_VALUES]
+        if headline not in capped:
+            capped = [headline, *capped[: _MAX_DISTINCT_VALUES - 1]]
         out.append({
             "id": attr_id,
             "path": column,
             "label": label,
-            "value": value,
-            "language": language,
+            "value": headline["value"],
+            "language": headline["language"],
+            "level": headline["level"],
+            "key_context": headline["key_context"],
+            "distinct_value_count": len(values),
+            "values": capped,
         })
     return out
 
@@ -165,6 +255,50 @@ def _looks_like_sdmx_csv(text: str) -> bool:
 # a resolution that already failed). Not `None` itself, since `None` is the
 # second, meaningful case.
 _UNRESOLVED = object()
+
+
+async def _bounded_get(
+    session: Any, url: str, headers: dict[str, str], unkeyed: bool
+) -> tuple[int, bytes | None, str | None]:
+    """GET a URL without ever materialising an unbounded unkeyed body.
+
+    A keyed request has already been narrowed by the caller, so it is read
+    in full and never refused for size -- this only applies to unkeyed
+    requests, the one way an oversized response reaches this tool (SPC's
+    DF_SDG is 5.37 MB unfiltered; ECB's EXR and IMF's CPI are multi-megabyte
+    too, through the DSD-attribute fallback). A plain `session.get` would
+    materialise the whole body before any size check could run, which is
+    exactly the bug this exists to avoid, so an unkeyed request is streamed
+    instead and aborted once more than `UNKEYED_SIZE_CAP_BYTES` has actually
+    been read, or immediately when a `Content-Length` header already says as
+    much.
+
+    Returns (status_code, body, encoding). `body` is `None` when an unkeyed
+    response was refused for size before being fully read; the caller must
+    report that as `too_broad` rather than try to parse it.
+    """
+    if not unkeyed:
+        response = await session.get(url, headers=headers)
+        return response.status_code, response.content, response.encoding
+
+    async with session.stream("GET", url, headers=headers) as response:
+        if response.status_code != 200:
+            return response.status_code, b"", None
+
+        content_length = response.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > UNKEYED_SIZE_CAP_BYTES:
+                    return response.status_code, None, None
+            except ValueError:
+                pass
+
+        body = bytearray()
+        async for chunk in response.aiter_bytes():
+            body.extend(chunk)
+            if len(body) > UNKEYED_SIZE_CAP_BYTES:
+                return response.status_code, None, None
+        return response.status_code, bytes(body), response.encoding
 
 
 async def fetch_msd_metadata(
@@ -229,37 +363,42 @@ async def fetch_msd_metadata(
 
     try:
         session = await client._get_session()
-        response = await session.get(url, headers={"Accept-Language": "en"})
+        status_code, body, encoding = await _bounded_get(
+            session, url, {"Accept-Language": "en"}, unkeyed=not key
+        )
     except Exception as exc:
         logger.info("reference metadata request failed for %s: %s", dataflow_id, exc)
         return [], "inconclusive"
 
-    if response.status_code == 204:
+    if status_code == 204:
         return [], "inconclusive"
-    if response.status_code != 200:
+    if status_code != 200:
         logger.info(
             "reference metadata query returned HTTP %s for %s",
-            response.status_code, dataflow_id,
+            status_code, dataflow_id,
         )
         return [], "inconclusive"
 
     # An unkeyed query against a large dataflow is the one way this tool can
     # pull megabytes: SPC's DF_SDG is 5.37 MB unfiltered and 5.6 KB with a
-    # partial key. Refuse rather than punish the provider, and tell the caller
-    # what to do about it.
-    if len(response.content) > UNKEYED_SIZE_CAP_BYTES and not key:
+    # partial key. `_bounded_get` aborts the read partway through rather than
+    # materialising the whole body first, so `body` is `None` here, not a
+    # size measured after the fact.
+    if body is None:
         logger.info(
-            "reference metadata response for %s was %s bytes; asking for a key",
-            dataflow_id, len(response.content),
+            "reference metadata response for %s exceeded %s bytes; asking for a key",
+            dataflow_id, UNKEYED_SIZE_CAP_BYTES,
         )
         return [], "too_broad"
+
+    text = body.decode(encoding or "utf-8", errors="replace")
 
     # A single oversized field (not just the trailing padding the size guard
     # above catches) can still exceed Python's csv field-size limit, e.g. a
     # provider that concatenates many language translations into one value.
     # That is a malformed/unparseable response, not proof of absence.
     try:
-        attributes = parse_msd_csv(response.text, dimension_ids=dimension_ids)
+        attributes = parse_msd_csv(text, dimension_ids=dimension_ids)
     except Exception as exc:
         logger.info(
             "could not parse reference metadata response for %s: %s", dataflow_id, exc
@@ -271,7 +410,7 @@ async def fetch_msd_metadata(
     # columns", which is indistinguishable from genuine emptiness unless we
     # check the body really is the SDMx-CSV we asked for. This is the same
     # mistake the 204 handling above exists to prevent, one level down.
-    if not _looks_like_sdmx_csv(response.text):
+    if not _looks_like_sdmx_csv(text):
         logger.info("reference metadata body for %s was not SDMx-CSV", dataflow_id)
         return [], "inconclusive"
     return [], "empty"
@@ -305,24 +444,55 @@ async def fetch_dsd_attribute_metadata(
     `dimension_ids`, if supplied, excludes columns that are actually
     dimensions of this dataflow (e.g. `FREQ`, `REF_AREA`) rather than
     reference metadata -- a data message alone cannot make that distinction.
+
+    Returns (attributes, status) where status can also be `too_broad`:
+    `firstNObservations=1` still returns one row per series, so an unkeyed
+    request against a large dataflow (ECB's EXR, IMF's CPI) is a multi-
+    megabyte body that `root.iter()` would then have to walk in full -- the
+    same size guard used for the MSD channel applies here too.
     """
+    unkeyed = not key or key == "all"
     url = (client.base_url + "/data/" + agency_id + "," + dataflow_id + "/"
            + (key or "all") + "?firstNObservations=1")
     try:
         session = await client._get_session()
-        response = await session.get(
-            url, headers={"Accept": STRUCTURE_SPECIFIC_DATA, "Accept-Language": "en"}
+        status_code, body, _encoding = await _bounded_get(
+            session, url, {"Accept": STRUCTURE_SPECIFIC_DATA, "Accept-Language": "en"},
+            unkeyed=unkeyed,
         )
     except Exception as exc:
         logger.info("attribute metadata request failed for %s: %s", dataflow_id, exc)
         return [], "inconclusive"
 
-    if response.status_code != 200:
+    if status_code != 200:
         return [], "inconclusive"
 
+    if body is None:
+        logger.info(
+            "attribute metadata response for %s exceeded %s bytes; asking for a key",
+            dataflow_id, UNKEYED_SIZE_CAP_BYTES,
+        )
+        return [], "too_broad"
+
     try:
-        root = ET.fromstring(response.content)
+        root = ET.fromstring(body)
     except ET.ParseError:
+        return [], "inconclusive"
+
+    # A provider that ignores our structure-specific Accept header can still
+    # answer 200 with a well-formed SDMx-ML *Generic* message, which reuses
+    # the same DataSet/Series/Obs local names but carries attribute values
+    # as child <generic:Value> elements rather than XML attributes -- so the
+    # loop below would find zero attributes and this would misread as
+    # `empty` ("carries no descriptive attributes") when the truth is
+    # "answered in a dialect we do not parse". Only the structure-specific
+    # dialect's root is accepted as evidence either way.
+    root_tag = root.tag.rsplit("}", 1)[-1]
+    if root_tag != "StructureSpecificData":
+        logger.info(
+            "attribute metadata body for %s was not structure-specific data (root was %s)",
+            dataflow_id, root_tag,
+        )
         return [], "inconclusive"
 
     out: list[dict[str, Any]] = []
@@ -422,7 +592,10 @@ async def get_reference_metadata(
     )
     channels["msd_v2"] = msd_status
     for attr in msd_attrs:
-        attributes.append({**attr, "level": "dataflow", "source": "msd"})
+        # `level` (and, for a partial-key value, `key_context`) already come
+        # from parse_msd_csv, which derives them per row rather than
+        # assuming every value describes the whole dataflow.
+        attributes.append({**attr, "source": "msd"})
 
     if msd_status != "found":
         dsd_attrs, dsd_status = await fetch_dsd_attribute_metadata(
@@ -459,11 +632,22 @@ async def get_reference_metadata(
             "descriptive attributes or that the request failed. Treat it as "
             "unknown rather than as absence."
         )
-    # `too_broad` means the tool positively observed metadata and refused to
-    # return it unkeyed -- the opposite of "nothing was found". Saying so
-    # here would contradict the too_broad note above, so only claim absence
-    # when nothing was found *and* nothing was refused for size.
-    if not attributes and msd_status != "too_broad":
+    if channels.get("dsd_attributes") == "too_broad":
+        notes.append(
+            "This dataflow's attribute data is too large to return "
+            "unfiltered. Supply a dimension key to narrow it, for example a "
+            "single indicator or reference area."
+        )
+    # `too_broad` on either channel means the tool positively observed
+    # metadata and refused to return it unkeyed -- the opposite of "nothing
+    # was found". Saying so here would contradict the too_broad notes above,
+    # so only claim absence when nothing was found *and* nothing was refused
+    # for size on either channel.
+    if (
+        not attributes
+        and msd_status != "too_broad"
+        and channels.get("dsd_attributes") != "too_broad"
+    ):
         notes.append("No reference metadata was found for this dataflow.")
 
     return {

@@ -3,6 +3,7 @@ import pytest
 import respx
 
 from tools.reference_metadata import (
+    _row_level,
     fetch_dsd_attribute_metadata,
     fetch_msd_metadata,
     get_reference_metadata,
@@ -69,6 +70,72 @@ def test_dotted_metadata_columns_still_work_and_keep_their_path():
 def test_label_columns_are_never_treated_as_attributes():
     rows = parse_msd_csv(MSD_CSV, dimension_ids=set())
     assert all(" " not in r["path"] for r in rows)
+
+
+def test_row_level_is_dataflow_when_every_dimension_cell_is_wildcard_or_empty():
+    """A row with no concrete dimension value was not narrowed by a key, so
+    whatever metadata it carries describes the whole dataflow."""
+    level, context = _row_level(
+        ["~", "", "~"], [(0, "FREQ"), (1, "REF_AREA"), (2, "ADJUSTMENT")]
+    )
+    assert level == "dataflow"
+    assert context == {}
+
+
+def test_row_level_is_partial_key_when_any_dimension_cell_is_concrete():
+    """Row 1 of OECD's real HICP response is exactly this shape: REF_AREA=GBR
+    with every other dimension wildcarded."""
+    level, context = _row_level(
+        ["A", "GBR", "~"], [(0, "FREQ"), (1, "REF_AREA"), (2, "ADJUSTMENT")]
+    )
+    assert level == "partial_key"
+    assert context == {"FREQ": "A", "REF_AREA": "GBR"}
+
+
+def test_parse_msd_csv_finds_a_value_that_only_appears_in_a_later_row():
+    """Real MSD responses are one row per attachment target: OECD's HICP
+    query returns 111 rows, and a metadata column can be empty in early rows
+    and populated only in a later one (REC_USE_LIM is empty in 107 of
+    OECD's 111 rows). Reading only the first data row drops it entirely."""
+    csv_text = (
+        "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+        "REC_USE_LIM,Recommended uses\n"
+        "dataflow,OECD:DF(1.0),I,AUS,Australia,,\n"
+        "dataflow,OECD:DF(1.0),I,GBR,United Kingdom,,\n"
+        'dataflow,OECD:DF(1.0),I,USA,United States,'
+        '"en:""<p>Use with care</p>""","Recommended uses"\n'
+    )
+    rows = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
+    by_id = {r["id"]: r for r in rows}
+    assert "REC_USE_LIM" in by_id
+    assert by_id["REC_USE_LIM"]["value"] == "Use with care"
+    assert by_id["REC_USE_LIM"]["level"] == "partial_key"
+    assert by_id["REC_USE_LIM"]["key_context"] == {"REF_AREA": "USA"}
+
+
+def test_a_dataflow_level_value_is_the_headline_over_a_disagreeing_partial_key_one():
+    """When rows disagree, a value that describes the whole dataflow is a
+    more useful headline than one that only describes a slice of it -- but
+    the slice-specific value must still be visible, with the key it applies
+    to, rather than silently dropped."""
+    csv_text = (
+        "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+        "COVERAGE,Coverage\n"
+        'dataflow,OECD:DF(1.0),I,~,~,'
+        '"en:""<p>Whole country</p>""","Coverage"\n'
+        'dataflow,OECD:DF(1.0),I,GBR,United Kingdom,'
+        '"en:""<p>United Kingdom only</p>""","Coverage"\n'
+    )
+    rows = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
+    coverage = [r for r in rows if r["id"] == "COVERAGE"][0]
+    assert coverage["value"] == "Whole country"
+    assert coverage["level"] == "dataflow"
+    assert coverage["key_context"] is None
+    assert coverage["distinct_value_count"] == 2
+    partial_values = [v for v in coverage["values"] if v["level"] == "partial_key"]
+    assert len(partial_values) == 1
+    assert partial_values[0]["value"] == "United Kingdom only"
+    assert partial_values[0]["key_context"] == {"REF_AREA": "GBR"}
 
 
 class FakeClient:
@@ -268,15 +335,62 @@ async def test_a_huge_unkeyed_response_is_refused_with_a_usable_status():
 @pytest.mark.asyncio
 @respx.mock
 async def test_a_keyed_response_is_never_refused_for_size():
-    """With a key supplied the caller has already narrowed it; honour that."""
+    """With a key supplied the caller has already narrowed it; honour that.
+
+    The padding is many small rows rather than one giant field: parse_msd_csv
+    now reads every row (that is the whole point of the fix it accompanies),
+    so a single ~2 MB field would trip Python's csv field-size limit and be
+    read as a parse failure rather than exercising the size guard at all."""
     from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
 
-    huge = MSD_CSV + ("x" * (UNKEYED_SIZE_CAP_BYTES + 1))
+    huge = MSD_CSV + ("x\n" * (UNKEYED_SIZE_CAP_BYTES // 2 + 10))
     respx.get(url__startswith=_msd_url(key="A.G.SI_POV_DAY1")).respond(200, text=huge)
     attrs, status = await fetch_msd_metadata(
         FakeClient(), "DF_SDG", "SPC", "A.G.SI_POV_DAY1")
     assert status == "found"
     assert attrs
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_an_unkeyed_response_is_refused_by_content_length_before_the_body_is_read():
+    """A provider that sends an honest Content-Length header lets the guard
+    trip before any of the body is read at all, not just after it has all
+    arrived -- the bug this fix exists for was `session.get` fully
+    materialising the body before the size check ever ran."""
+    from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
+
+    respx.get(url__startswith=_msd_url()).respond(
+        200,
+        text="STRUCTURE,A.B,label\nshort\n",
+        headers={"content-length": str(UNKEYED_SIZE_CAP_BYTES + 1)},
+    )
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
+    assert attrs == []
+    assert status == "too_broad"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_an_unkeyed_response_without_a_content_length_header_is_still_bounded():
+    """Some providers use chunked transfer and send no Content-Length at
+    all; the guard must still trip from what has actually been read as it
+    streams in, not rely on a header that may not be there."""
+    from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
+
+    async def chunks():
+        sent = 0
+        chunk = b"x" * 200_000
+        while sent < UNKEYED_SIZE_CAP_BYTES + 500_000:
+            yield chunk
+            sent += len(chunk)
+
+    respx.get(url__startswith=_msd_url()).mock(
+        return_value=httpx.Response(200, stream=chunks())
+    )
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
+    assert attrs == []
+    assert status == "too_broad"
 
 
 DATA_XML = (
@@ -378,6 +492,76 @@ async def test_dsd_fallback_reports_html_error_page_as_inconclusive():
 @respx.mock
 async def test_dsd_fallback_reports_non_200_as_inconclusive():
     respx.get(url__startswith="https://example.org/rest/data/").respond(500)
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    assert attrs == []
+    assert status == "inconclusive"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_is_refused_for_an_oversized_unkeyed_body():
+    """`firstNObservations=1` still returns one row per series: an unkeyed
+    request against a large dataflow (ECB's EXR, IMF's CPI) is multi-
+    megabyte, the same size problem the MSD channel guards against -- but
+    the live checks that shaped this fallback never hit it, since those
+    cases were all keyed."""
+    from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
+
+    huge = "<x>" + ("y" * (UNKEYED_SIZE_CAP_BYTES + 1000)) + "</x>"
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=huge)
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    assert attrs == []
+    assert status == "too_broad"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_with_a_real_key_is_never_refused_for_size():
+    """With a key supplied the caller has already narrowed the request;
+    honour that, the same way the MSD channel does."""
+    from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
+
+    padding = "<!-- " + ("x" * (UNKEYED_SIZE_CAP_BYTES + 1000)) + " -->"
+    huge = DATA_XML.replace("</mes:DataSet>", padding + "</mes:DataSet>")
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=huge)
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "A.USD")
+    assert status == "found"
+    assert any(a["id"] == "FULL_DESCRIPTION" for a in attrs)
+
+
+GENERIC_DATA_XML = (
+    '<?xml version="1.0"?>'
+    '<mes:GenericData '
+    'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+    'xmlns:generic="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/generic">'
+    '<mes:DataSet>'
+    '<generic:Series>'
+    '<generic:Attributes>'
+    '<generic:Value id="LICENSE" value="(c) IMF. All rights reserved."/>'
+    '</generic:Attributes>'
+    '<generic:Obs>'
+    '<generic:ObsDimension value="2020"/>'
+    '<generic:ObsValue value="1.5"/>'
+    '</generic:Obs>'
+    '</generic:Series>'
+    '</mes:DataSet></mes:GenericData>'
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_generic_dialect_message_is_inconclusive_not_empty():
+    """A provider that ignores our structure-specific Accept header can
+    still answer 200 with a well-formed SDMx-ML Generic message, which
+    reuses the same DataSet/Series/Obs local names but carries attribute
+    values as child <generic:Value> elements rather than XML attributes.
+    Zero attributes found there is not evidence the dataflow carries no
+    metadata; it is evidence we got a dialect this fallback does not parse."""
+    respx.get(url__startswith="https://example.org/rest/data/").respond(
+        200, text=GENERIC_DATA_XML)
     attrs, status = await fetch_dsd_attribute_metadata(
         FakeClient(), "CPI", "IMF.STA", "all")
     assert attrs == []

@@ -24,7 +24,7 @@ MSD_CSV = (
 
 
 def test_parse_msd_csv_extracts_attributes_with_hierarchy_and_labels():
-    rows = parse_msd_csv(MSD_CSV)
+    rows = parse_msd_csv(MSD_CSV, dimension_ids={"FREQ"})
     by_id = {r["id"]: r for r in rows}
     org = by_id["DATA_SOURCE_ORGANIZATION"]
     assert org["path"] == "DATA_SOURCE.DATA_SOURCE_ORGANIZATION"
@@ -35,13 +35,40 @@ def test_parse_msd_csv_extracts_attributes_with_hierarchy_and_labels():
 
 
 def test_parse_msd_csv_ignores_dimension_columns():
-    rows = parse_msd_csv(MSD_CSV)
+    rows = parse_msd_csv(MSD_CSV, dimension_ids={"FREQ"})
     assert all("." in r["path"] for r in rows)
     assert not any(r["id"] == "FREQ" for r in rows)
 
 
 def test_parse_msd_csv_on_an_empty_body():
     assert parse_msd_csv("") == []
+
+
+def test_flat_metadata_columns_are_found_for_providers_that_use_them():
+    """OECD and FBOS use flat attribute names; only SPC uses dotted ones."""
+    csv_text = (
+        "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+        "QUALITY_ASSMNT,Quality management,REC_USE_LIM,Recommended uses\n"
+        'dataflow,OECD:DF(1.0),I,NLD,Netherlands,'
+        '"en:""<p>Assessed annually</p>""","Quality management",'
+        '"en:""<p>Use with care</p>""","Recommended uses"\n'
+    )
+    rows = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
+    ids = {r["id"] for r in rows}
+    assert ids == {"QUALITY_ASSMNT", "REC_USE_LIM"}
+    assert "REF_AREA" not in ids
+
+
+def test_dotted_metadata_columns_still_work_and_keep_their_path():
+    rows = parse_msd_csv(MSD_CSV, dimension_ids={"FREQ"})
+    org = [r for r in rows if r["id"] == "DATA_SOURCE_ORGANIZATION"][0]
+    assert org["path"] == "DATA_SOURCE.DATA_SOURCE_ORGANIZATION"
+    assert not any(r["id"] == "FREQ" for r in rows)
+
+
+def test_label_columns_are_never_treated_as_attributes():
+    rows = parse_msd_csv(MSD_CSV, dimension_ids=set())
+    assert all(" " not in r["path"] for r in rows)
 
 
 class FakeClient:
@@ -63,6 +90,30 @@ class FakeClient:
         if self._session is None:
             self._session = httpx.AsyncClient()
         return self._session
+
+    # Deliberately no get_structure_summary: its *absence* exercises
+    # get_reference_metadata's fallback-to-empty-set path (see
+    # test_a_broken_dimension_lookup_does_not_fail_the_whole_tool and every
+    # other get_reference_metadata test above, all of which rely on that
+    # fallback rather than defining a real structure summary).
+
+
+class _FakeDimension:
+    def __init__(self, id):
+        self.id = id
+
+
+class _FakeStructureSummary:
+    def __init__(self, dimension_ids):
+        self.dimensions = [_FakeDimension(d) for d in dimension_ids]
+
+
+class DimAwareClient(FakeClient):
+    """A FakeClient that can actually answer get_structure_summary, for
+    tests that need to verify dimension ids reach both metadata channels."""
+
+    async def get_structure_summary(self, dataflow_id, agency_id=None):
+        return _FakeStructureSummary({"FREQ"})
 
 
 def _msd_url(version="4.3", key=None):
@@ -118,7 +169,8 @@ async def test_a_204_is_inconclusive_not_absence():
 async def test_a_200_with_no_metadata_columns_is_empty():
     respx.get(url__startswith=_msd_url()).respond(
         200, text="STRUCTURE,ACTION,FREQ,Frequency of observation\ndataflow,I,A,Annual\n")
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
+    attrs, status = await fetch_msd_metadata(
+        FakeClient(), "DF_SDG", "SPC", None, dimension_ids={"FREQ"})
     assert attrs == []
     assert status == "empty"
 
@@ -141,7 +193,8 @@ async def test_a_genuine_sdmx_csv_with_no_metadata_columns_is_empty():
     respx.get(url__startswith=_msd_url()).respond(
         200, text="STRUCTURE,STRUCTURE_ID,ACTION,FREQ,Frequency of observation\n"
                   "dataflow,SBS:DF_CPI(1.0),I,A,Annual\n")
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
+    attrs, status = await fetch_msd_metadata(
+        FakeClient(), "DF_SDG", "SPC", None, dimension_ids={"FREQ"})
     assert attrs == []
     assert status == "empty"
 
@@ -270,6 +323,21 @@ async def test_dsd_fallback_skips_structural_and_dimension_noise():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_dsd_fallback_drops_dimension_named_attributes_when_given_a_dimension_set():
+    """A data message cannot tell a dimension from an attribute on its own --
+    `FREQ` here is a Series-level dimension of the dataflow, not metadata --
+    so the caller must supply the dataflow's dimension ids to filter it out."""
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all", dimension_ids={"FREQ"})
+    assert status == "found"
+    ids = {a["id"] for a in attrs}
+    assert "FREQ" not in ids
+    assert "SOURCE_AGENCY" in ids
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_dsd_fallback_reports_empty_when_only_envelope_attributes():
     bare = ('<?xml version="1.0"?><mes:StructureSpecificData '
             'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
@@ -329,6 +397,35 @@ async def test_assembles_the_msd_channel_and_reports_the_others():
     assert result["channels"]["msd_v2"] == "found"
     sources = {a["source"] for a in result["metadata_attributes"]}
     assert "msd" in sources
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_the_assembly_fetches_dimensions_once_and_filters_the_msd_channel():
+    """The bug this guards against: FREQ is a real dimension of DF_SDG, not
+    reference metadata, and must not appear in the assembled result."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=MSD_CSV)
+    result = await get_reference_metadata(DimAwareClient(), "DF_SDG", key=None)
+    ids = {a["id"] for a in result["metadata_attributes"]}
+    assert "FREQ" not in ids
+    assert "DATA_SOURCE_ORGANIZATION" in ids
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_broken_dimension_lookup_does_not_fail_the_whole_tool():
+    """get_structure_summary can itself fail (network, 404, ...); that must
+    fall back to an empty dimension set rather than take the whole tool
+    down with it."""
+
+    class BrokenDimClient(FakeClient):
+        async def get_structure_summary(self, dataflow_id, agency_id=None):
+            raise RuntimeError("structure lookup failed")
+
+    respx.get(url__startswith=_msd_url()).respond(200, text=MSD_CSV)
+    result = await get_reference_metadata(BrokenDimClient(), "DF_SDG", key=None)
+    assert result["channels"]["msd_v2"] == "found"
+    assert any(a["id"] == "DATA_SOURCE_ORGANIZATION" for a in result["metadata_attributes"])
 
 
 @pytest.mark.asyncio

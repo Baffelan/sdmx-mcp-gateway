@@ -72,14 +72,42 @@ MSD_QUERY = "attributes=msd&measures=none&format=csvfilewithlabels"
 # Above this, an unkeyed response is refused and the caller is asked for a key.
 UNKEYED_SIZE_CAP_BYTES = 2_000_000
 
+# A header column that looks like an SDMx identifier: all caps, digits,
+# underscores and dots, no spaces or lowercase. This is what separates the id
+# columns from the human-readable label columns that `format=csvfilewithlabels`
+# interleaves (e.g. "Note on coverage", "Frequency of observation").
+_SDMX_IDENTIFIER = re.compile(r"[A-Z0-9_.]+")
 
-def parse_msd_csv(text: str, prefer: str = "en") -> list[dict[str, Any]]:
+# Columns that are structural plumbing in every SDMx-CSV response -- never
+# reference metadata, regardless of which provider or dataflow produced them.
+_STRUCTURAL_COLUMNS = frozenset({
+    "STRUCTURE", "STRUCTURE_ID", "STRUCTURE_NAME", "ACTION",
+    "TIME_PERIOD", "OBS_VALUE", "OBS_STATUS",
+})
+
+
+def parse_msd_csv(
+    text: str,
+    dimension_ids: set[str] | frozenset[str] = frozenset(),
+    prefer: str = "en",
+) -> list[dict[str, Any]]:
     """Pull metadata attributes out of a csvfilewithlabels response.
 
-    Metadata attribute columns are the ones whose header contains a dot,
-    reflecting the MSD hierarchy (`DATA_SOURCE.DATA_SOURCE_ORGANIZATION`).
-    Every such column is followed by its human-readable label column, which is
-    what `format=csvfilewithlabels` adds.
+    Metadata columns are told apart from dimension and structural columns by
+    shape, not by provider convention. SPC nests its MSD attributes under a
+    dotted hierarchy (`DATA_SOURCE.DATA_SOURCE_ORGANIZATION`), but OECD and
+    FBOS publish flat attribute names (`QUALITY_ASSMNT`, `COVERAGE`) that look
+    exactly like a dimension column such as `REF_AREA`. A column counts as
+    metadata when its header looks like an SDMx identifier rather than a
+    human label (see `_SDMX_IDENTIFIER`), is not one of the structural
+    columns every SDMx-CSV response carries, and is not one of the
+    dataflow's own dimension ids -- supplied by the caller, since a data
+    message alone cannot tell a dimension from an attribute.
+
+    Every metadata column is followed by its human-readable label column,
+    which is what `format=csvfilewithlabels` adds. `path` keeps the full
+    column name so SPC's hierarchy is preserved; `id` is the part after the
+    last dot.
 
     Only the header and the first data row are read, and lazily: a keyed
     request is exempt from the size cap in `fetch_msd_metadata`, so a
@@ -97,7 +125,12 @@ def parse_msd_csv(text: str, prefer: str = "en") -> list[dict[str, Any]]:
         return []
     out: list[dict[str, Any]] = []
     for index, column in enumerate(header):
-        if "." not in column:
+        if not _SDMX_IDENTIFIER.fullmatch(column):
+            continue
+        if column in _STRUCTURAL_COLUMNS:
+            continue
+        attr_id = column.rsplit(".", 1)[-1]
+        if attr_id in dimension_ids:
             continue
         raw = first[index] if index < len(first) else ""
         value, language = parse_localised_value(raw, prefer=prefer)
@@ -105,7 +138,7 @@ def parse_msd_csv(text: str, prefer: str = "en") -> list[dict[str, Any]]:
             continue
         label = header[index + 1] if index + 1 < len(header) else None
         out.append({
-            "id": column.rsplit(".", 1)[-1],
+            "id": attr_id,
             "path": column,
             "label": label,
             "value": value,
@@ -141,6 +174,7 @@ async def fetch_msd_metadata(
     key: str | None,
     ctx: Any | None = None,
     version: Any = _UNRESOLVED,
+    dimension_ids: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], str]:
     """Read reference metadata through the .Stat Suite v2 MSD query.
 
@@ -155,6 +189,10 @@ async def fetch_msd_metadata(
     explicitly to mean "a caller already tried to resolve this and failed,"
     which is reported as inconclusive without a second attempt. Leaving the
     default lets this function resolve the version itself, as it always did.
+
+    `dimension_ids`, if supplied, is passed straight through to
+    `parse_msd_csv` so the dataflow's own dimension columns (e.g. `FREQ`,
+    `REF_AREA`) are not mistaken for metadata attributes.
     """
     from config import get_metadata_support
 
@@ -221,7 +259,7 @@ async def fetch_msd_metadata(
     # provider that concatenates many language translations into one value.
     # That is a malformed/unparseable response, not proof of absence.
     try:
-        attributes = parse_msd_csv(response.text)
+        attributes = parse_msd_csv(response.text, dimension_ids=dimension_ids)
     except Exception as exc:
         logger.info(
             "could not parse reference metadata response for %s: %s", dataflow_id, exc
@@ -241,8 +279,11 @@ async def fetch_msd_metadata(
 
 STRUCTURE_SPECIFIC_DATA = "application/vnd.sdmx.structurespecificdata+xml;version=2.1"
 
-# Dimensions and the measure are not reference metadata, and neither are the
-# SDMx envelope attributes that every message carries.
+# The measure and the SDMx envelope attributes that every message carries are
+# never reference metadata. Dimensions are not listed here: a data message
+# cannot tell a dimension from an attribute on its own (both are just XML
+# attributes on Series/Obs elements), so the caller must supply the
+# dataflow's dimension ids via `dimension_ids` for those to be excluded.
 _NOT_METADATA = frozenset({"TIME_PERIOD", "OBS_VALUE", "OBS_STATUS", "action"})
 _LEVEL_BY_TAG = {"DataSet": "dataset", "Series": "series", "Obs": "observation"}
 
@@ -253,12 +294,17 @@ async def fetch_dsd_attribute_metadata(
     agency_id: str,
     key: str,
     ctx: Any | None = None,
+    dimension_ids: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], str]:
     """Read descriptive material carried as ordinary DSD attributes.
 
     Providers without a `/v2/` endpoint still publish useful metadata this
     way, at whichever level they chose: IMF at dataset level, ECB at series
     level, ILO at observation level. One tiny keyed slice captures all three.
+
+    `dimension_ids`, if supplied, excludes columns that are actually
+    dimensions of this dataflow (e.g. `FREQ`, `REF_AREA`) rather than
+    reference metadata -- a data message alone cannot make that distinction.
     """
     url = (client.base_url + "/data/" + agency_id + "," + dataflow_id + "/"
            + (key or "all") + "?firstNObservations=1")
@@ -289,7 +335,7 @@ async def fetch_dsd_attribute_metadata(
         saw_data_message = True
         for name, raw in element.attrib.items():
             # Namespaced attributes are envelope plumbing, not metadata.
-            if "}" in name or name in _NOT_METADATA or name in seen:
+            if "}" in name or name in _NOT_METADATA or name in seen or name in dimension_ids:
                 continue
             value, language = parse_localised_value(raw)
             if value is None:
@@ -335,6 +381,22 @@ async def get_reference_metadata(
     notes: list[str] = []
     attributes: list[dict[str, Any]] = []
 
+    # Both metadata channels below read a data message (CSV or XML) that
+    # cannot, on its own, tell a dimension apart from a genuine attribute --
+    # they are just columns/XML-attributes either way. The dataflow's
+    # dimension ids are fetched once here, from the DSD, and used to filter
+    # both channels. This is best-effort: a provider hiccup here must not
+    # fail the whole tool, it just means dimension columns may leak into the
+    # result as if they were metadata.
+    try:
+        structure = await client.get_structure_summary(
+            dataflow_id=dataflow_id, agency_id=agency
+        )
+        dimension_ids = {dim.id for dim in structure.dimensions}
+    except Exception as exc:
+        logger.info("could not resolve dimensions for %s: %s", dataflow_id, exc)
+        dimension_ids = set()
+
     # Resolved once, here, and reused both for the MSD lookup below and for
     # the `version` field in the result. fetch_msd_metadata resolves
     # "latest" itself when nothing is passed in (e.g. called directly from a
@@ -356,7 +418,7 @@ async def get_reference_metadata(
     # "all") lets fetch_msd_metadata build the correct empty-key-segment URL
     # when no key was supplied.
     msd_attrs, msd_status = await fetch_msd_metadata(
-        client, dataflow_id, agency, key, ctx=ctx, version=version
+        client, dataflow_id, agency, key, ctx=ctx, version=version, dimension_ids=dimension_ids
     )
     channels["msd_v2"] = msd_status
     for attr in msd_attrs:
@@ -364,7 +426,7 @@ async def get_reference_metadata(
 
     if msd_status != "found":
         dsd_attrs, dsd_status = await fetch_dsd_attribute_metadata(
-            client, dataflow_id, agency, key or "all", ctx=ctx
+            client, dataflow_id, agency, key or "all", ctx=ctx, dimension_ids=dimension_ids
         )
         channels["dsd_attributes"] = dsd_status
         for attr in dsd_attrs:

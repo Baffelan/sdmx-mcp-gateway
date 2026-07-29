@@ -65,9 +65,12 @@ class FakeClient:
         return self._session
 
 
-def _msd_url(version="4.3", key="all"):
+def _msd_url(version="4.3", key=None):
+    # The v2 endpoint has no "all" wildcard: the unkeyed form is an empty key
+    # segment, i.e. the path ends with "/" and nothing after it.
+    segment = key if key else ""
     return ("https://example.org/rest/v2/data/dataflow/SPC/DF_SDG/"
-            + version + "/" + key)
+            + version + "/" + segment)
 
 
 @pytest.mark.asyncio
@@ -75,7 +78,7 @@ def _msd_url(version="4.3", key="all"):
 async def test_fetch_uses_the_resolved_version_never_latest():
     """`latest` is a 2.1 keyword; the v2 endpoint answers 400 for it."""
     route = respx.get(url__startswith=_msd_url()).respond(200, text=MSD_CSV)
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
     assert status == "found"
     assert attrs
     requested = str(route.calls[0].request.url)
@@ -87,11 +90,25 @@ async def test_fetch_uses_the_resolved_version_never_latest():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_an_unkeyed_query_omits_the_key_segment_entirely():
+    """The literal `all` is rejected: SPC answers 204 and OECD 422
+    'Not enough key values'. The unkeyed form is an empty key segment."""
+    route = respx.get(url__startswith="https://example.org/rest/v2/data/dataflow/SPC/DF_SDG/4.3/"
+                      ).respond(200, text=MSD_CSV)
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
+    assert status == "found"
+    requested = str(route.calls[0].request.url)
+    assert "/4.3/?" in requested
+    assert "/all?" not in requested
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_a_204_is_inconclusive_not_absence():
     """Several malformed-request cases answer 204, so it cannot be read as
     'this provider publishes no metadata'."""
     respx.get(url__startswith=_msd_url()).respond(204)
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
     assert attrs == []
     assert status == "inconclusive"
 
@@ -101,7 +118,7 @@ async def test_a_204_is_inconclusive_not_absence():
 async def test_a_200_with_no_metadata_columns_is_empty():
     respx.get(url__startswith=_msd_url()).respond(
         200, text="STRUCTURE,ACTION,FREQ,Frequency of observation\ndataflow,I,A,Annual\n")
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
     assert attrs == []
     assert status == "empty"
 
@@ -112,7 +129,7 @@ async def test_a_200_carrying_an_html_error_page_is_inconclusive():
     """A maintenance page served with 200 must not read as 'no metadata'."""
     respx.get(url__startswith=_msd_url()).respond(
         200, text="<!DOCTYPE html><html><body>Service unavailable</body></html>")
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
     assert attrs == []
     assert status == "inconclusive"
 
@@ -124,7 +141,7 @@ async def test_a_genuine_sdmx_csv_with_no_metadata_columns_is_empty():
     respx.get(url__startswith=_msd_url()).respond(
         200, text="STRUCTURE,STRUCTURE_ID,ACTION,FREQ,Frequency of observation\n"
                   "dataflow,SBS:DF_CPI(1.0),I,A,Annual\n")
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
     assert attrs == []
     assert status == "empty"
 
@@ -144,7 +161,7 @@ async def test_an_endpoint_without_v2_is_unsupported_without_a_request():
 @respx.mock
 async def test_transport_failure_is_reported_not_raised():
     respx.get(url__startswith=_msd_url()).mock(side_effect=httpx.ConnectError("boom"))
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
     assert attrs == []
     assert status == "inconclusive"
 
@@ -176,7 +193,7 @@ async def test_an_unparseable_response_is_inconclusive_not_raised():
     huge_field = "x" * 200_000
     body = 'A,B.C\n1,"' + huge_field + '"'
     respx.get(url__startswith=_msd_url()).respond(200, text=body)
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
     assert attrs == []
     assert status == "inconclusive"
 
@@ -190,7 +207,7 @@ async def test_a_huge_unkeyed_response_is_refused_with_a_usable_status():
 
     huge = "STRUCTURE,A.B,label\n" + ("x" * (UNKEYED_SIZE_CAP_BYTES + 1))
     respx.get(url__startswith=_msd_url()).respond(200, text=huge)
-    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", "all")
+    attrs, status = await fetch_msd_metadata(FakeClient(), "DF_SDG", "SPC", None)
     assert attrs == []
     assert status == "too_broad"
 
@@ -304,7 +321,7 @@ async def test_dsd_fallback_reports_non_200_as_inconclusive():
 async def test_assembles_the_msd_channel_and_reports_the_others():
     respx.get(url__startswith=_msd_url()).respond(200, text=MSD_CSV)
     respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
-    result = await get_reference_metadata(FakeClient(), "DF_SDG", key="all")
+    result = await get_reference_metadata(FakeClient(), "DF_SDG", key=None)
     assert result["dataflow_id"] == "DF_SDG"
     assert result["version"] == "4.3"
     ids = {a["id"] for a in result["metadata_attributes"]}

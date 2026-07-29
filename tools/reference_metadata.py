@@ -179,8 +179,14 @@ async def fetch_msd_metadata(
         # Already tried elsewhere and failed; retrying the identical call
         # here would just fail again.
         return [], "inconclusive"
+    # The v2 endpoint has no "all" wildcard keyword: SPC answers 204 (which
+    # reads as absence, the exact trap the 204 handling below exists to
+    # avoid) and OECD/FBOS hard-fail with 422 "Not enough key values in
+    # query". The unkeyed form is an empty key segment -- the path just ends
+    # with a trailing "/" before the query string.
+    key_segment = "/" + key if key else "/"
     url = (client.base_url + support.get("v2_path", "/v2") + "/data/dataflow/" + agency_id
-           + "/" + dataflow_id + "/" + version + "/" + (key or "all")
+           + "/" + dataflow_id + "/" + version + key_segment
            + "?" + MSD_QUERY)
 
     try:
@@ -203,7 +209,7 @@ async def fetch_msd_metadata(
     # pull megabytes: SPC's DF_SDG is 5.37 MB unfiltered and 5.6 KB with a
     # partial key. Refuse rather than punish the provider, and tell the caller
     # what to do about it.
-    if len(response.content) > UNKEYED_SIZE_CAP_BYTES and (key or "all") == "all":
+    if len(response.content) > UNKEYED_SIZE_CAP_BYTES and not key:
         logger.info(
             "reference metadata response for %s was %s bytes; asking for a key",
             dataflow_id, len(response.content),
@@ -345,8 +351,12 @@ async def get_reference_metadata(
         logger.info("could not resolve version for %s: %s", dataflow_id, exc)
         version = None
 
+    # Unlike the DSD-attribute fallback below, the v2 endpoint has no "all"
+    # wildcard keyword -- passing key straight through (rather than key or
+    # "all") lets fetch_msd_metadata build the correct empty-key-segment URL
+    # when no key was supplied.
     msd_attrs, msd_status = await fetch_msd_metadata(
-        client, dataflow_id, agency, key or "all", ctx=ctx, version=version
+        client, dataflow_id, agency, key, ctx=ctx, version=version
     )
     channels["msd_v2"] = msd_status
     for attr in msd_attrs:

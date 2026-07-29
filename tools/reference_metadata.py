@@ -364,14 +364,15 @@ async def get_reference_metadata(
 
     if msd_status == "unsupported":
         notes.append(
-            "This provider does not expose the v2 metadata endpoint; "
+            "This provider is not configured for the v2 metadata endpoint; "
             "any attributes shown come from the data message."
         )
     if msd_status == "inconclusive":
         notes.append(
-            "The metadata query returned no content, which can mean either "
-            "that this dataflow has no metadata or that the request was not "
-            "understood. Treat it as unknown rather than as absence."
+            "The metadata query did not produce a usable result, which can "
+            "mean either that this dataflow has no metadata or that the "
+            "request failed or was not understood. Treat it as unknown "
+            "rather than as absence."
         )
     if msd_status == "too_broad":
         notes.append(
@@ -386,7 +387,11 @@ async def get_reference_metadata(
             "descriptive attributes or that the request failed. Treat it as "
             "unknown rather than as absence."
         )
-    if not attributes:
+    # `too_broad` means the tool positively observed metadata and refused to
+    # return it unkeyed -- the opposite of "nothing was found". Saying so
+    # here would contradict the too_broad note above, so only claim absence
+    # when nothing was found *and* nothing was refused for size.
+    if not attributes and msd_status != "too_broad":
         notes.append("No reference metadata was found for this dataflow.")
 
     return {

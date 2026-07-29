@@ -339,3 +339,105 @@ async def test_reports_every_channel_empty_without_inventing_content():
     assert result["metadata_attributes"] == []
     assert result["channels"]["msd_v2"] == "unsupported"
     assert result["notes"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_too_broad_result_does_not_claim_nothing_was_found():
+    """The tool saw megabytes and refused them; saying 'none found' would be
+    the opposite of true."""
+    from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
+
+    huge = "STRUCTURE,A.B,label\n" + ("x" * (UNKEYED_SIZE_CAP_BYTES + 1))
+    respx.get(url__startswith=_msd_url()).respond(200, text=huge)
+    respx.get(url__startswith="https://example.org/rest/data/").respond(204)
+    result = await get_reference_metadata(FakeClient(), "DF_SDG", key=None)
+    assert result["channels"]["msd_v2"] == "too_broad"
+    joined = " ".join(result["notes"]).lower()
+    assert "too large" in joined
+    assert "no reference metadata was found" not in joined
+
+
+class _FakeCtx:
+    """Minimal MCP Context stand-in, mirroring test_cross_endpoint_tools.py."""
+
+    def __init__(self, app_ctx, sid="default"):
+        class RC:
+            pass
+
+        rc = RC()
+        rc.lifespan_context = app_ctx
+        rc.session_id = sid
+        rc.meta = None
+        self.request_context = rc
+        self.session = None
+        self.meta = None
+
+    async def info(self, *args, **kwargs):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_the_wrapper_registers_the_dataflow_only_on_a_confirmed_channel():
+    """A channel that actually reached the provider (found/empty/too_broad) is
+    evidence the dataflow is real and worth remembering for mismatch hints."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def confirmed_impl(client, dataflow_id, key=None, agency_id=None, ctx=None):
+        return {
+            "dataflow_id": dataflow_id,
+            "agency_id": agency_id or client.agency_id,
+            "endpoint": "SPC",
+            "version": "4.3",
+            "metadata_attributes": [],
+            "channels": {"msd_v2": "found", "dsd_attributes": "skipped"},
+            "notes": [],
+        }
+
+    with patch("tools.reference_metadata.get_reference_metadata", side_effect=confirmed_impl):
+        from main_server import get_reference_metadata as handler
+
+        await handler(dataflow_id="DF_SDG", endpoint="SPC", ctx=ctx)
+
+    session = app_ctx.get_session(ctx)
+    assert "DF_SDG" in session.snapshot_known_dataflows().get("SPC", frozenset())
+
+
+@pytest.mark.asyncio
+async def test_the_wrapper_does_not_register_on_unsupported_or_inconclusive_channels():
+    """Silence from every channel is not evidence the dataflow is real; it
+    must not be recorded as if it were."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def unconfirmed_impl(client, dataflow_id, key=None, agency_id=None, ctx=None):
+        return {
+            "dataflow_id": dataflow_id,
+            "agency_id": agency_id or client.agency_id,
+            "endpoint": "ECB",
+            "version": None,
+            "metadata_attributes": [],
+            "channels": {"msd_v2": "unsupported", "dsd_attributes": "inconclusive"},
+            "notes": ["not configured for the v2 metadata endpoint"],
+        }
+
+    with patch("tools.reference_metadata.get_reference_metadata", side_effect=unconfirmed_impl):
+        from main_server import get_reference_metadata as handler
+
+        await handler(dataflow_id="EXR", endpoint="ECB", ctx=ctx)
+
+    session = app_ctx.get_session(ctx)
+    assert "EXR" not in session.snapshot_known_dataflows().get("ECB", frozenset())

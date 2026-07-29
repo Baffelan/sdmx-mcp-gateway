@@ -113,7 +113,12 @@ now re-checked every cycle and any drift shows up automatically.
 | `CHECK_INTERVAL_MIN` | `120` | minutes between scheduled cycles (default 2 hours) |
 | `DB_PATH` | `./data/monitor.db` | SQLite location (put on a volume) |
 | `CHECK_TIMEOUT_S` | `30` | per-request timeout |
+| `CYCLE_TIMEOUT_S` | `900` | seconds before a cycle gives up and closes with a note |
 | `SDMX_STATSNZ_KEY` | unset | Stats NZ subscription key; without it the STATSNZ direct checks are recorded as skipped |
+
+## Cycle timeout
+
+When a cycle exceeds its `CYCLE_TIMEOUT_S` deadline, it closes with a drift note rather than holding its lock. This exists because a hung cycle previously stopped all monitoring for over ten hours until the service was restarted. Gateway calls are individually bounded by `CHECK_TIMEOUT_S` as well, so a provider holding a connection open cannot stall a cycle.
 
 ## Deploy on Railway
 

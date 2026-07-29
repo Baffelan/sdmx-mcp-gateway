@@ -105,6 +105,16 @@ sdmx-mcp-gateway/
 | `build_data_url`         | Generate data retrieval URL               | `DataUrlResult`             |
 | `get_codelist`           | Browse specific codelist                  | `dict`                      |
 
+### Reference Metadata
+
+| Tool                      | Description                                          | Output Schema             |
+| -------------------------- | ----------------------------------------------------- | -------------------------- |
+| `get_reference_metadata`  | Get source, methodology, licence and caveats for a dataflow | `ReferenceMetadataResult` |
+
+Reference metadata is the descriptive material about a dataflow rather than its structure: who compiled it, from what source, under what licence, with what caveats. Coverage varies by provider, so the result's `channels` field reports which channel was available: `.Stat Suite` deployments (SPC, FBOS, SBS, OECD) publish it through a v2 MSD query, some other providers carry equivalent detail only in ordinary DSD attributes on the data message, and some publish neither. A channel status of `inconclusive` means the query did not produce a usable answer, which is not proof the dataflow lacks metadata; only `empty` is.
+
+Pass `key` to narrow the query to one series. This matters for large dataflows: SPC's `DF_SDG` metadata query is 5.37 MB unfiltered against 5.6 KB with a partial key, and the tool refuses an unfiltered query over 2 MB (`too_broad`) rather than pulling it in full.
+
 ### Endpoint Management
 
 | Tool                          | Description                            | Output Schema          |

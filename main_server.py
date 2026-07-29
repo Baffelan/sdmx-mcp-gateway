@@ -59,6 +59,7 @@ from models.schemas import (
     ProbeResult,
     QuerySuggestion,
     ReferenceChange,
+    ReferenceMetadataResult,
     RepresentationInfo,
     SampleObservation,
     StructureComparisonResult,
@@ -2612,6 +2613,70 @@ async def suggest_nonempty_queries(
         probes_used=result.get("probes_used", 0),
         notes=result.get("notes", []),
     )
+
+
+# =============================================================================
+# Reference Metadata Tools
+# =============================================================================
+
+
+@mcp.tool()
+async def get_reference_metadata(
+    dataflow_id: str,
+    key: str | None = None,
+    agency_id: str | None = None,
+    endpoint: str | None = None,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> ReferenceMetadataResult:
+    """
+    Get reference metadata for a dataflow: source, methodology, licence, caveats.
+
+    Reference metadata is the descriptive material about a dataflow rather
+    than its structure: who compiled it, from what source, under what licence.
+    Use it to explain or cite data you have retrieved.
+
+    Coverage varies by provider and the result says which channels were
+    available, so an empty answer can be told apart from an unanswerable one.
+
+    Args:
+        dataflow_id: The dataflow to describe
+        key: Optional dimension key to narrow the query. Strongly recommended
+            for large dataflows: SPC's DF_SDG is 5.37 MB unfiltered and 5.6 KB
+            with a partial key.
+        agency_id: The agency (uses the session endpoint if not specified)
+        endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
+            specific provider for this call only. Defaults to the session's
+            current endpoint.
+        ctx: MCP context
+
+    Returns:
+        Reference metadata attributes, their provenance, and channel status
+    """
+    from tools.reference_metadata import get_reference_metadata as get_reference_metadata_impl
+
+    client, ep_key = await _resolve_client(ctx, endpoint)
+    result = await get_reference_metadata_impl(
+        client=client, dataflow_id=dataflow_id, key=key, agency_id=agency_id, ctx=ctx
+    )
+
+    # A channel that actually reached the provider (found/empty/too_broad --
+    # too_broad still means a 200 came back) is evidence the dataflow is
+    # real; register it for future mismatch hints. When every channel was
+    # unsupported or inconclusive we have no such evidence either way, so
+    # check instead whether this id is known on a different endpoint.
+    channels = result.get("channels", {})
+    confirmed = channels.get("msd_v2") in ("found", "empty", "too_broad") or channels.get(
+        "dsd_attributes"
+    ) in ("found", "empty")
+    notes = list(result.get("notes", []))
+    if confirmed:
+        _register_dataflow_if_possible(ctx, ep_key, dataflow_id)
+    else:
+        hint = _maybe_mismatch_hint(ctx, ep_key, dataflow_id, "")
+        if hint:
+            notes.append(hint)
+
+    return ReferenceMetadataResult(**{**result, "notes": notes})
 
 
 # =============================================================================

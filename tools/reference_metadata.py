@@ -125,12 +125,22 @@ def _looks_like_sdmx_csv(text: str) -> bool:
     return first_column == "STRUCTURE"
 
 
+# Distinguishes "no version supplied, resolve it yourself" (the default,
+# used by direct/unit-test callers of fetch_msd_metadata) from "a caller
+# already resolved this and got None back" (used by get_reference_metadata,
+# which resolves the version once for the whole result and must not repeat
+# a resolution that already failed). Not `None` itself, since `None` is the
+# second, meaningful case.
+_UNRESOLVED = object()
+
+
 async def fetch_msd_metadata(
     client: Any,
     dataflow_id: str,
     agency_id: str,
     key: str | None,
     ctx: Any | None = None,
+    version: Any = _UNRESOLVED,
 ) -> tuple[list[dict[str, Any]], str]:
     """Read reference metadata through the .Stat Suite v2 MSD query.
 
@@ -139,6 +149,12 @@ async def fetch_msd_metadata(
     `inconclusive` rather than `empty`: several malformed-request shapes
     answer 204, so it cannot be distinguished from genuine absence without
     more information.
+
+    `version`, if supplied, is used as-is instead of resolving "latest"
+    again -- pass a resolved version string to skip the lookup, or `None`
+    explicitly to mean "a caller already tried to resolve this and failed,"
+    which is reported as inconclusive without a second attempt. Leaving the
+    default lets this function resolve the version itself, as it always did.
     """
     from config import get_metadata_support
 
@@ -151,12 +167,17 @@ async def fetch_msd_metadata(
     # resolve_version can itself hit the network (to look up "latest") and
     # raises ValueError on a transport or parse failure, so it gets the same
     # inconclusive treatment as the metadata request below.
-    try:
-        version = await client.resolve_version(
-            dataflow_id=dataflow_id, agency_id=agency_id, ctx=ctx
-        )
-    except Exception as exc:
-        logger.info("could not resolve version for %s: %s", dataflow_id, exc)
+    if version is _UNRESOLVED:
+        try:
+            version = await client.resolve_version(
+                dataflow_id=dataflow_id, agency_id=agency_id, ctx=ctx
+            )
+        except Exception as exc:
+            logger.info("could not resolve version for %s: %s", dataflow_id, exc)
+            return [], "inconclusive"
+    elif version is None:
+        # Already tried elsewhere and failed; retrying the identical call
+        # here would just fail again.
         return [], "inconclusive"
     url = (client.base_url + support.get("v2_path", "/v2") + "/data/dataflow/" + agency_id
            + "/" + dataflow_id + "/" + version + "/" + (key or "all")
@@ -287,3 +308,93 @@ async def fetch_dsd_attribute_metadata(
         logger.info("attribute metadata body for %s was not a data message", dataflow_id)
         return [], "inconclusive"
     return [], "empty"
+
+
+async def get_reference_metadata(
+    client: Any,
+    dataflow_id: str,
+    key: str | None = None,
+    agency_id: str | None = None,
+    ctx: Any | None = None,
+) -> dict[str, Any]:
+    """Assemble whatever reference metadata this provider actually publishes.
+
+    Reads the MSD channel where the provider supports it, falls back to
+    descriptive DSD attributes otherwise, and reports the state of every
+    channel so a caller can tell "this provider publishes nothing" from
+    "we could not find out".
+    """
+    agency = agency_id or client.agency_id
+    channels: dict[str, str] = {}
+    notes: list[str] = []
+    attributes: list[dict[str, Any]] = []
+
+    # Resolved once, here, and reused both for the MSD lookup below and for
+    # the `version` field in the result. fetch_msd_metadata resolves
+    # "latest" itself when nothing is passed in (e.g. called directly from a
+    # unit test), but a second, independent resolve_version call from this
+    # function would repeat the same network round trip on every call -- and
+    # on a provider where resolution fails, repeat the same failure. This
+    # tolerates that failure (falls back to None) rather than letting it
+    # propagate out of the tool.
+    try:
+        version = await client.resolve_version(
+            dataflow_id=dataflow_id, agency_id=agency, ctx=ctx
+        )
+    except Exception as exc:
+        logger.info("could not resolve version for %s: %s", dataflow_id, exc)
+        version = None
+
+    msd_attrs, msd_status = await fetch_msd_metadata(
+        client, dataflow_id, agency, key or "all", ctx=ctx, version=version
+    )
+    channels["msd_v2"] = msd_status
+    for attr in msd_attrs:
+        attributes.append({**attr, "level": "dataflow", "source": "msd"})
+
+    if msd_status != "found":
+        dsd_attrs, dsd_status = await fetch_dsd_attribute_metadata(
+            client, dataflow_id, agency, key or "all", ctx=ctx
+        )
+        channels["dsd_attributes"] = dsd_status
+        for attr in dsd_attrs:
+            attributes.append({**attr, "source": "dsd_attribute"})
+    else:
+        channels["dsd_attributes"] = "skipped"
+
+    if msd_status == "unsupported":
+        notes.append(
+            "This provider does not expose the v2 metadata endpoint; "
+            "any attributes shown come from the data message."
+        )
+    if msd_status == "inconclusive":
+        notes.append(
+            "The metadata query returned no content, which can mean either "
+            "that this dataflow has no metadata or that the request was not "
+            "understood. Treat it as unknown rather than as absence."
+        )
+    if msd_status == "too_broad":
+        notes.append(
+            "This dataflow's metadata is too large to return unfiltered. "
+            "Supply a dimension key to narrow it, for example a single "
+            "indicator or reference area."
+        )
+    if channels.get("dsd_attributes") == "inconclusive":
+        notes.append(
+            "The DSD-attribute fallback query did not return a usable "
+            "response, which can mean either that this dataflow carries no "
+            "descriptive attributes or that the request failed. Treat it as "
+            "unknown rather than as absence."
+        )
+    if not attributes:
+        notes.append("No reference metadata was found for this dataflow.")
+
+    return {
+        "dataflow_id": dataflow_id,
+        "agency_id": agency,
+        "endpoint": getattr(client, "endpoint_key", None),
+        "version": version,
+        "metadata_attributes": attributes,
+        "channels": channels,
+        "notes": notes,
+    }

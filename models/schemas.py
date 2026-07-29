@@ -865,3 +865,42 @@ class SuggestionResult(BaseModel):
     )
     probes_used: int = Field(default=0, description="Number of probes consumed")
     notes: list[str] = Field(default_factory=list, description="Diagnostic notes")
+
+
+# =============================================================================
+# Reference Metadata Schemas
+# =============================================================================
+
+
+class MetadataAttribute(BaseModel):
+    """One piece of reference metadata, with where it came from."""
+
+    id: str = Field(description="Attribute identifier")
+    path: str = Field(description="Full path, preserving MSD hierarchy")
+    label: str | None = Field(default=None, description="Human-readable label")
+    value: str = Field(description="Parsed text, markup removed")
+    language: str | None = Field(default=None, description="Language of the value")
+    level: str | None = Field(
+        default=None, description="dataflow, dataset, series or observation"
+    )
+    source: str = Field(description="msd or dsd_attribute")
+
+
+class ReferenceMetadataResult(BaseModel):
+    """Result from get_reference_metadata()."""
+
+    dataflow_id: str = Field(description="Dataflow queried")
+    agency_id: str = Field(description="Owning agency")
+    endpoint: str | None = Field(default=None, description="Endpoint key")
+    version: str | None = Field(default=None, description="Resolved version")
+    metadata_attributes: list[MetadataAttribute] = Field(
+        default_factory=list, description="Reference metadata found"
+    )
+    channels: dict[str, str] = Field(
+        default_factory=dict,
+        description="State of each channel: found, empty, inconclusive, "
+        "too_broad, unsupported or skipped",
+    )
+    notes: list[str] = Field(
+        default_factory=list, description="Plain-language remarks for the caller"
+    )

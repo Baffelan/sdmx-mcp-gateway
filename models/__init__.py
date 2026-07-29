@@ -6,6 +6,8 @@ following MCP SDK v2 best practices.
 """
 
 from models.schemas import (
+    # Structure schemas
+    AttributeDetail,
     # Dimension codes schemas
     CodeInfo,
     # Availability schemas
@@ -20,8 +22,6 @@ from models.schemas import (
     DataQueryConfirmation,
     DataUrlResult,
     DimensionCodesResult,
-    # Structure schemas
-    AttributeDetail,
     DimensionInfo,
     DimensionSelectionForm,
     # Guide schemas
@@ -37,8 +37,10 @@ from models.schemas import (
     # Validation schemas
     InvalidCode,
     KeyBuildResult,
+    MetadataAttribute,
     PaginationInfo,
     ProgressiveCheckResult,
+    ReferenceMetadataResult,
     StructureInfo,
     TimeRange,
     ValidationIssue,
@@ -83,4 +85,7 @@ __all__ = [
     "ElicitationResult",
     # Guide
     "DiscoveryGuideResult",
+    # Reference metadata
+    "MetadataAttribute",
+    "ReferenceMetadataResult",
 ]

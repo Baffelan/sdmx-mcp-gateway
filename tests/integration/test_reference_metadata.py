@@ -5,6 +5,7 @@ import respx
 from tools.reference_metadata import (
     fetch_dsd_attribute_metadata,
     fetch_msd_metadata,
+    get_reference_metadata,
     parse_msd_csv,
 )
 
@@ -296,3 +297,45 @@ async def test_dsd_fallback_reports_non_200_as_inconclusive():
         FakeClient(), "CPI", "IMF.STA", "all")
     assert attrs == []
     assert status == "inconclusive"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_assembles_the_msd_channel_and_reports_the_others():
+    respx.get(url__startswith=_msd_url()).respond(200, text=MSD_CSV)
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
+    result = await get_reference_metadata(FakeClient(), "DF_SDG", key="all")
+    assert result["dataflow_id"] == "DF_SDG"
+    assert result["version"] == "4.3"
+    ids = {a["id"] for a in result["metadata_attributes"]}
+    assert "DATA_SOURCE_ORGANIZATION" in ids
+    assert result["channels"]["msd_v2"] == "found"
+    sources = {a["source"] for a in result["metadata_attributes"]}
+    assert "msd" in sources
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_falls_back_when_the_provider_has_no_v2():
+    class EcbClient(FakeClient):
+        endpoint_key = "ECB"
+        agency_id = "ECB"
+
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
+    result = await get_reference_metadata(EcbClient(), "EXR", key="all")
+    assert result["channels"]["msd_v2"] == "unsupported"
+    assert result["channels"]["dsd_attributes"] == "found"
+    assert any(a["source"] == "dsd_attribute" for a in result["metadata_attributes"])
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reports_every_channel_empty_without_inventing_content():
+    class EcbClient(FakeClient):
+        endpoint_key = "ECB"
+
+    respx.get(url__startswith="https://example.org/rest/data/").respond(204)
+    result = await get_reference_metadata(EcbClient(), "EXR", key="all")
+    assert result["metadata_attributes"] == []
+    assert result["channels"]["msd_v2"] == "unsupported"
+    assert result["notes"]

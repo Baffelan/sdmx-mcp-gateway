@@ -116,8 +116,9 @@ def test_parse_msd_csv_finds_a_value_that_only_appears_in_a_later_row():
 def test_a_dataflow_level_value_is_the_headline_over_a_disagreeing_partial_key_one():
     """When rows disagree, a value that describes the whole dataflow is a
     more useful headline than one that only describes a slice of it -- but
-    the slice-specific value must still be visible, with the key it applies
-    to, rather than silently dropped."""
+    the slice-specific value must still be visible in `values`, not
+    silently dropped, even though only the headline's own `key_context` is
+    exposed structurally."""
     csv_text = (
         "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
         "COVERAGE,Coverage\n"
@@ -132,10 +133,22 @@ def test_a_dataflow_level_value_is_the_headline_over_a_disagreeing_partial_key_o
     assert coverage["level"] == "dataflow"
     assert coverage["key_context"] is None
     assert coverage["distinct_value_count"] == 2
-    partial_values = [v for v in coverage["values"] if v["level"] == "partial_key"]
-    assert len(partial_values) == 1
-    assert partial_values[0]["value"] == "United Kingdom only"
-    assert partial_values[0]["key_context"] == {"REF_AREA": "GBR"}
+    assert coverage["values"] == ["Whole country", "United Kingdom only"]
+
+
+def test_metadata_attribute_schema_preserves_attachment_context():
+    """A partial_key value is only meaningful if the caller can see the key."""
+    from models.schemas import MetadataAttribute
+
+    attr = MetadataAttribute(
+        id="REC_USE_LIM", path="REC_USE_LIM", label="Recommended uses",
+        value="Use with care", language="en", level="partial_key",
+        source="msd", key_context={"REF_AREA": "GBR"},
+        distinct_value_count=4, values=["Use with care", "Handle carefully"],
+    )
+    assert attr.key_context == {"REF_AREA": "GBR"}
+    assert attr.distinct_value_count == 4
+    assert attr.values[0] == "Use with care"
 
 
 class FakeClient:
@@ -739,3 +752,54 @@ async def test_the_wrapper_does_not_register_on_unsupported_or_inconclusive_chan
 
     session = app_ctx.get_session(ctx)
     assert "EXR" not in session.snapshot_known_dataflows().get("ECB", frozenset())
+
+
+@pytest.mark.asyncio
+async def test_the_wrapper_carries_key_context_through_for_a_partial_key_attribute():
+    """A caller reading the MCP tool's structured `ReferenceMetadataResult`,
+    not the raw dict `get_reference_metadata_impl` returns, must still be
+    able to see which key a partial_key value applies to -- that is the
+    whole point of putting `key_context` on `MetadataAttribute` at all.
+    Every one of OECD's HICP attributes lands as partial_key in practice, so
+    this is the common case being exercised, not an edge one."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def partial_key_impl(client, dataflow_id, key=None, agency_id=None, ctx=None):
+        return {
+            "dataflow_id": dataflow_id,
+            "agency_id": agency_id or client.agency_id,
+            "endpoint": "OECD",
+            "version": "1.0",
+            "metadata_attributes": [{
+                "id": "REC_USE_LIM",
+                "path": "REC_USE_LIM",
+                "label": "Recommended uses",
+                "value": "Use with care",
+                "language": "en",
+                "level": "partial_key",
+                "source": "msd",
+                "key_context": {"REF_AREA": "GBR"},
+                "distinct_value_count": 4,
+                "values": ["Use with care", "Handle carefully"],
+            }],
+            "channels": {"msd_v2": "found", "dsd_attributes": "skipped"},
+            "notes": [],
+        }
+
+    with patch("tools.reference_metadata.get_reference_metadata", side_effect=partial_key_impl):
+        from main_server import get_reference_metadata as handler
+
+        result = await handler(dataflow_id="DF_PRICES_HICP", endpoint="OECD", ctx=ctx)
+
+    attr = result.metadata_attributes[0]
+    assert attr.level == "partial_key"
+    assert attr.key_context == {"REF_AREA": "GBR"}
+    assert attr.distinct_value_count == 4
+    assert attr.values == ["Use with care", "Handle carefully"]

@@ -873,7 +873,19 @@ class SuggestionResult(BaseModel):
 
 
 class MetadataAttribute(BaseModel):
-    """One piece of reference metadata, with where it came from."""
+    """One piece of reference metadata, with where it came from.
+
+    `level` says what the value attaches to. From the MSD channel it is
+    `"dataflow"` (the value describes the whole dataflow) or `"partial_key"`
+    (the value only describes the slice in `key_context`, e.g. one reference
+    area); from the DSD-attribute fallback it is `"dataset"`, `"series"` or
+    `"observation"`, the message level the attribute was read from. A
+    `"partial_key"` value is only meaningful together with `key_context`:
+    without it there is no way to tell which dimension combination the value
+    actually applies to. `distinct_value_count` and `values` surface when a
+    column carried more than one value across rows -- the headline `value`
+    above is not necessarily the whole story.
+    """
 
     id: str = Field(description="Attribute identifier")
     path: str = Field(description="Full path, preserving MSD hierarchy")
@@ -881,9 +893,24 @@ class MetadataAttribute(BaseModel):
     value: str = Field(description="Parsed text, markup removed")
     language: str | None = Field(default=None, description="Language of the value")
     level: str | None = Field(
-        default=None, description="dataflow, dataset, series or observation"
+        default=None, description="dataflow, partial_key, dataset, series or observation"
     )
     source: str = Field(description="msd or dsd_attribute")
+    key_context: dict[str, str] | None = Field(
+        default=None,
+        description="Concrete dimension values this value attaches to, for "
+        "a partial_key value; empty or None for a dataflow-level one",
+    )
+    distinct_value_count: int | None = Field(
+        default=None,
+        description="How many distinct values this column carried across "
+        "rows, so a caller knows the headline value is not the whole story",
+    )
+    values: list[str] | None = Field(
+        default=None,
+        description="Up to a few of the distinct values this column "
+        "carried across rows (headline first), when it carried more than one",
+    )
 
 
 class ReferenceMetadataResult(BaseModel):

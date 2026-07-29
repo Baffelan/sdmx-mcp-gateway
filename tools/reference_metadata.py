@@ -159,10 +159,11 @@ def parse_msd_csv(
     value attaches to the whole dataflow only when the row that carried it
     had every dimension wildcarded, otherwise it attaches to that row's
     partial key. When a column carries several distinct values, the
-    headline `value` prefers a dataflow-level one over a partial-key one;
-    `values` keeps up to `_MAX_DISTINCT_VALUES` of them (headline first,
-    including its `key_context` when it is partial-key) and
-    `distinct_value_count` records the true, uncapped total.
+    headline `value` (and its `level`/`key_context`) prefers a dataflow-level
+    one over a partial-key one; `values` keeps up to `_MAX_DISTINCT_VALUES`
+    of the distinct value strings (headline first) and `distinct_value_count`
+    records the true, uncapped total, so a caller can tell the headline is
+    not the whole story.
     """
     reader = csv.reader(io.StringIO(text))
     try:
@@ -232,7 +233,7 @@ def parse_msd_csv(
             "level": headline["level"],
             "key_context": headline["key_context"],
             "distinct_value_count": len(values),
-            "values": capped,
+            "values": [v["value"] for v in capped],
         })
     return out
 

@@ -1,7 +1,8 @@
 # Monitor Incidents
 
 Written by the `monitor-triage` routine. Newest entry first.
-Untracked on purpose: scheduled runs never commit.
+Each scheduled run commits to its own branch and merges into `main`, so this
+file is the canonical record and the routine's memory across runs.
 
 ## 2026-07-30T18:46Z - cycle 68
 

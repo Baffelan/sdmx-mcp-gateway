@@ -25,8 +25,35 @@ explicit "could not determine" line, even when it says "nothing".
 - Monitor: `https://sdmx-monitor-production.up.railway.app`
 - Report: `docs/monitor/incidents.md`
 - State: `docs/monitor/triage-state.json`
+- Output branch: `claude/monitor-log`
 
 Paths are relative to this repository's root.
+
+## Network access
+
+A cloud run reaches only the hosts its environment allows. The monitor and every
+SDMx provider sit outside the default `Trusted` allowlist, so the environment
+must use `Custom` network access including these hosts:
+
+```
+sdmx-monitor-production.up.railway.app
+stats-sdmx-disseminate.pacificdata.org
+data-sdmx-disseminate.statsfiji.gov.fj
+data-sdmx-disseminate.sbs.gov.ws
+data-api.ecb.europa.eu
+sdmx.data.unicef.org
+api.imf.org
+sdmx.oecd.org
+ec.europa.eu
+sdmx.ilo.org
+data.api.abs.gov.au
+stats.bis.org
+api.data.stats.govt.nz
+```
+
+A `403` with `x-deny-reason: host_not_allowed` means the environment is missing a
+host, which is a configuration fault rather than a provider failure. Record it as
+such and do not mark any endpoint broken because of it.
 
 ## Never call `/api/refresh`
 
@@ -36,14 +63,23 @@ that has already caused a real outage (a cycle wedged for 10.6 hours, silently
 suppressing every later run). Staleness gets reported, never repaired. Staying
 read-only also avoids the endpoint's 429 cooldown and 409 in-progress responses.
 
-## Step 0: Sync
+## Step 0: Get onto the log branch
+
+All output goes to the branch `claude/monitor-log`, never to `main`. A cloud
+session may only push to its current working branch, and `claude/`-prefixed
+branches are the ones always accepted, so this is a hard constraint rather than
+a preference.
 
 ```bash
-git pull --ff-only
+git fetch origin claude/monitor-log 2>/dev/null \
+  && git checkout claude/monitor-log \
+  && git pull --ff-only \
+  || git checkout -b claude/monitor-log
 ```
 
-Each scheduled run is a fresh session, so the state file in the repository is
-the only memory of what the previous run saw. Pull before reading it.
+Each scheduled run is a fresh session, so the state file **on this branch** is
+the only memory of what the previous run saw. Read it after checking out, not
+before: `main` carries only the original baseline and will look like a first run.
 
 ## Step 1: Read
 
@@ -270,13 +306,16 @@ Write `docs/monitor/triage-state.json`:
 Record every endpoint's status, since that is what the next run compares
 against. Use real UTC from `date -u`, never an estimated timestamp.
 
-Then commit and push:
+Then commit and push to the log branch:
 
 ```bash
 git add docs/monitor/
 git commit -m "<subject from step 6>"
-git push
+git push -u origin claude/monitor-log
 ```
+
+Never push to `main`. If a push is rejected, report the rejection in the next
+run's entry rather than retrying with force.
 
 Update state on every run, including silent ones and including runs where the
 monitor was unreachable. When it was unreachable, leave `last_cycle_id`

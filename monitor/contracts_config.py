@@ -32,6 +32,12 @@ class ContractExpectation:
     missing_artefact_status: int
     constraint_type: str | None
     auth_required_for_listing: bool = False
+    # Whether /availableconstraint/ carries the obs_count annotation, which
+    # reports how many observations a selection holds without fetching them.
+    # A .Stat Suite extension, not SDMx 2.1, so it varies by provider.
+    # None means "record but do not judge", used where it is unverified.
+    # Live-probed 2026-07-31.
+    obs_count_annotation: bool | None = None
 
 
 EXPECTATIONS: dict[str, ContractExpectation] = {
@@ -40,18 +46,21 @@ EXPECTATIONS: dict[str, ContractExpectation] = {
         references=dict(_ALL_REFERENCES_WORK),
         availableconstraint_status=200, sdmx3_status=404,
         missing_artefact_status=404, constraint_type="Actual",
+        obs_count_annotation=True,
     ),
     "FBOS": ContractExpectation(
         key="FBOS", flow_agency="FBOS", flow_id="DF_BOP_TABLE1",
         references=dict(_ALL_REFERENCES_WORK),
         availableconstraint_status=200, sdmx3_status=400,
         missing_artefact_status=404, constraint_type="Actual",
+        obs_count_annotation=True,
     ),
     "SBS": ContractExpectation(
         key="SBS", flow_agency="SBS", flow_id="DF_CPI",
         references=dict(_ALL_REFERENCES_WORK),
         availableconstraint_status=200, sdmx3_status=404,
         missing_artefact_status=404, constraint_type="Actual",
+        obs_count_annotation=True,
     ),
     "ECB": ContractExpectation(
         key="ECB", flow_agency="ECB", flow_id="EXR",
@@ -64,18 +73,21 @@ EXPECTATIONS: dict[str, ContractExpectation] = {
         references=dict(_ALL_REFERENCES_WORK),
         availableconstraint_status=200, sdmx3_status=400,
         missing_artefact_status=404, constraint_type="Actual",
+        obs_count_annotation=False,
     ),
     "IMF": ContractExpectation(
         key="IMF", flow_agency="IMF.STA", flow_id="CPI",
         references=dict(_ALL_REFERENCES_WORK),
         availableconstraint_status=200, sdmx3_status=404,
         missing_artefact_status=204, constraint_type="Actual",
+        obs_count_annotation=False,
     ),
     "OECD": ContractExpectation(
         key="OECD", flow_agency="OECD.SDD.TPS", flow_id="DSD_PRICES@DF_PRICES_HICP",
         references=dict(_ALL_REFERENCES_WORK),
         availableconstraint_status=200, sdmx3_status=400,
         missing_artefact_status=404, constraint_type="Actual",
+        obs_count_annotation=True,
     ),
     "ESTAT": ContractExpectation(
         key="ESTAT", flow_agency="ESTAT", flow_id="nama_10_gdp",
@@ -102,12 +114,14 @@ EXPECTATIONS: dict[str, ContractExpectation] = {
         references=dict(_ALL_REFERENCES_WORK),
         availableconstraint_status=200, sdmx3_status=400,
         missing_artefact_status=404, constraint_type="Actual",
+        obs_count_annotation=True,
     ),
     "BIS": ContractExpectation(
         key="BIS", flow_agency="BIS", flow_id="WS_CBPOL",
         references=dict(_ALL_REFERENCES_WORK),
         availableconstraint_status=200, sdmx3_status=400,
         missing_artefact_status=404, constraint_type="Actual",
+        obs_count_annotation=False,
     ),
     "STATSNZ": ContractExpectation(
         key="STATSNZ", flow_agency="STATSNZ", flow_id="AGR_AGR_001",

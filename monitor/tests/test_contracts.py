@@ -222,6 +222,74 @@ CONSTRAINT_ACTUAL = (
 )
 CONSTRAINT_ALLOWED = CONSTRAINT_ACTUAL.replace("Actual", "Allowed")
 CONSTRAINT_EMPTY = "<Structure><ContentConstraint type='Actual'/></Structure>"
+CONSTRAINT_WITH_OBS_COUNT = (
+    "<Structure><ContentConstraint type='Actual'>"
+    "<Annotations><Annotation id='obs_count'>"
+    "<AnnotationTitle>121140</AnnotationTitle>"
+    "<AnnotationType>sdmx_metrics</AnnotationType>"
+    "</Annotation></Annotations>"
+    "<CubeRegion><KeyValue id='GEO_PICT'><Value>FJ</Value></KeyValue></CubeRegion>"
+    "</ContentConstraint></Structure>"
+)
+
+
+@respx.mock
+async def test_obs_count_ok_when_the_annotation_is_still_published():
+    """SPC publishes obs_count, which is how a query gets sized without
+    downloading it."""
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_WITH_OBS_COUNT)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    result = _by_assertion(results, "constraint:obs_count")
+    assert result.verdict == "ok"
+    assert result.observed == "present"
+
+
+@respx.mock
+async def test_obs_count_broken_when_the_annotation_disappears():
+    """Losing it removes the only way to size a selection without fetching it,
+    and nothing else in the response would show that."""
+    ep, exp = _ep("SPC"), EXPECTATIONS["SPC"]
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_ACTUAL)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    result = _by_assertion(results, "constraint:obs_count")
+    assert result.verdict == "broken"
+    assert result.expected == "present"
+    assert result.observed == "absent"
+
+
+@respx.mock
+async def test_obs_count_capability_appears_where_it_was_absent():
+    """BIS serves availability without obs_count; gaining it would be useful."""
+    ep, exp = _ep("BIS"), EXPECTATIONS["BIS"]
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_WITH_OBS_COUNT)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    assert _by_assertion(results, "constraint:obs_count").verdict == "capability_appeared"
+
+
+@respx.mock
+async def test_obs_count_is_not_judged_where_it_was_never_verified():
+    """STATSNZ needs a key we did not probe with, so its expectation is None and
+    the check must stay silent rather than invent a verdict."""
+    ep, exp = _ep("STATSNZ"), EXPECTATIONS["STATSNZ"]
+    respx.get(availableconstraint_url(ep, exp)).respond(200, text=CONSTRAINT_ACTUAL)
+    async with httpx.AsyncClient() as client:
+        results = await check_constraint(client, ep, exp)
+    assert all(r.assertion != "constraint:obs_count" for r in results)
+
+
+def test_obs_count_zero_is_a_count_not_an_absence():
+    """Zero observations is a real answer; absent means the provider said
+    nothing. Conflating them would report a working provider as broken."""
+    from contracts import _obs_count_annotation
+
+    zero = CONSTRAINT_WITH_OBS_COUNT.replace("121140", "0")
+    assert _obs_count_annotation(zero) == 0
+    assert _obs_count_annotation(CONSTRAINT_ACTUAL) is None
+    assert _obs_count_annotation("not xml at all") is None
 
 
 @respx.mock

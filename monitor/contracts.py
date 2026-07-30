@@ -204,6 +204,32 @@ def _constraint_key_values(text: str) -> tuple[int, str | None]:
     return count, ctype
 
 
+def _obs_count_annotation(text: str) -> int | None:
+    """Read the obs_count annotation, which reports how many observations the
+    selection holds without fetching any of them.
+
+    A .Stat Suite extension rather than SDMx 2.1, so it is present on some
+    providers and absent on others. Returns None when absent or unparseable,
+    which is not the same as zero: zero is a real count.
+    """
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return None
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] != "Annotation":
+            continue
+        if element.get("id") != "obs_count":
+            continue
+        for child in element:
+            if child.tag.rsplit("}", 1)[-1] == "AnnotationTitle":
+                try:
+                    return int((child.text or "").strip())
+                except ValueError:
+                    return None
+    return None
+
+
 async def check_constraint(
     client: httpx.AsyncClient, ep: Endpoint, exp: ContractExpectation
 ) -> list[ContractResult]:
@@ -267,6 +293,29 @@ async def check_constraint(
             error=None if matches else (
                 "constraint semantics changed from " + exp.constraint_type
                 + " to " + ctype)))
+
+    # constraint:obs_count watches whether the selection's observation count is
+    # still published. The number itself is content and changes constantly, so
+    # only its presence is judged. Losing it would silently remove the one way
+    # to size a query without downloading it; gaining it is a new capability.
+    if exp.availableconstraint_status == 200 and exp.obs_count_annotation is not None:
+        obs = _obs_count_annotation(resp.text) if resp.status_code == 200 else None
+        present = obs is not None
+        if present == exp.obs_count_annotation:
+            verdict, note = "ok", None
+        elif present:
+            verdict, note = "capability_appeared", (
+                "now publishes an obs_count annotation; queries can be sized "
+                "without fetching data")
+        else:
+            verdict, note = "broken", (
+                "obs_count annotation no longer published; sizing a query now "
+                "requires downloading the data")
+        results.append(ContractResult(
+            ep.key, "constraint:obs_count", verdict=verdict,
+            expected="present" if exp.obs_count_annotation else "absent",
+            observed="present" if present else "absent",
+            http_status=resp.status_code, error=note))
     return results
 
 

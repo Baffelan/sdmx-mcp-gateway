@@ -1,0 +1,24 @@
+{
+  "last_cycle_id": 60,
+  "last_cycle_started_at": "2026-07-30T02:25:41Z",
+  "last_run": "2026-07-30T04:22:13Z",
+  "baseline_established": true,
+  "endpoint_status_at_last_run": {
+    "ABS": "healthy",
+    "BIS": "healthy",
+    "ECB": "healthy",
+    "ESTAT": "healthy",
+    "FBOS": "healthy",
+    "ILO": "healthy",
+    "IMF": "healthy",
+    "OECD": "healthy",
+    "SBS": "healthy",
+    "SPC": "healthy",
+    "STATSNZ": "healthy",
+    "UNICEF": "healthy"
+  },
+  "open_items": [
+    "STATSNZ auth:listing capability_appeared at cycle 60: listing served without credentials. Still open, still the same cycle, so not re-reported."
+  ],
+  "alerted": false
+}

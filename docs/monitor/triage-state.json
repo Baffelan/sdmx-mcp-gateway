@@ -1,13 +1,13 @@
 {
-  "last_cycle_id": 62,
-  "last_cycle_started_at": "2026-07-30T06:25:41Z",
-  "last_run": "2026-07-30T06:42:32Z",
+  "last_cycle_id": 65,
+  "last_cycle_started_at": "2026-07-30T12:25:41Z",
+  "last_run": "2026-07-30T12:43:46Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "healthy",
+    "ESTAT": "gateway_issue",
     "FBOS": "healthy",
     "ILO": "healthy",
     "IMF": "healthy",
@@ -18,7 +18,8 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 62: listing served without credentials. Still open, not re-reported since no new change."
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 65: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT gateway_issue (list_dataflows timeout) at cycles 63-65, three consecutive cycles, longest streak seen so far for this known recurring pattern. Watch whether it recovers next cycle or extends further."
   ],
-  "alerted": false
+  "alerted": true
 }

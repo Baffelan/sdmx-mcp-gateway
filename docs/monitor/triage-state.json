@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 65,
-  "last_cycle_started_at": "2026-07-30T12:25:41Z",
-  "last_run": "2026-07-30T12:43:46Z",
+  "last_cycle_id": 68,
+  "last_cycle_started_at": "2026-07-30T18:25:41Z",
+  "last_run": "2026-07-30T18:46:14Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,8 +18,9 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 65: listing served without credentials. Still open, not re-reported since no new change.",
-    "ESTAT gateway_issue (list_dataflows timeout) at cycles 63-65, three consecutive cycles, longest streak seen so far for this known recurring pattern. Watch whether it recovers next cycle or extends further."
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 68: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT gateway_issue (list_dataflows timeout) at cycles 63-68, six consecutive cycles (12h), longest streak seen so far for this known recurring pattern. Live recheck at cycle 68 came in at 29.9s, well under the 60s deadline, so no sign of provider-side worsening. Watch whether it recovers or extends further.",
+    "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests, confirmed live at cycle 68 (both orderings seen across 5 requests). Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes."
   ],
-  "alerted": true
+  "alerted": false
 }

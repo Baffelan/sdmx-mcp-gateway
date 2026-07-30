@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 61,
-  "last_cycle_started_at": "2026-07-30T04:25:41Z",
-  "last_run": "2026-07-30T05:44:46Z",
+  "last_cycle_id": 62,
+  "last_cycle_started_at": "2026-07-30T06:25:41Z",
+  "last_run": "2026-07-30T06:42:32Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,7 +18,7 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 61: listing served without credentials. Still open, not re-reported since no new change."
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 62: listing served without credentials. Still open, not re-reported since no new change."
   ],
   "alerted": false
 }

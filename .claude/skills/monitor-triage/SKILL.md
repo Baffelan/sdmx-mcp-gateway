@@ -25,7 +25,7 @@ explicit "could not determine" line, even when it says "nothing".
 - Monitor: `https://sdmx-monitor-production.up.railway.app`
 - Report: `docs/monitor/incidents.md`
 - State: `docs/monitor/triage-state.json`
-- Output branch: `claude/monitor-log`
+- Output branch: whichever branch the session starts on (never create one)
 
 Paths are relative to this repository's root.
 
@@ -63,23 +63,29 @@ that has already caused a real outage (a cycle wedged for 10.6 hours, silently
 suppressing every later run). Staleness gets reported, never repaired. Staying
 read-only also avoids the endpoint's 429 cooldown and 409 in-progress responses.
 
-## Step 0: Get onto the log branch
+## Step 0: Stay on the branch you were given
 
-All output goes to the branch `claude/monitor-log`, never to `main`. A cloud
-session may only push to its current working branch, and `claude/`-prefixed
-branches are the ones always accepted, so this is a hard constraint rather than
-a preference.
+**Do not create a branch and do not switch branches.** A cloud session may push
+only the branch it was assigned, so inventing one produces `403` on every push
+attempt. Use whatever branch the session starts on:
 
 ```bash
-git fetch origin claude/monitor-log 2>/dev/null \
-  && git checkout claude/monitor-log \
-  && git pull --ff-only \
-  || git checkout -b claude/monitor-log
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "working branch: $BRANCH"
+git pull --ff-only 2>/dev/null || true   # no-op when the branch is new
 ```
 
-Each scheduled run is a fresh session, so the state file **on this branch** is
-the only memory of what the previous run saw. Read it after checking out, not
-before: `main` carries only the original baseline and will look like a first run.
+Each scheduled run is a fresh session, so the committed state file is the only
+memory of what the previous run saw. Read it in this order:
+
+1. `docs/monitor/triage-state.json` in the working tree, which is the previous
+   run's state when the routine keeps returning to the same output branch.
+2. If that file is absent, fall back to `main`, which carries the baseline:
+   `git show origin/main:docs/monitor/triage-state.json`.
+3. If neither exists, treat it as a first run (see "First run").
+
+State read from `main` is a baseline rather than the last run's state, so say so
+in the entry instead of presenting it as continuous history.
 
 ## Step 1: Read
 
@@ -306,16 +312,19 @@ Write `docs/monitor/triage-state.json`:
 Record every endpoint's status, since that is what the next run compares
 against. Use real UTC from `date -u`, never an estimated timestamp.
 
-Then commit and push to the log branch:
+Then commit and push the branch you are already on:
 
 ```bash
 git add docs/monitor/
 git commit -m "<subject from step 6>"
-git push -u origin claude/monitor-log
+git push -u origin HEAD
 ```
 
-Never push to `main`. If a push is rejected, report the rejection in the next
-run's entry rather than retrying with force.
+Never push to `main`, never name a different branch, and never force-push. If a
+push is rejected, retry at most twice, then stop and report the rejection text
+verbatim in the session output. A repeated `403` from the local git proxy means
+the branch is not the one this session may push, which is a configuration fault
+to report rather than something to work around.
 
 Update state on every run, including silent ones and including runs where the
 monitor was unreachable. When it was unreachable, leave `last_cycle_id`

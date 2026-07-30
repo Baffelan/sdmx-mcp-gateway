@@ -394,6 +394,40 @@ async def get_data_availability(
         if ctx:
             await ctx.info(f"Checking data availability for: {dataflow_id}")
 
+        # Reject filters that name no dimension of this dataflow. Silently
+        # dropping them used to return the whole-dataflow answer while
+        # reporting the filter as checked, so a stale dimension id (GEO_PICT,
+        # renamed to REF_AREA in DSD_SDG 4.x) produced a confident count for a
+        # selection nobody asked about.
+        if filters:
+            structure = await client.get_structure_summary(
+                dataflow_id=dataflow_id,
+                agency_id=agency_id,
+            )
+            valid = [
+                dim.id for dim in sorted(structure.dimensions, key=lambda d: d.position)
+            ]
+            unknown = [key for key in filters if key not in set(valid) | {"TIME_PERIOD"}]
+            if unknown:
+                return {
+                    "dataflow_id": dataflow_id,
+                    "has_constraint": False,
+                    "error": (
+                        "Unknown dimension(s) for " + dataflow_id + ": "
+                        + ", ".join(sorted(unknown))
+                    ),
+                    "interpretation": [
+                        "**Valid dimensions for " + dataflow_id + ":** " + ", ".join(valid),
+                        "**Unknown filter(s) rejected:** " + ", ".join(sorted(unknown)),
+                    ],
+                    "recommendation": (
+                        "Re-run using dimension ids from the list above. Dimension ids "
+                        "change between dataflow versions, so one that worked on an "
+                        "earlier version may no longer exist. Call "
+                        "get_dataflow_structure() to see the current dimensions."
+                    ),
+                }
+
         strategy = get_constraint_strategy(client.endpoint_key, "single_flow")
         if strategy == "availableconstraint":
             availability = await _get_exact_availability_from_endpoint(
@@ -569,6 +603,10 @@ def _parse_availableconstraint_response(
         "dataflow_id": dataflow_id,
         "has_constraint": True,
         "constraint_id": constraint.get("id"),
+        # Actual means combinations with confirmed data; Allowed means merely
+        # schema-permitted. Reporting Allowed as if it were Actual makes every
+        # availability answer over-optimistic, so carry the distinction.
+        "constraint_type": constraint.get("type"),
         "time_range": time_range,
         "cube_regions": cube_regions,
         "interpretation": interpretation,

@@ -560,6 +560,80 @@ class TestGetDataAvailability:
         assert result["time_range"] is None
         assert any("sentinel time range" in line for line in result["interpretation"])
 
+    @pytest.mark.asyncio
+    async def test_constraint_type_is_carried_from_the_response(self, mock_client):
+        """Actual and Allowed share an element name and mean different things:
+        Actual is confirmed data, Allowed is merely schema-permitted. Dropping
+        the distinction makes every availability answer look confirmed."""
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response(self.EXACT_CONSTRAINT_XML))
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+
+        result = await get_data_availability(
+            client=mock_client,
+            dataflow_id="DF_COMMODITY_PRICES",
+            filters={"FREQ": "M"},
+        )
+
+        assert result["constraint_type"] == "Actual"
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_filter_dimension_is_rejected_not_dropped(self, mock_client):
+        """A filter naming no dimension used to be dropped silently, so the
+        whole-dataflow count came back reported as the filtered one. Against
+        SPC's DF_SDG that turned a request for Fiji into 121140 observations
+        for everything."""
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response(self.EXACT_CONSTRAINT_XML))
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+
+        result = await get_data_availability(
+            client=mock_client,
+            dataflow_id="DF_COMMODITY_PRICES",
+            filters={"GEO_PICT": "FJ"},
+        )
+
+        assert "error" in result
+        assert "GEO_PICT" in result["error"]
+        assert result.get("observation_count") is None
+        # The agent needs to know what it may use instead.
+        assert any("COMMODITY" in line for line in result["interpretation"])
+        # And nothing may be fetched, so no count can be mistaken for filtered.
+        mock_session.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_known_filter_plus_an_unknown_one_still_errors(self, mock_client):
+        """Partially valid filters are the dangerous case: the query would run
+        and return a real number for the wrong selection."""
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response(self.EXACT_CONSTRAINT_XML))
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+
+        result = await get_data_availability(
+            client=mock_client,
+            dataflow_id="DF_COMMODITY_PRICES",
+            filters={"FREQ": "M", "GEO_PICT": "FJ"},
+        )
+
+        assert "error" in result
+        mock_session.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_time_period_is_accepted_as_a_filter_name(self, mock_client):
+        """TIME_PERIOD is an accepted alias for the time dimension, so the new
+        validation must not reject it."""
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=self._make_response(self.EXACT_CONSTRAINT_XML))
+        mock_client._get_session = AsyncMock(return_value=mock_session)
+
+        result = await get_data_availability(
+            client=mock_client,
+            dataflow_id="DF_COMMODITY_PRICES",
+            filters={"TIME_PERIOD": "2020"},
+        )
+
+        assert "error" not in result
+
 
 class TestActualAvailabilityFallback:
     """get_actual_availability() must fall back to Allowed constraints (ECB

@@ -3,6 +3,85 @@
 Written by the `monitor-triage` routine. Newest entry first.
 Untracked on purpose: scheduled runs never commit.
 
+## 2026-07-30T18:46Z - cycle 68
+
+**Changed:** contract `ABS encoding:structure_xml` was/now pair reported by
+`/api/contracts`: `application/vnd.sdmx.structure+xml; charset=utf-8;
+version=2.1` -> `application/vnd.sdmx.structure+xml; version=2.1;
+charset=utf-8`. Verdict stayed `ok` on both sides; only the parameter order
+in the `Content-Type` header differs.
+
+**Cycle saw:** the was/now pair above, computed server-side by the monitor
+against the previous contract check.
+
+**Live recheck:** fetched `https://data.api.abs.gov.au/rest/dataflow/ABS?references=none`
+directly five times in quick succession just now. Both orderings appeared
+within the same short window: three responses came back
+`version=2.1; charset=utf-8` and two came back `charset=utf-8; version=2.1`.
+So this is not a one-off flip the monitor happened to catch; ABS's own
+`Content-Type` header genuinely varies between requests, most likely because
+requests land on different backend instances that serialize the header
+differently.
+
+**Classification:** provider-side, cosmetic. The media type and parameters
+are semantically identical either way (`application/vnd.sdmx.structure+xml`,
+version 2.1, UTF-8), so nothing consumes this ordering meaningfully and no
+gateway assumption is invalidated. Recorded as `ok` throughout.
+
+**History:** first time this specific was/now pair has appeared in the
+`changes` array since the baseline at cycle 60. No endpoint status changed
+this run: all twelve endpoints match the previous run's state exactly
+(cycle 65 -> cycle 68), including ESTAT, which stayed `gateway_issue`.
+
+**Recommended action:** none. Flagging this here mainly so a future run that
+sees the header flip back doesn't re-report it as new; it is expected to
+alternate.
+
+**Could not determine:** how many distinct backend instances ABS is running
+behind this endpoint, or whether the ordering correlates with anything
+(region, load balancer, SDMX library version) beyond varying request to
+request.
+
+### ESTAT gateway_issue streak, update
+
+Still `gateway metadata: tool call list_dataflows timed out after 60.0s`,
+unchanged in shape since cycle 63. Now six consecutive cycles (63 through
+68, 2026-07-30T08:25:41Z through 18:25:41+00:00), double the length reported
+at cycle 65, and past the "3-4 more cycles" watch threshold set in that
+entry.
+
+**Live recheck:** fetched Eurostat's dataflow listing directly
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all`)
+just now: HTTP 200 in 29.9s, 37.6 MB payload, comfortably under the 60s
+deadline this time. Other providers answered normally in the same window
+(ECB 200 in under 2s), so this is not a network problem on this routine's
+side.
+
+**Classification:** unchanged from cycle 65: `gateway_issue` by the
+monitor's label, but this is our own 60s call deadline firing against a
+slow-but-working provider response, not a provider outage or a gateway bug.
+The live recheck this run came in well under the deadline (29.9s vs the
+41.9s seen at cycle 65), which argues against a provider-side regression in
+response size or latency; the streak length looks more like the deadline
+sitting close to ESTAT's typical response time than a worsening trend.
+
+**Recommended action:** still no code change indicated. Continue watching;
+if the streak extends for multiple more days rather than resolving, that
+would be the point to consider raising the deadline or paginating this
+check instead of pulling the full dataflow listing.
+
+**Could not determine:** why this streak has run twice as long as any prior
+occurrence when the live-fetch timing does not show it getting worse;
+would need per-cycle latency numbers this routine does not have to say
+whether it is bunched near a slow hour of day or genuinely more frequent
+now.
+
+### STATSNZ open item, unchanged
+
+`auth:listing` still reads `capability_appeared` at cycle 68 (expected
+"credentials required", observed 200), same as recorded at cycles 60 through
+65. No new information this run; carried forward in the state file.
+
 ## 2026-07-30T12:43Z - cycle 65
 
 **Changed:** ESTAT healthy -> gateway_issue

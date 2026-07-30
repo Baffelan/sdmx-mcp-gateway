@@ -4,10 +4,19 @@ Reference metadata is the descriptive material about a dataflow: who compiled
 it, from what source, under what licence, with what caveats. It is what turns
 a retrieved number into something citable.
 
-There is no single place it lives. .Stat Suite deployments serve it through an
-SDMx 3.0 data query asking for MSD attributes (`attributes=msd`), while other
-providers put descriptive text in ordinary DSD attributes on the data message.
-This module reads both and reports which channels a provider left empty.
+There is no single place it lives. .Stat Suite deployments serve it through a
+data query on their `/v2/` API surface asking for MSD attributes
+(`attributes=msd`), while other providers put descriptive text in ordinary DSD
+attributes on the data message. This module reads both and reports which
+channels a provider left empty.
+
+That `/v2/` surface is a newer query and serialization layer over artefacts
+that remain modelled and versioned per SDMx 2.1, so it is not an SDMx 3.0
+implementation. The practical consequence is version resolution: artefacts
+carry two-part versions like `4.3`, the 2.1 `latest` keyword is rejected by the
+v2 query parser, and the 3.0 `+` operator matches only three-part semver, so no
+wildcard reliably resolves. Callers must resolve the exact published version
+first, which is what `get_reference_metadata` does.
 """
 
 import csv

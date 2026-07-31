@@ -1,15 +1,15 @@
 {
-  "last_cycle_id": 68,
-  "last_cycle_started_at": "2026-07-30T18:25:41Z",
-  "last_run": "2026-07-30T18:46:14Z",
+  "last_cycle_id": 70,
+  "last_cycle_started_at": "2026-07-31T00:01:22Z",
+  "last_run": "2026-07-31T00:43:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
-    "ABS": "healthy",
+    "ABS": "gateway_issue",
     "BIS": "healthy",
     "ECB": "healthy",
     "ESTAT": "gateway_issue",
     "FBOS": "healthy",
-    "ILO": "healthy",
+    "ILO": "degraded",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,9 +18,11 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 68: listing served without credentials. Still open, not re-reported since no new change.",
-    "ESTAT gateway_issue (list_dataflows timeout) at cycles 63-68, six consecutive cycles (12h), longest streak seen so far for this known recurring pattern. Live recheck at cycle 68 came in at 29.9s, well under the 60s deadline, so no sign of provider-side worsening. Watch whether it recovers or extends further.",
-    "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests, confirmed live at cycle 68 (both orderings seen across 5 requests). Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes."
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 70: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT gateway_issue (list_dataflows timeout) continuing at cycle 70; chronic recurring pattern, streak length not re-derived this run beyond confirming status unchanged from cycle 68.",
+    "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
+    "ABS gateway_issue at cycle 70: gateway metadata failed with empty error message ('Error: '), direct path unaffected. Recurrence of the same empty-error pattern first seen at cycle 26. Watch next cycle for recovery; if it recurs again the empty error string itself needs fixing in gateway code.",
+    "ILO degraded at cycle 70: direct json HTTP 403, auth:listing/references:descendants/references:parentsandsiblings contract checks all flipped to broken (403). Live recheck moments later showed full recovery (200 across all four). Matches the same transient 403 pattern seen at cycle 32. Watch next cycle to confirm it stays healthy."
   ],
-  "alerted": false
+  "alerted": true
 }

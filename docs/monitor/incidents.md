@@ -4,6 +4,78 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-07-31T00:43Z - cycle 70
+
+**Changed:** ILO healthy -> degraded
+
+**Cycle saw:** direct json failing with HTTP 403. Contract assertions
+`auth:listing` (200 -> 403, "provider now demands credentials"),
+`references:descendants` (200 -> 403), and `references:parentsandsiblings`
+(200 -> 403) all flipped to `broken`. Gateway metadata and gateway data both
+passed; direct metadata and direct data both passed. Only the direct json
+channel and three reference-style contract checks against ILO were affected.
+
+**Live recheck:** re-ran all four requests directly against
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+just now (plain listing, `?references=descendants`,
+`?references=parentsandsiblings`, `?references=none`): all four returned
+HTTP 200. The json data query with `Accept: application/vnd.sdmx.data+json`
+returned HTTP 400, not 403 (ILO does not serve SDMX-JSON for data queries;
+this is the endpoint's documented behavior, not the 403 seen in the cycle).
+Cycle and live recheck disagree on every point that changed, which points to
+a transient condition at ILO that has already cleared.
+
+**Classification:** provider-side (`degraded`, failures on the direct path
+only; gateway path was unaffected). Not a `gateway_issue` and not caused by
+our code.
+
+**History:** ILO has flapped exactly this way before: HTTP 403 on direct
+data and json at cycle 32, recovered by the next cycle. This looks like the
+same pattern recurring, 38 cycles later. Healthy for the 8 preceding cycles
+(62-69) before this one.
+
+**Recommended action:** none beyond recording it. Live recheck already
+shows recovery; watch the next scheduled cycle to confirm it stays healthy.
+
+**Could not determine:** what caused the momentary 403 on ILO's side (rate
+limiting, a backend blip, or a WAF rule); ILO gives no error body to go on.
+
+## 2026-07-31T00:43Z - cycle 70
+
+**Changed:** ABS healthy -> gateway_issue
+
+**Cycle saw:** gateway metadata check failed with `error: "Error: "` (empty
+message body), latency 31599ms across 2 attempts. Gateway data, direct
+metadata, direct data, and direct json all passed.
+
+**Live recheck:** could not re-run the failing call itself, since it goes
+through the gateway's MCP tool (`list_dataflows`) rather than a plain HTTP
+endpoint reachable with curl. Rechecked the direct provider path instead
+(`https://data.api.abs.gov.au/rest/dataflow/ABS/CPI/latest`), which is
+unaffected and answered normally, consistent with the cycle's own read that
+the direct path was fine and only the gateway path failed.
+
+**Classification:** `gateway_issue`, ours to fix, not ABS's. The failing
+check is gateway metadata (`kind: metadata`, `path: gateway`), which is the
+`list_dataflows` tool path.
+
+**History:** this is a recurrence of a previously flagged pattern. Per prior
+notes, ABS produced `gateway metadata: Error:` with an empty error body at
+cycle 26 (2026-07-30), also recovering. That entry said explicitly: if this
+recurs, the empty message is itself the bug to report. It has now recurred,
+44 cycles later. ABS was healthy for the 21 preceding cycles (49-69).
+
+**Recommended action:** the empty error message on this specific failure
+path is worth fixing in its own right so a future occurrence carries an
+actual exception message or type instead of `Error: ` with nothing after it.
+
+**Could not determine:** whether the underlying failure is a timeout, a
+connection error, or something else, because the error string carries no
+detail. The 31599ms latency with 2 attempts suggests each attempt ran
+roughly 15-16s before failing, well under any of this gateway's own 60s
+deadlines, so it does not look like our own timeout firing the way the
+ESTAT case does.
+
 ## 2026-07-30T18:46Z - cycle 68
 
 **Changed:** contract `ABS encoding:structure_xml` was/now pair reported by

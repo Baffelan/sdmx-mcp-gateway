@@ -4,6 +4,44 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-07-31T18:43Z - cycle 79
+
+**Changed:** ESTAT gateway_issue -> healthy
+
+**Cycle saw:** all checks passing at cycle 79 (gateway metadata, gateway
+data, direct metadata, direct data, direct json). Recovery actually landed
+at cycle 77 (2026-07-31T14:01:22Z), two cycles before this run's comparison
+point, and held through cycles 78 and 79 as well.
+
+**Live recheck:** direct dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`)
+answered HTTP 200 in 32s just now, well under the 60s deadline that was
+timing out during the incident, and consistent with the prior finding that
+the direct fetch was never the slow side.
+
+**Classification:** recovery from `gateway_issue` (ours). The failing check
+throughout was `gateway metadata: tool call list_dataflows timed out after
+60.0s`, i.e. the gateway's own call to `list_dataflows`, not the provider.
+
+**History:** this closes the streak that ran cycle 63 through cycle 76 (14
+consecutive cycles, ~27.6 hours), the longest continuous `gateway_issue`
+period recorded for ESTAT so far. No other endpoint changed status in the
+same window (cycles 77-79 all healthy across the board), and no contract
+assertion changed (`changes: []` from `/api/contracts`). STATSNZ
+`auth:listing` remains `capability_appeared` as before, unchanged since
+cycle 60, not a fresh event.
+
+**Recommended action:** none required now that it has cleared, but the
+14-cycle duration is notably longer than ESTAT's prior single-cycle
+`list_dataflows` timeouts (cycles 54-55). Worth a closer look next time it
+recurs at whether the gateway-side timeout or retry behavior for ESTAT
+specifically needs adjusting, since the direct path was never close to the
+60s limit during the incident.
+
+**Could not determine:** what caused the `list_dataflows` call to time out
+for 14 cycles straight, or what changed at cycle 77 to clear it; no error
+detail beyond the timeout message is available from the monitor.
+
 ## 2026-07-31T06:42Z - cycle 73
 
 **Changed:** ABS gateway_issue -> healthy

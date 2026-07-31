@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 73,
-  "last_cycle_started_at": "2026-07-31T06:01:22Z",
-  "last_run": "2026-07-31T06:42:53Z",
+  "last_cycle_id": 76,
+  "last_cycle_started_at": "2026-07-31T12:01:22Z",
+  "last_run": "2026-07-31T12:42:38Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,11 +18,10 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 73: listing served without credentials. Still open, not re-reported since no new change.",
-    "ESTAT gateway_issue (list_dataflows timeout) continuing at cycle 73, now an unbroken streak from cycle 63 through 73 (11 cycles, ~22 hours), well past the 3-4-cycle watch threshold the cycle-65 report set for itself. Live rechecks of the direct fetch (29.4s and 41.9s across two runs) stay well under the 60s deadline, so the gateway-side timeout is not obviously explained by provider slowness alone. Flagged for a closer look at gateway-side list_dataflows timing for ESTAT specifically.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 76: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT gateway_issue (list_dataflows timeout) continuing at cycle 76, now an unbroken streak from cycle 63 through 76 (14 cycles, ~27.6 hours). No status change since the cycle-73 run, so no fresh live recheck was done this run. Still worth a closer look at gateway-side list_dataflows timing for ESTAT specifically; prior rechecks found the direct fetch well under the 60s deadline.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
-    "ABS gateway_issue at cycle 70 (empty error message 'Error: ') recovered by cycle 71 and held healthy through cycle 73. Matches the cycle-26 pattern. Watch for a third empty-error occurrence; if it recurs again the empty error string itself needs fixing in gateway code.",
-    "ILO degraded at cycle 70 (direct json HTTP 403, several contract checks briefly broken) recovered by cycle 71 and held healthy through cycle 73, matching the cycle-32 pattern. This run's own live recheck against ILO drew repeated HTTP 403s after a few requests in quick succession, most likely this routine tripping ILO's own rate-limit/WAF rather than a real outage, since the monitor's own 3 consecutive cycles disagree. Future rechecks against ILO should pace requests rather than firing several pinned paths back to back."
+    "ABS empty-error gateway_issue (cycle 70, matches cycle-26 pattern) and ILO degraded/403 (cycle 70, matches cycle-32 pattern) both recovered by cycle 71 and have held healthy through cycle 76 (6 cycles). No recurrence. Still watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
   ],
-  "alerted": true
+  "alerted": false
 }

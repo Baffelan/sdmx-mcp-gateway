@@ -4,6 +4,124 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-07-31T06:42Z - cycle 73
+
+**Changed:** ABS gateway_issue -> healthy
+
+**Cycle saw:** all checks passing at cycle 73 (gateway metadata, gateway
+data, direct metadata, direct data, direct json). Recovery actually landed
+at cycle 71 (2026-07-31T02:01:22Z), two cycles before this run's comparison
+point, and held through cycles 72 and 73.
+
+**Live recheck:** direct path
+(`https://data.api.abs.gov.au/rest/dataflow/ABS/CPI/latest`) answered HTTP
+200 in 1.4s just now. The gateway path goes through the `list_dataflows` MCP
+tool, which is not reachable directly with curl from this session; the
+monitor's own three consecutive healthy cycles are the evidence for that
+side.
+
+**Classification:** recovery from `gateway_issue` (ours). The empty-error
+pattern (`gateway metadata: Error:`, no message body) first seen at cycle 26
+and recurring at cycle 70 has cleared again.
+
+**History:** matches the cycle-26 pattern: transient, self-resolving within
+a cycle or two, no user-visible recurrence beyond a single blip.
+
+**Recommended action:** none. If the empty-error pattern recurs a third
+time, the empty error string itself is worth fixing in gateway code so the
+next occurrence carries a diagnosable message.
+
+**Could not determine:** what caused the cycle-70 failure or why it
+cleared; the gateway gives no detail beyond the empty error string.
+
+## 2026-07-31T06:42Z - cycle 73
+
+**Changed:** ILO degraded -> healthy
+
+**Cycle saw:** all checks and all twelve contract assertions passing at
+cycle 73. Recovery landed at cycle 71, the cycle immediately after the
+degraded one, and held through cycles 72 and 73.
+
+**Live recheck:** attempted to re-verify directly just now and got a
+confusing result: the pinned metadata path, the pinned CSV data path, and
+the pinned JSON data path
+(`.../data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`,
+`Accept: application/vnd.sdmx.data+json;version=2.0.0`) all returned HTTP
+403 "Access is denied" from ILO's Cloudflare/IIS front end on repeated
+requests, including the metadata path, which had itself returned HTTP 200
+on the very first request made minutes earlier. Reads like ILO's own
+rate-limiting or WAF reacting to several requests in quick succession from
+this session's IP, not a real outage: the monitor's own three consecutive
+cycles (71, 72, 73) all recorded the same checks passing at 200, most
+recently about 40 minutes before this recheck. Ruled out a broader network
+problem on this session's side first: ABS and ESTAT direct requests both
+answered normally in the same window.
+
+**Classification:** recovery from `degraded` (provider-side, direct path
+only; gateway path was unaffected throughout). The live-recheck 403s are
+recorded but not trusted as current evidence of ILO's state, given the
+likely self-inflicted rate-limit confound.
+
+**History:** matches the cycle-32 pattern exactly: one cycle of HTTP 403 on
+the direct path, then full recovery by the next cycle. Second occurrence of
+this exact pattern, 41 cycles apart.
+
+**Recommended action:** none beyond recording it. If a future run's live
+recheck against ILO needs to be trusted, it should pace its requests
+(single request per path, with delay) rather than firing several pinned
+paths back to back, since that pattern alone was enough to draw a 403 this
+time.
+
+**Could not determine:** whether ILO's WAF has become stricter and is now
+the reason this routine cannot reliably confirm ILO by direct recheck, or
+whether this run's IP coincidentally tripped a threshold.
+
+## 2026-07-31T06:42Z - cycle 73
+
+**Changed:** none (status unchanged, still `gateway_issue`) - recorded
+because the previous run set an explicit watch threshold for this endpoint
+that this run crosses.
+
+**Cycle saw:** `gateway metadata: tool call list_dataflows timed out after
+60.0s`, continuously from cycle 63 (2026-07-30T08:25:41Z) through cycle 73
+(2026-07-31T06:01:22Z): 11 consecutive cycles, roughly 22 hours with no
+recovery cycle in between. Direct path passing throughout, per the
+monitor's own classification.
+
+**Live recheck:** fetched the same ESTAT full dataflow listing directly
+just now
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all`):
+HTTP 200 in 29.4s, 37.1 MB, comfortably under the 60s deadline. Similar
+order of magnitude to the 41.9s seen in the cycle-65 recheck.
+
+**Classification:** `gateway_issue` by the monitor's own label; the direct
+path keeps answering within the deadline while the gateway path keeps
+missing it, so on its face this is still our own call deadline firing
+against a slow provider response, not a provider outage.
+
+**History:** the cycle-65 report called this "the longest run of
+consecutive gateway_issue cycles observed for ESTAT so far (3)" and said
+"if the streak extends past 3-4 more cycles ... that would be new
+information worth a closer look." It has now extended to 11 consecutive
+cycles, well past that threshold, with no recovery in between - unlike
+every prior occurrence (cycles 49-50, 53-55, 63-65 as previously recorded),
+none of which ran longer than 3 cycles.
+
+**Recommended action:** worth the closer look the prior run flagged. Two
+independent direct-fetch rechecks (29.4s and 41.9s) both land well under
+60s, which does not obviously explain a gateway-side timeout sustained for
+22 continuous hours. Either the gateway's effective budget for this call is
+tighter than the raw HTTP fetch time it wraps, or something in the
+gateway's own processing around the fetch (not the fetch itself) has
+slowed. Worth checking gateway logs/timing for `list_dataflows` on ESTAT
+specifically; a 22-hour continuous streak is no longer well explained by
+"provider slow under load," which fit the earlier 2-6 hour blips.
+
+**Could not determine:** whether the gateway's `list_dataflows` handling of
+ESTAT carries overhead beyond the raw HTTP fetch, since this routine can
+only measure the direct fetch time from outside, not the gateway's own
+processing time.
+
 ## 2026-07-31T00:43Z - cycle 70
 
 **Changed:** ILO healthy -> degraded

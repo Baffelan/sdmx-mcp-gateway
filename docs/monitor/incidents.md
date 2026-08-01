@@ -4,6 +4,45 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-01T06:42Z - cycle 85
+
+**Changed:** ESTAT healthy -> gateway_issue
+
+**Cycle saw:** failing check `gateway metadata: tool call list_dataflows
+timed out after 60.0s` at cycles 83, 84 and 85 (2026-08-01T02:01Z through
+06:01Z), 3 consecutive cycles so far. Gateway data, direct metadata and
+direct data all pass; direct json is skipped as expected (ESTAT returns 406
+for SDMx-JSON, a known architectural fact). Last healthy cycle was 82
+(2026-08-01T00:01Z), matching the state file's last recorded run.
+
+**Live recheck:** fetched the same ESTAT full dataflow listing directly
+just now (`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`):
+HTTP 200 in 28.0s, 37.1 MB, comfortably under the 60s deadline the gateway
+call is missing. Consistent with every prior recheck of this same failure
+(29.4s, 32s, 41.9s in earlier incidents) - the raw fetch is never close to
+timing out.
+
+**Classification:** `gateway_issue` (ours). Direct path healthy, gateway
+path failing on `list_dataflows` specifically.
+
+**History:** this is a fresh recurrence, not a continuation. The prior
+streak (cycle 63-76, 14 cycles) recovered at cycle 77 and held healthy
+through cycle 82 (6 cycles, noted as an open item to watch). It broke again
+at cycle 83. Every prior short occurrence (cycles 49-50, 53-55, 63-65) ran
+3 cycles or less before either recovering or turning into the long streak;
+this one is at 3 cycles and still open as of this run.
+
+**Recommended action:** watch the next cycle. If it clears on its own,
+this matches the short-blip pattern and needs no further action. If it
+extends past 4-5 cycles, that has twice before been the leading edge of a
+much longer streak (11 and 14 cycles respectively) and is worth the
+gateway-side `list_dataflows` timing investigation that two prior entries
+already recommended and no one has yet done.
+
+**Could not determine:** why the gateway's `list_dataflows` call for ESTAT
+is slower than the raw HTTP fetch it wraps, since this routine can only
+measure from outside the gateway process.
+
 ## 2026-07-31T18:43Z - cycle 79
 
 **Changed:** ESTAT gateway_issue -> healthy

@@ -1,16 +1,16 @@
 {
-  "last_cycle_id": 85,
-  "last_cycle_started_at": "2026-08-01T06:01:22Z",
-  "last_run": "2026-08-01T06:42:54Z",
+  "last_cycle_id": 88,
+  "last_cycle_started_at": "2026-08-01T12:01:22Z",
+  "last_run": "2026-08-01T12:43:59Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "gateway_issue",
+    "ESTAT": "healthy",
     "FBOS": "healthy",
     "ILO": "healthy",
-    "IMF": "healthy",
+    "IMF": "provider_down",
     "OECD": "healthy",
     "SBS": "healthy",
     "SPC": "healthy",
@@ -18,10 +18,11 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 85: listing served without credentials. Still open, not re-reported since no new change.",
-    "ESTAT gateway_issue (list_dataflows timeout) recurred at cycle 83, still open at cycle 85 (3 cycles). Prior short occurrences (cycles 49-50, 53-55, 63-65) stayed under 4 cycles; longer streaks (11 and 14 cycles) have twice followed similar starts. Watch next cycle: if it clears, no action; if it extends past 4-5 cycles, do the gateway-side list_dataflows timing investigation that has been recommended twice and not yet done.",
+    "IMF went provider_down at cycle 88 (HTTP 401 Unauthorized on gateway and direct metadata/data). Live recheck about 40 minutes later returned HTTP 200 three times in a row on the direct path, so this looks transient. Watch cycle 89: if healthy, no further action; if 401 recurs, IMF has started requiring credentials for this listing and the gateway needs to handle it.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 88: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout flapping continues: cycle 85 streak (83-85, 3 cycles) cleared at 86, recurred for 1 cycle at 87, cleared again at 88. Still under the 4-5 cycle threshold; the gateway-side list_dataflows timing investigation remains recommended but undone if a longer streak appears.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
-    "ABS empty-error gateway_issue (cycle 70) and ILO degraded/403 (cycle 70) both recovered by cycle 71 and have held healthy through cycle 85 (15 cycles). No recurrence. Still watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
+    "ABS empty-error gateway_issue (cycle 70) and ILO degraded/403 (cycle 70) both recovered by cycle 71 and have held healthy through cycle 88 (17 cycles). No recurrence. Still watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
   ],
   "alerted": true
 }

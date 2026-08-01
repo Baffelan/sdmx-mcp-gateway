@@ -4,6 +4,72 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-01T12:43Z - cycle 88
+
+**Changed:** IMF healthy -> provider_down
+
+**Cycle saw:** at cycle 88 (2026-08-01T12:01Z) every IMF check failed with
+HTTP 401 Unauthorized: gateway metadata (`dataflow/IMF.STA/all/latest`),
+gateway data, direct metadata, and direct data. Direct json is skipped as
+expected (IMF ignores the JSON `Accept` header, a known architectural
+fact). Ten contract assertions flipped to `broken` on the same underlying
+cause; `auth:listing` reports "provider now demands credentials" (was
+`200`, now `401`).
+
+**Live recheck:** fetched `https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest`
+directly three times at 12:43 UTC, about 40 minutes after the cycle ran:
+HTTP 200 every time. ECB and OECD direct fetches also succeeded in the
+same window, which rules out a network problem on this routine's side.
+The live result disagrees with what the cycle recorded, which points to a
+transient failure that has already cleared rather than a durable new auth
+requirement.
+
+**Classification:** `provider_down` (theirs). Gateway and direct paths
+failed identically, so nothing points at gateway code.
+
+**History:** IMF had been healthy for at least 22 consecutive cycles
+before this (cycle 66 through 87, 2026-07-30T14:25Z through
+2026-08-01T10:01Z). No prior IMF auth failure appears in this log.
+
+**Recommended action:** watch the next cycle. If IMF is healthy again at
+cycle 89, treat this as a one-off transient 401 and take no further
+action. If it recurs, that is new: IMF has never required credentials for
+this listing before, and the gateway would need to start handling IMF
+auth.
+
+**Could not determine:** why the provider returned 401 for roughly the
+two-hour cycle window despite being reachable again less than an hour
+later; whether this was a brief provider-side auth rollout, a
+misclassified rate limit, or unrelated infrastructure noise.
+
+## 2026-08-01T12:43Z - cycle 88
+
+**Changed:** ESTAT gateway_issue -> healthy
+
+**Cycle saw:** ESTAT was healthy at cycle 88, continuing the known
+`list_dataflows` timeout flapping pattern. Since the last recorded run
+(cycle 85, `gateway_issue` for 3 consecutive cycles 83-85), it recovered
+at cycle 86, recurred for one cycle at 87, then recovered again at 88.
+
+**Live recheck:** not needed; the endpoint is currently healthy and
+matches the cycle.
+
+**Classification:** `gateway_issue` when failing (ours, `list_dataflows`
+timeout against ESTAT); currently `healthy`.
+
+**History:** matches the documented short-blip pattern - occurrences
+under 4-5 cycles have always self-recovered so far. Only two prior
+streaks (11 and 14 cycles) needed the gateway-side timing investigation
+that remains undone. Neither the 83-85 streak nor the single cycle-87
+recurrence reached that threshold.
+
+**Recommended action:** none. Per the open item recorded at cycle 85 ("if
+it clears, no action"), this occurrence is resolved. Continue watching for
+a streak that clears the 4-5 cycle mark before doing the `list_dataflows`
+timing investigation.
+
+**Could not determine:** nothing outstanding for this occurrence.
+
 ## 2026-08-01T06:42Z - cycle 85
 
 **Changed:** ESTAT healthy -> gateway_issue

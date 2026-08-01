@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 79,
-  "last_cycle_started_at": "2026-07-31T18:01:22Z",
-  "last_run": "2026-07-31T18:43:07Z",
+  "last_cycle_id": 82,
+  "last_cycle_started_at": "2026-08-01T00:01:22Z",
+  "last_run": "2026-08-01T00:42:29Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,10 +18,10 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 79: listing served without credentials. Still open, not re-reported since no new change.",
-    "ESTAT gateway_issue (list_dataflows timeout) recovered at cycle 77, closing the cycle 63-76 streak (14 cycles, ~27.6 hours), the longest continuous gateway_issue period recorded for ESTAT so far. Healthy through cycle 79 (3 cycles since recovery). Watch for recurrence; if it does, look at gateway-side list_dataflows timeout/retry behavior for ESTAT specifically, since the direct fetch stayed well under the 60s deadline throughout.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 82: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT gateway_issue (list_dataflows timeout) recovered at cycle 77. Healthy through cycle 82 (6 cycles since recovery). Watch for recurrence; if it does, look at gateway-side list_dataflows timeout/retry behavior for ESTAT specifically.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
-    "ABS empty-error gateway_issue (cycle 70, matches cycle-26 pattern) and ILO degraded/403 (cycle 70, matches cycle-32 pattern) both recovered by cycle 71 and have held healthy through cycle 79 (9 cycles). No recurrence. Still watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
+    "ABS empty-error gateway_issue (cycle 70) and ILO degraded/403 (cycle 70) both recovered by cycle 71 and have held healthy through cycle 82 (12 cycles). No recurrence. Still watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
   ],
-  "alerted": true
+  "alerted": false
 }

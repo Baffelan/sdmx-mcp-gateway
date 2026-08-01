@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 88,
-  "last_cycle_started_at": "2026-08-01T12:01:22Z",
-  "last_run": "2026-08-01T12:43:59Z",
+  "last_cycle_id": 91,
+  "last_cycle_started_at": "2026-08-01T18:01:22Z",
+  "last_run": "2026-08-01T18:41Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -10,7 +10,7 @@
     "ESTAT": "healthy",
     "FBOS": "healthy",
     "ILO": "healthy",
-    "IMF": "provider_down",
+    "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
     "SPC": "healthy",
@@ -18,11 +18,10 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "IMF went provider_down at cycle 88 (HTTP 401 Unauthorized on gateway and direct metadata/data). Live recheck about 40 minutes later returned HTTP 200 three times in a row on the direct path, so this looks transient. Watch cycle 89: if healthy, no further action; if 401 recurs, IMF has started requiring credentials for this listing and the gateway needs to handle it.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 88: listing served without credentials. Still open, not re-reported since no new change.",
-    "ESTAT list_dataflows timeout flapping continues: cycle 85 streak (83-85, 3 cycles) cleared at 86, recurred for 1 cycle at 87, cleared again at 88. Still under the 4-5 cycle threshold; the gateway-side list_dataflows timing investigation remains recommended but undone if a longer streak appears.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 91: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout flapping: cycles 83-85 (3), single cycle at 87, none since; healthy through cycles 88-91 (4 cycles). Still under the threshold that would warrant a gateway-side timing investigation; watch for a longer streak.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
-    "ABS empty-error gateway_issue (cycle 70) and ILO degraded/403 (cycle 70) both recovered by cycle 71 and have held healthy through cycle 88 (17 cycles). No recurrence. Still watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
+    "ABS empty-error gateway_issue (cycle 70) and ILO degraded/403 (cycle 70) both recovered by cycle 71 and have held healthy through cycle 91 (20 cycles). No recurrence. Still watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
   ],
   "alerted": true
 }

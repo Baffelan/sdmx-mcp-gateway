@@ -4,6 +4,34 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-01T18:41Z - cycle 91
+
+**Changed:** IMF provider_down -> healthy
+
+**Cycle saw:** IMF was already healthy again at cycle 89 (2026-08-01T14:01Z),
+the very next cycle after the cycle 88 401 outage, and has stayed healthy
+through cycles 90 and 91 (2026-08-01T16:01Z and 18:01Z), three consecutive
+cycles / 6 hours. No other endpoint changed status across cycles 89-91; all
+twelve were healthy at cycle 91.
+
+**Live recheck:** fetched `https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest`
+directly at 18:41 UTC: HTTP 200. Matches the monitor's own reading.
+
+**Classification:** recovery confirmed. This is the outcome the cycle 88
+entry predicted: "watch the next cycle; if IMF is healthy again at cycle 89,
+treat this as a one-off transient 401." That is exactly what happened, so
+this closes the open item from the previous run.
+
+**History:** provider_down for a single cycle only (cycle 88), healthy for
+22 cycles before it and 3 cycles after it so far. No recurrence.
+
+**Recommended action:** none. Treat as resolved; no gateway change needed.
+
+**Could not determine:** the root cause of the original cycle 88 401 is
+still unknown (IMF gave no error detail beyond the status code), but with
+the endpoint stable for 6 hours this is no longer worth pursuing unless it
+recurs.
+
 ## 2026-08-01T12:43Z - cycle 88
 
 **Changed:** IMF healthy -> provider_down

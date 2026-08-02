@@ -163,8 +163,8 @@ def parse_msd_csv(
     had every dimension wildcarded, otherwise it attaches to that row's
     partial key. When a column carries several distinct values, the
     headline `value` (and its `scope`/`key_context`) prefers a dataflow-level
-    one over a partial-key one; `all_values` keeps every distinct value
-    (headline first) uncapped for drill-down use, and `distinct_value_count`
+    one over a partial-key one; `all_values` keeps every distinct value in
+    first-seen order uncapped for drill-down use, and `distinct_value_count`
     records the total. Declared-but-empty columns are returned with
     `status="declared_empty"` so callers can distinguish a blank licence field
     from a provider that defines no licence concept.
@@ -193,8 +193,9 @@ def parse_msd_csv(
         return []
 
     # Per metadata column index: every distinct value seen, in first-seen
-    # order, uncapped -- `distinct_value_count` needs the true total even
-    # though the assembled result below keeps only `_MAX_DISTINCT_VALUES`.
+    # order, uncapped -- these values are kept in full in the assembled
+    # result below (not capped), since callers need the complete dataset for
+    # drill-down purposes.
     collected: dict[int, list[dict[str, Any]]] = {index: [] for index, *_ in meta_columns}
     seen: dict[int, set[str]] = {index: set() for index, *_ in meta_columns}
 
@@ -610,7 +611,7 @@ async def get_reference_metadata(
     )
     channels["msd_v2"] = msd_status
     for attr in msd_attrs:
-        # `level` (and, for a partial-key value, `key_context`) already come
+        # `scope` (and, for a partial-key value, `key_context`) already come
         # from parse_msd_csv, which derives them per row rather than
         # assuming every value describes the whole dataflow.
         attributes.append({**attr, "source": "msd"})

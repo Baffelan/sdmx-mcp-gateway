@@ -427,12 +427,44 @@ async def test_dsd_fallback_reads_all_three_attachment_levels():
     attrs, status = await fetch_dsd_attribute_metadata(
         FakeClient(), "CPI", "IMF.STA", "all")
     assert status == "found"
-    levels = {a["id"]: a["level"] for a in attrs}
-    assert levels["FULL_DESCRIPTION"] == "dataset"
-    assert levels["SOURCE_AGENCY"] == "series"
-    assert levels["NOTE_INDICATOR"] == "observation"
+    scopes = {a["id"]: a["scope"] for a in attrs}
+    assert scopes["FULL_DESCRIPTION"] == "dataset"
+    assert scopes["SOURCE_AGENCY"] == "series"
+    assert scopes["NOTE_INDICATOR"] == "observation"
     full = [a for a in attrs if a["id"] == "FULL_DESCRIPTION"][0]
     assert full["value"].startswith("The Consumer Price Index")
+
+
+IMF_DATASET_ATTRIBUTES_XML = (
+    '<?xml version="1.0"?>'
+    '<mes:StructureSpecificData '
+    'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+    'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+    '<mes:DataSet ss:dataScope="DataStructure" '
+    'METHODOLOGY="Consumer prices are compiled per COICOP." '
+    'LICENSE="(c) IMF. All rights reserved.">'
+    '<Series FREQ="A" REF_AREA="US">'
+    '<Obs TIME_PERIOD="2020" OBS_VALUE="1.5"/>'
+    '</Series></mes:DataSet></mes:StructureSpecificData>'
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_channel_reports_scope_and_status_like_the_msd_channel():
+    """IMF, ECB and ILO have no /v2/ endpoint, so this channel is their only
+    metadata. It must speak the same shape or the summary drops it."""
+    respx.get(url__startswith="https://example.org/rest/data/").respond(
+        200, text=IMF_DATASET_ATTRIBUTES_XML)
+    attributes, _state = await fetch_dsd_attribute_metadata(
+        client=FakeClient(), dataflow_id="CPI", agency_id="IMF.STA", key="A.US.PCPI_IX",
+    )
+    attr = next(a for a in attributes if a["id"] == "METHODOLOGY")
+    assert attr["status"] == "populated"
+    assert attr["scope"] == "dataset"
+    assert attr["path"] == "METHODOLOGY"
+    assert isinstance(attr["all_values"], list) and attr["all_values"]
+    assert "level" not in attr
 
 
 @pytest.mark.asyncio

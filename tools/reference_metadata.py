@@ -464,6 +464,12 @@ async def fetch_dsd_attribute_metadata(
     dimensions of this dataflow (e.g. `FREQ`, `REF_AREA`) rather than
     reference metadata -- a data message alone cannot make that distinction.
 
+    Every attribute this channel returns carries `status="populated"`: it
+    reads only what the message itself carries, so there is no way to see an
+    attribute the DSD declares but this response leaves empty, unlike the
+    MSD channel's `declared_empty` case. Recognising that would mean
+    consulting the DSD's declared attribute list, which is out of scope here.
+
     Returns (attributes, status) where status can also be `too_broad`:
     `firstNObservations=1` still returns one row per series, so an unkeyed
     request against a large dataflow (ECB's EXR, IMF's CPI) is a multi-
@@ -514,8 +520,15 @@ async def fetch_dsd_attribute_metadata(
         )
         return [], "inconclusive"
 
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    # Per attribute name: every distinct value seen, in first-seen order,
+    # uncapped -- mirrors parse_msd_csv's `collected`/`seen` pair above. An
+    # attribute is declared at exactly one attachment level in the DSD, so
+    # `scope` is fixed the first time a name is seen; only its values can
+    # repeat, e.g. the same observation-level attribute on many Obs elements.
+    order: list[str] = []
+    scope_by_id: dict[str, str] = {}
+    values_by_id: dict[str, list[dict[str, Any]]] = {}
+    seen_values: dict[str, set[str]] = {}
     saw_data_message = False
     for element in root.iter():
         level = _LEVEL_BY_TAG.get(element.tag.rsplit("}", 1)[-1])
@@ -524,20 +537,42 @@ async def fetch_dsd_attribute_metadata(
         saw_data_message = True
         for name, raw in element.attrib.items():
             # Namespaced attributes are envelope plumbing, not metadata.
-            if "}" in name or name in _NOT_METADATA or name in seen or name in dimension_ids:
+            if "}" in name or name in _NOT_METADATA or name in dimension_ids:
                 continue
             value, language = parse_localised_value(raw)
             if value is None:
                 continue
-            seen.add(name)
-            out.append({
-                "id": name,
-                "path": name,
-                "label": None,
+            if name not in values_by_id:
+                order.append(name)
+                scope_by_id[name] = level
+                values_by_id[name] = []
+                seen_values[name] = set()
+            if value in seen_values[name]:
+                continue
+            seen_values[name].add(value)
+            values_by_id[name].append({
                 "value": value,
                 "language": language,
-                "level": level,
+                "scope": level,
+                "key_context": None,
             })
+
+    out: list[dict[str, Any]] = []
+    for name in order:
+        values = values_by_id[name]
+        headline = values[0]
+        out.append({
+            "id": name,
+            "path": name,
+            "label": None,
+            "status": "populated",
+            "scope": scope_by_id[name],
+            "value": headline["value"],
+            "language": headline["language"],
+            "key_context": None,
+            "distinct_value_count": len(values),
+            "all_values": values,
+        })
     if out:
         return out, "found"
     # A well-formed XML document that never mentions DataSet/Series/Obs is not

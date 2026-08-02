@@ -4,6 +4,50 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-02T06:44Z - cycle 97
+
+**Changed:** ESTAT gateway_issue -> healthy, ILO degraded -> healthy (both
+resolving the open items left by the cycle 94 entry below)
+
+**Cycle saw:** ESTAT recovered to healthy at cycle 95 (2026-08-02T02:01Z)
+and has held healthy through cycles 96 and 97. ILO recovered to healthy at
+the same cycle 95 and has also held through 96 and 97. No other endpoint
+changed status across cycles 94-97; `ABS, BIS, ECB, FBOS, IMF, OECD, SBS,
+SPC, STATSNZ, UNICEF` stayed healthy the whole window. `/api/contracts`
+`changes` is empty at cycle 97; the four ILO contract assertions that
+broke at cycle 94 (`references:children`, `references:none`,
+`references:parents`, `references:parentsandsiblings`) all read `ok`
+again.
+
+**Live recheck:** direct ILO metadata (`/rest/dataflow/ILO/all/latest`)
+answered HTTP 200 in 2.6s just now, consistent with healthy. Direct ESTAT
+dataflow listing (`/dataflow/ESTAT/all/latest`) answered HTTP 200 but took
+27.5s, confirming the endpoint is still slow under the hood even though it
+now finishes inside the 60s gateway deadline; this matches the documented
+"list_dataflows times out at 60s under load, then recovers" pattern rather
+than a new problem.
+
+**Classification:** both resolved as predicted in the cycle 94 entry.
+ESTAT: `gateway_issue`, the known/expected kind (our own timeout firing on
+a slow provider endpoint, not a code bug). ILO: was provider-side
+(403 on direct paths only, gateway paths stayed healthy throughout), now
+fully recovered.
+
+**History:** ESTAT's 92-94 streak ran 3 cycles, matching the length of the
+prior 83-85 streak, then cleared - stays inside the previously observed
+range, no escalation warranted. ILO's cycle 94 occurrence was a single
+cycle, same shape as the cycle-32 flap in duration (one cycle) even though
+it hit more checks (metadata+data+json plus four contract assertions,
+versus data+json only at cycle 32).
+
+**Recommended action:** none. Both open items from the cycle 94 entry are
+now closed. Continue watching ILO for a third, broader occurrence, which
+would be the point this stops looking like a flap.
+
+**Could not determine:** the underlying cause on either provider's side
+(ESTAT's server-side listing latency, ILO's transient 403) since neither
+publishes incident information the routine can read.
+
 ## 2026-08-02T00:43Z - cycle 94
 
 **Changed:** ILO healthy -> degraded (contract broken)

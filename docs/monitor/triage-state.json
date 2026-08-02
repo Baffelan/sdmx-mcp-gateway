@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 100,
-  "last_cycle_started_at": "2026-08-02T12:01:22Z",
-  "last_run": "2026-08-02T12:44Z",
+  "last_cycle_id": 103,
+  "last_cycle_started_at": "2026-08-02T18:01:22Z",
+  "last_run": "2026-08-02T18:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,8 +18,8 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT list_dataflows timeout: gateway_issue since cycle 98, still open at cycle 100 (3 consecutive cycles). Matches the known flapping pattern (60s gateway deadline vs a slow provider listing endpoint, live recheck now takes ~29.5s). Two prior streaks (83-85, 92-94) each ran 3 cycles and cleared on their own. Watch cycle 101: still open there would exceed both prior streaks and warrant treating as a regression.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 100: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout: gateway_issue since cycle 98, still open at cycle 103 (6 consecutive cycles, 12 hours). Now a confirmed regression, not a flap: double the length of either prior streak (83-85, 92-94, three cycles each, both of which cleared on their own). Live recheck of the raw direct fetch still lands around 28-29s, well under the 60s deadline, so the gateway-side overrun is presumably in XML parsing of the 37MB payload, not in the transfer itself, though that has not been directly measured. Recommended real fix: raise the deadline for this endpoint, paginate/stream the ESTAT listing, or cache the parsed result. Report again only if the status changes (clears, or the failure shape changes) or if it is still open after another watch cycle with no fix in sight.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 103: listing served without credentials. Still open, not re-reported since no new change.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence."
   ],

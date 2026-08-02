@@ -4,6 +4,61 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-02T18:44Z - cycle 103
+
+**Changed:** no status change since the cycle 100 entry (ESTAT was already
+`gateway_issue` there), but the ESTAT streak has now crossed the threshold
+that entry set up to watch for.
+
+**Cycle saw:** ESTAT has held `gateway_issue` continuously from cycle 98
+through cycle 103, six consecutive cycles (2026-08-02T08:01Z to
+2026-08-02T18:01Z, 12 hours). The failing check is unchanged: `gateway
+metadata: tool call list_dataflows timed out after 60.0s`. Direct path
+stays healthy the whole window. No other endpoint changed status across
+cycles 100-103; `ABS, BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF` stayed healthy throughout. `/api/contracts` `changes` is empty at
+cycle 103; the only non-`ok` verdict in the matrix is the already-known
+`STATSNZ auth:listing capability_appeared` (open since cycle 60, not a new
+development).
+
+**Live recheck:** direct ESTAT full dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`,
+the same call the gateway's `list_dataflows` wraps) answered HTTP 200 just
+now, 37MB in 28.1s. That is consistent with the two prior live rechecks in
+this file (29.5s at cycle 100, 27.5s at cycle 97) - the raw transfer alone
+stays comfortably under the 60s deadline. The gap between "raw fetch takes
+~28s" and "gateway call times out at 60s" is presumably the gateway's own
+XML parsing of a 37MB payload on top of the transfer, which this recheck
+does not measure directly.
+
+**Classification:** `gateway_issue` - direct path OK, gateway path failing.
+Same mechanical cause as the last two occurrences (our own 60s call
+deadline against a slow, large provider listing endpoint), but the
+duration has changed character.
+
+**History:** the cycle 100 entry explicitly flagged: "If ESTAT is still
+`gateway_issue` at cycle 101 this streak would be longer than both prior
+occurrences and should be treated as a possible regression." It is now
+cycle 103 and the streak has not cleared at 101, 102, or 103 - six cycles
+running, double the length of either prior streak (83-85 and 92-94, three
+cycles each, both of which cleared on their own). This is no longer inside
+the previously observed range.
+
+**Recommended action:** treat as a regression rather than the same
+recurring flap. Worth a real fix rather than another wait-cycle: either
+raise the gateway's call deadline for this specific slow endpoint, have
+`list_dataflows` stream/paginate the ESTAT listing instead of pulling the
+full 37MB body, or cache the parsed listing between calls. Continue
+watching status; if it clears on its own before a fix ships, note the
+total duration in the next entry.
+
+**Could not determine:** whether the gateway-side timing has actually
+gotten worse (e.g. slower parsing, more dataflows in the payload) or
+whether this is the same per-call timing as before just landing on the
+unlucky side of the 60s boundary six times running. The recheck above
+measures only the direct HTTP fetch, not the gateway's parsing step, so
+the actual gateway-side duration for this run is not verified.
+
 ## 2026-08-02T12:44Z - cycle 100
 
 **Changed:** ESTAT healthy -> gateway_issue

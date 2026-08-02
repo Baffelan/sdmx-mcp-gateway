@@ -1511,3 +1511,98 @@ class TestConstraintConfigStrategies:
         from config import get_constraint_strategy
         assert get_constraint_strategy("ESTAT", "single_flow") is None
         assert get_constraint_strategy("ESTAT", "bulk") is None
+
+
+class TestDataflowSummaryCarriesAgency:
+    """list_dataflows must report each dataflow's owning agency.
+
+    OECD publishes under sub-agencies (OECD.CFE.EDS, OECD.SDD.TPS, and others)
+    and also mirrors flows owned by ESTAT and IAEG-SDGs, so the agency is not
+    derivable from the endpoint. DataflowSummary.agency defaults to "", so
+    failing to pass it produces an empty string rather than an error, and the
+    caller then builds structure and data URLs against the wrong agency.
+    """
+
+    @pytest.fixture
+    def oecd_dataflows(self):
+        return [
+            {
+                "id": "DSD_FUA_CLIM@DF_CLIM_PROJ",
+                "agency": "OECD.CFE.EDS",
+                "version": "1.4",
+                "name": "Climate projections",
+                "description": "Projected climate indicators",
+            },
+            {
+                "id": "SEEA_AEA_A",
+                "agency": "ESTAT",
+                "version": "1.4",
+                "name": "Air emissions accounts",
+                "description": "Mirrored from Eurostat",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    @patch("main_server.get_app_context")
+    @patch("main_server._resolve_client")
+    async def test_agency_is_reported_for_each_dataflow(
+        self, mock_resolve, mock_get_app, oecd_dataflows
+    ):
+        from main_server import list_dataflows as list_dataflows_tool
+
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "all"
+        client.endpoint_key = "OECD"
+        client.discover_dataflows = AsyncMock(return_value=oecd_dataflows)
+        mock_resolve.return_value = (client, "OECD")
+        mock_get_app.return_value = None
+
+        result = await list_dataflows_tool(ctx=None)
+
+        by_id = {df.id: df for df in result.dataflows}
+        assert by_id["DSD_FUA_CLIM@DF_CLIM_PROJ"].agency == "OECD.CFE.EDS"
+        # A mirrored flow keeps its own owner, not the endpoint's default.
+        assert by_id["SEEA_AEA_A"].agency == "ESTAT"
+
+    @pytest.mark.asyncio
+    @patch("main_server.get_app_context")
+    @patch("main_server._resolve_client")
+    async def test_structure_reports_the_agency_it_resolved_under(
+        self, mock_resolve, mock_get_app
+    ):
+        """get_dataflow_structure must say which agency it used, and which
+        agency and version own the DSD. Without them an agent that started from
+        list_dataflows cannot rebuild a URL for an OECD sub-agency flow."""
+        from main_server import get_dataflow_structure as structure_tool
+
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "OECD.CFE.EDS"
+        client.endpoint_key = "OECD"
+        client.get_dataflow_overview = AsyncMock(
+            return_value=DataflowOverview(
+                id="DSD_FUA_CLIM@DF_CLIM_PROJ",
+                agency="OECD.CFE.EDS",
+                version="1.4",
+                name="Climate projections",
+                description="Projected climate indicators",
+            )
+        )
+        client.get_structure_summary = AsyncMock(
+            return_value=DataStructureSummary(
+                id="DSD_FUA_CLIM",
+                agency="OECD.CFE.EDS",
+                version="1.4",
+                dimensions=[DimensionInfo(id="FREQ", position=1, type="Dimension")],
+                key_family=["FREQ"],
+                attributes=[],
+                primary_measure="OBS_VALUE",
+            )
+        )
+        mock_resolve.return_value = (client, "OECD")
+        mock_get_app.return_value = None
+
+        result = await structure_tool("DSD_FUA_CLIM@DF_CLIM_PROJ", ctx=None)
+
+        assert result.dataflow.agency == "OECD.CFE.EDS"
+        assert result.structure.agency == "OECD.CFE.EDS"
+        assert result.structure.version == "1.4"

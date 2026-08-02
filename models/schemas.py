@@ -155,6 +155,15 @@ class DataflowInfo(BaseModel):
     """Basic dataflow information."""
 
     id: str = Field(description="Dataflow identifier")
+    agency: str = Field(
+        default="",
+        description=(
+            "Owning agency ID. For OECD this is typically a sub-agency "
+            "(e.g. 'OECD.CFE.EDS'), and OECD also mirrors flows owned by other "
+            "agencies, so it cannot be inferred from the endpoint. Pass it "
+            "alongside the id on subsequent structure and data calls."
+        ),
+    )
     name: str = Field(description="Human-readable name")
     description: str = Field(description="Description")
     version: str = Field(description="Resolved version number")
@@ -173,6 +182,16 @@ class StructureInfo(BaseModel):
     """Data structure definition information."""
 
     id: str = Field(description="Structure identifier")
+    agency: str = Field(
+        default="", description="Agency maintaining the data structure definition"
+    )
+    version: str = Field(
+        default="",
+        description=(
+            "Version of the data structure definition. This is the DSD's own "
+            "version and may differ from the dataflow's."
+        ),
+    )
     key_template: str = Field(
         description="Template showing dimension order (e.g., '{FREQ}.{GEO}.{INDICATOR}')"
     )

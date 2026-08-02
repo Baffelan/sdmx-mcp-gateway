@@ -471,6 +471,11 @@ async def list_dataflows(
     dataflows = [
         DataflowSummary(
             id=df["id"],
+            # Carried explicitly: DataflowSummary.agency defaults to "", so
+            # omitting it reports every dataflow as agency-less rather than
+            # failing. OECD publishes under sub-agencies and mirrors flows owned
+            # by other agencies, so this cannot be inferred from the endpoint.
+            agency=df.get("agency", ""),
             name=df["name"],
             description=df.get("description", ""),
         )
@@ -573,6 +578,9 @@ async def get_dataflow_structure(
     # Build structured result from simplified response
     dataflow = DataflowInfo(
         id=dataflow_id,
+        # The agency the dataflow was resolved under. Needed to build structure
+        # and data URLs for providers that publish under sub-agencies.
+        agency=result.get("agency_id", ""),
         name=result.get("dataflow_name", ""),
         description="",
         version="latest",
@@ -591,6 +599,8 @@ async def get_dataflow_structure(
 
     structure = StructureInfo(
         id=struct_data.get("id", ""),
+        agency=struct_data.get("agency", ""),
+        version=struct_data.get("version", ""),
         key_template=struct_data.get("key_template", ""),
         key_example=struct_data.get("key_example", ""),
         dimensions=dimensions,

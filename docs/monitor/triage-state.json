@@ -1,15 +1,15 @@
 {
-  "last_cycle_id": 91,
-  "last_cycle_started_at": "2026-08-01T18:01:22Z",
-  "last_run": "2026-08-01T18:41Z",
+  "last_cycle_id": 94,
+  "last_cycle_started_at": "2026-08-02T00:01:22Z",
+  "last_run": "2026-08-02T00:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "healthy",
+    "ESTAT": "gateway_issue",
     "FBOS": "healthy",
-    "ILO": "healthy",
+    "ILO": "degraded",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,10 +18,11 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 91: listing served without credentials. Still open, not re-reported since no new change.",
-    "ESTAT list_dataflows timeout flapping: cycles 83-85 (3), single cycle at 87, none since; healthy through cycles 88-91 (4 cycles). Still under the threshold that would warrant a gateway-side timing investigation; watch for a longer streak.",
+    "ILO degraded/403 on direct metadata+data+json plus 4 contract assertions broken at cycle 94, first cycle of this occurrence. Live recheck at 00:43Z (same cycle) showed 200 on all paths, so likely already recovered on ILO's side. Watch next cycle (~02:01Z) to confirm; broader than the cycle-32 flap (which only hit data/json, no contract breaks), so a repeat would be new behavior worth investigating.",
+    "ESTAT list_dataflows timeout flapping: new 3-cycle streak at cycles 92-94, still gateway_issue at the newest cycle (not yet recovered). Matches the length of the prior 83-85 streak. Watch for streak extending past 4-5 cycles before treating as a gateway-side timing regression.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 94: listing served without credentials. Still open, not re-reported since no new change.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
-    "ABS empty-error gateway_issue (cycle 70) and ILO degraded/403 (cycle 70) both recovered by cycle 71 and have held healthy through cycle 91 (20 cycles). No recurrence. Still watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
+    "ABS empty-error gateway_issue (cycle 70) and ILO degraded/403 (cycle 70) both recovered by cycle 71 and held healthy through cycle 93 (23 cycles) until the new cycle 94 ILO occurrence above. Watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
   ],
   "alerted": true
 }

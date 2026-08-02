@@ -4,6 +4,86 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-02T00:43Z - cycle 94
+
+**Changed:** ILO healthy -> degraded (contract broken)
+
+**Cycle saw:** at cycle 94 (2026-08-02T00:01Z) ILO's direct metadata, direct
+data, and direct json checks all failed with HTTP 403. Gateway metadata and
+gateway data checks passed. Four contract assertions flipped to `broken` on
+the same cause: `references:children`, `references:none`,
+`references:parents`, `references:parentsandsiblings` all went from `200`
+to `403`. This is the same endpoint that flapped with a direct-path 403 at
+cycle 32 (data and json only, recovered by the next cycle), but this
+occurrence is broader: it now includes metadata and breaks four contract
+checks that held through cycle 32.
+
+**Live recheck:** fetched the exact monitor paths directly at 00:43 UTC
+(about 40 minutes after the cycle), with the monitor's own User-Agent
+header, three times each for metadata and data: HTTP 200 every time, both
+paths. ECB and OECD direct fetches also succeeded in the same window,
+ruling out a network problem on this routine's side. The live result
+disagrees with what the cycle recorded, pointing at a transient block
+(rate limit or WAF hiccup on ILO's side) that has already cleared rather
+than a durable change.
+
+**Classification:** provider-side, not `gateway_issue` (theirs, not ours).
+Gateway checks passed while only direct checks failed, so the gateway code
+path is unaffected; this reads as ILO blocking or rate-limiting the
+monitor's direct client specifically for one cycle.
+
+**History:** ILO was healthy for all 23 preceding cycles in the 48-hour
+window (cycles 71 through 93). This is the only degraded cycle so far;
+next cycle (expected ~02:01 UTC) will confirm whether it recovers as the
+cycle-32 flap did.
+
+**Recommended action:** watch the next cycle before filing anything
+further. If the 403 recurs, especially with metadata included again, that
+would be new behavior worth investigating on ILO's side (their WAF
+tightening) rather than the transient blip this looks like now.
+
+**Could not determine:** why the block hit metadata/data/json and four
+contract checks simultaneously this time when the cycle-32 flap only hit
+data/json; ILO gave no error body beyond the 403 status.
+
+## 2026-08-02T00:43Z - cycle 94
+
+**Changed:** ESTAT healthy -> gateway_issue
+
+**Cycle saw:** `gateway metadata: tool call list_dataflows timed out after
+60.0s` at cycles 92, 93, and 94 (2026-08-01T20:01Z through
+2026-08-02T00:01Z), a fresh 3-cycle streak. Direct path checks all passed;
+direct json is skipped as expected (Eurostat returns 406 for SDMx-JSON,
+architectural). No contract assertions affected.
+
+**Live recheck:** not applicable in the same way as a provider check: the
+failure is the gateway's own `list_dataflows` tool call exceeding its
+60-second deadline, which is the documented behavior noted in the prior
+baseline ("ESTAT list_dataflows times out at 60s under load, then
+recovers... our own call deadline firing, working as designed").
+
+**Classification:** `gateway_issue`, but the known/expected kind: this is
+our own timeout firing under load against a slow ESTAT list endpoint, not
+a code bug. Ours by label, not a defect to fix per the existing baseline
+note.
+
+**History:** this endpoint flapped the same way at cycles 83-85 (3
+cycles) and once at cycle 87, then held healthy through cycles 88-91 (4
+cycles) per the last recorded state. This new streak (92-94, 3 cycles and
+counting, still gateway_issue at the newest cycle) is longer than the
+single-cycle blip at 87 but matches the 83-85 streak length. Not yet
+resolved as of cycle 94.
+
+**Recommended action:** continue watching. If this streak extends past 4-5
+cycles (>8-10 hours) it would cross into new territory and merit a
+gateway-side timeout/retry investigation; at 3 cycles it is still within
+the previously observed range.
+
+**Could not determine:** whether Eurostat's `list_dataflows` endpoint is
+now consistently slower (a load-time regression on their side) or this is
+ordinary variance, since the routine has no visibility into ESTAT's
+server-side timing.
+
 ## 2026-08-01T18:41Z - cycle 91
 
 **Changed:** IMF provider_down -> healthy

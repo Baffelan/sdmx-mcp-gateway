@@ -467,6 +467,41 @@ async def test_dsd_channel_reports_scope_and_status_like_the_msd_channel():
     assert "level" not in attr
 
 
+REPEATED_OBS_ATTRIBUTE_XML = (
+    '<?xml version="1.0"?>'
+    '<mes:StructureSpecificData '
+    'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+    'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+    '<mes:DataSet ss:dataScope="DataStructure">'
+    '<Series FREQ="A">'
+    '<Obs TIME_PERIOD="2018" OBS_VALUE="1.1" OBS_COMMENT="Provisional"/>'
+    '<Obs TIME_PERIOD="2019" OBS_VALUE="1.2" OBS_COMMENT="Revised"/>'
+    '<Obs TIME_PERIOD="2020" OBS_VALUE="1.3" OBS_COMMENT="Provisional"/>'
+    '</Series></mes:DataSet></mes:StructureSpecificData>'
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dsd_fallback_dedupes_repeated_values_and_keeps_first_seen_order():
+    """OBS_COMMENT is an observation-level attribute, so it shows up on every
+    Obs element that carries it -- here three times, with the first value
+    ("Provisional") repeated on the third Obs. distinct_value_count must
+    count distinct values, not occurrences, all_values must not repeat the
+    duplicate, and the order must be the order the values were first seen
+    in, not last-write-wins or alphabetical."""
+    respx.get(url__startswith="https://example.org/rest/data/").respond(
+        200, text=REPEATED_OBS_ATTRIBUTE_XML)
+    attrs, status = await fetch_dsd_attribute_metadata(
+        FakeClient(), "CPI", "IMF.STA", "all")
+    assert status == "found"
+    comment = next(a for a in attrs if a["id"] == "OBS_COMMENT")
+    assert comment["distinct_value_count"] == 2
+    values = [v["value"] for v in comment["all_values"]]
+    assert values == ["Provisional", "Revised"]
+    assert values.count("Provisional") == 1
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_dsd_fallback_skips_structural_and_dimension_noise():

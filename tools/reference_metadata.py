@@ -101,12 +101,6 @@ _STRUCTURAL_COLUMNS = frozenset({
 # seen in practice, is 111 rows.
 _MAX_MSD_DATA_ROWS = 5000
 
-# When a metadata column carries several distinct values across rows, this
-# many are kept in the result (in first-seen order, with a dataflow-level
-# one moved to the front as the headline) so the payload stays small;
-# `distinct_value_count` on the result records the true, uncapped total.
-_MAX_DISTINCT_VALUES = 3
-
 
 def _row_level(
     row: list[str], dimension_columns: list[tuple[int, str]]
@@ -163,16 +157,17 @@ def parse_msd_csv(
     carries only 5, missing DATA_COMP, QUALITY_ASSMNT and REC_USE_LIM (the
     dataflow's recommended-uses-and-limitations text) entirely. Every row is
     read here, up to `_MAX_MSD_DATA_ROWS`, and each metadata column's
-    distinct non-empty values are collected across all of them. `level` and
+    distinct non-empty values are collected across all of them. `scope` and
     `key_context` come from each row's own dimension cells (`_row_level`): a
     value attaches to the whole dataflow only when the row that carried it
     had every dimension wildcarded, otherwise it attaches to that row's
     partial key. When a column carries several distinct values, the
-    headline `value` (and its `level`/`key_context`) prefers a dataflow-level
-    one over a partial-key one; `values` keeps up to `_MAX_DISTINCT_VALUES`
-    of the distinct value strings (headline first) and `distinct_value_count`
-    records the true, uncapped total, so a caller can tell the headline is
-    not the whole story.
+    headline `value` (and its `scope`/`key_context`) prefers a dataflow-level
+    one over a partial-key one; `all_values` keeps every distinct value
+    (headline first) uncapped for drill-down use, and `distinct_value_count`
+    records the total. Declared-but-empty columns are returned with
+    `status="declared_empty"` so callers can distinguish a blank licence field
+    from a provider that defines no licence concept.
     """
     reader = csv.reader(io.StringIO(text))
     try:
@@ -220,7 +215,7 @@ def parse_msd_csv(
             collected[index].append({
                 "value": value,
                 "language": language,
-                "level": level,
+                "scope": level,
                 "key_context": key_context or None,
             })
 
@@ -228,21 +223,34 @@ def parse_msd_csv(
     for index, column, attr_id, label in meta_columns:
         values = collected[index]
         if not values:
+            # Declared by the provider's MSD and left blank. Reporting this
+            # is the point: a blank licence field is a different answer from
+            # a provider that defines no licence concept.
+            out.append({
+                "id": attr_id,
+                "path": column,
+                "label": label,
+                "status": "declared_empty",
+                "scope": None,
+                "value": None,
+                "language": None,
+                "key_context": None,
+                "distinct_value_count": 0,
+                "all_values": [],
+            })
             continue
-        headline = next((v for v in values if v["level"] == "dataflow"), values[0])
-        capped = values[:_MAX_DISTINCT_VALUES]
-        if headline not in capped:
-            capped = [headline, *capped[: _MAX_DISTINCT_VALUES - 1]]
+        headline = next((v for v in values if v["scope"] == "dataflow"), values[0])
         out.append({
             "id": attr_id,
             "path": column,
             "label": label,
+            "status": "populated",
+            "scope": headline["scope"],
             "value": headline["value"],
             "language": headline["language"],
-            "level": headline["level"],
             "key_context": headline["key_context"],
             "distinct_value_count": len(values),
-            "values": [v["value"] for v in capped],
+            "all_values": values,
         })
     return out
 

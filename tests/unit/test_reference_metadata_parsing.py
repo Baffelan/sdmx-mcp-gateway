@@ -4,7 +4,7 @@
 import pytest
 
 from config import get_metadata_support
-from tools.reference_metadata import parse_localised_value, strip_markup
+from tools.reference_metadata import parse_localised_value, parse_msd_csv, strip_markup
 
 pytestmark = pytest.mark.unit
 
@@ -110,3 +110,52 @@ def test_every_endpoint_is_classified_exactly_once():
 def test_unsupported_reasons_name_the_observed_failure():
     assert "404" in get_metadata_support("ABS")["reason"]
     assert "500" in get_metadata_support("ILO")["reason"]
+
+
+FBOS_CSV = (
+    "STRUCTURE,STRUCTURE_ID,STRUCTURE_NAME,ACTION,"
+    "FREQ,Frequency of observation,REF_AREA,Reference area,"
+    "COMPILING_ORG,Compiling agency,UNIT,Note on unit,COVERAGE,Note on coverage\n"
+    "DATAFLOW,FBOS:DF_BOP_TABLE1(1.0),Balance of Payments,I,"
+    "~,~,~,~,Fiji Bureau of Statistics,,,,,\n"
+)
+
+
+def test_declared_but_empty_columns_are_reported():
+    """FBOS declares six metadata attributes and populates one. Dropping the
+    five empty ones makes a blank licence or coverage field indistinguishable
+    from a provider that has no such concept."""
+    out = parse_msd_csv(FBOS_CSV, dimension_ids={"FREQ", "REF_AREA"})
+    by_id = {a["id"]: a for a in out}
+
+    assert by_id["COMPILING_ORG"]["status"] == "populated"
+    assert by_id["COMPILING_ORG"]["value"] == "Fiji Bureau of Statistics"
+    assert by_id["COMPILING_ORG"]["scope"] == "dataflow"
+
+    for empty in ("UNIT", "COVERAGE"):
+        assert by_id[empty]["status"] == "declared_empty"
+        assert by_id[empty]["value"] is None
+        assert by_id[empty]["distinct_value_count"] == 0
+        assert by_id[empty]["scope"] is None
+        # The label still tells the caller what the provider left blank.
+        assert by_id[empty]["label"]
+
+
+def test_all_values_are_kept_uncapped_for_drill_down():
+    """The summary caps what it shows; the parser must not lose the rest."""
+    csv_text = (
+        "STRUCTURE,STRUCTURE_ID,STRUCTURE_NAME,ACTION,"
+        "REF_AREA,Reference area,REC_USE_LIM,Recommended uses\n"
+        "DATAFLOW,X:Y(1.0),Y,I,AUS,Australia,limits for AUS,\n"
+        "DATAFLOW,X:Y(1.0),Y,I,CAN,Canada,limits for CAN,\n"
+        "DATAFLOW,X:Y(1.0),Y,I,JPN,Japan,limits for JPN,\n"
+        "DATAFLOW,X:Y(1.0),Y,I,IND,India,limits for IND,\n"
+    )
+    out = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
+    attr = next(a for a in out if a["id"] == "REC_USE_LIM")
+
+    assert attr["distinct_value_count"] == 4
+    assert len(attr["all_values"]) == 4
+    contexts = [v["key_context"]["REF_AREA"] for v in attr["all_values"]]
+    assert contexts == ["AUS", "CAN", "JPN", "IND"]
+    assert all(v["scope"] == "partial_key" for v in attr["all_values"])

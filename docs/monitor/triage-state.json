@@ -1,13 +1,13 @@
 {
-  "last_cycle_id": 97,
-  "last_cycle_started_at": "2026-08-02T06:01:22Z",
-  "last_run": "2026-08-02T06:44Z",
+  "last_cycle_id": 100,
+  "last_cycle_started_at": "2026-08-02T12:01:22Z",
+  "last_run": "2026-08-02T12:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "healthy",
+    "ESTAT": "gateway_issue",
     "FBOS": "healthy",
     "ILO": "healthy",
     "IMF": "healthy",
@@ -18,9 +18,9 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 97: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout: gateway_issue since cycle 98, still open at cycle 100 (3 consecutive cycles). Matches the known flapping pattern (60s gateway deadline vs a slow provider listing endpoint, live recheck now takes ~29.5s). Two prior streaks (83-85, 92-94) each ran 3 cycles and cleared on their own. Watch cycle 101: still open there would exceed both prior streaks and warrant treating as a regression.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 100: listing served without credentials. Still open, not re-reported since no new change.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
-    "ESTAT list_dataflows timeout: known flapping pattern (60s gateway deadline vs a slow provider listing endpoint, live recheck now takes ~27s). Streaks of 3-4 cycles have twice now cleared on their own (83-85, 92-94). Watch for a streak past 4-5 cycles before treating as a regression.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence."
   ],
   "alerted": true

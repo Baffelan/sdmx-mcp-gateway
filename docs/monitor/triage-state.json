@@ -1,15 +1,15 @@
 {
-  "last_cycle_id": 94,
-  "last_cycle_started_at": "2026-08-02T00:01:22Z",
-  "last_run": "2026-08-02T00:43Z",
+  "last_cycle_id": 97,
+  "last_cycle_started_at": "2026-08-02T06:01:22Z",
+  "last_run": "2026-08-02T06:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "gateway_issue",
+    "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "degraded",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,11 +18,10 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO degraded/403 on direct metadata+data+json plus 4 contract assertions broken at cycle 94, first cycle of this occurrence. Live recheck at 00:43Z (same cycle) showed 200 on all paths, so likely already recovered on ILO's side. Watch next cycle (~02:01Z) to confirm; broader than the cycle-32 flap (which only hit data/json, no contract breaks), so a repeat would be new behavior worth investigating.",
-    "ESTAT list_dataflows timeout flapping: new 3-cycle streak at cycles 92-94, still gateway_issue at the newest cycle (not yet recovered). Matches the length of the prior 83-85 streak. Watch for streak extending past 4-5 cycles before treating as a gateway-side timing regression.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 94: listing served without credentials. Still open, not re-reported since no new change.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 97: listing served without credentials. Still open, not re-reported since no new change.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
-    "ABS empty-error gateway_issue (cycle 70) and ILO degraded/403 (cycle 70) both recovered by cycle 71 and held healthy through cycle 93 (23 cycles) until the new cycle 94 ILO occurrence above. Watch for a third ABS empty-error occurrence, which would mean the empty error string itself needs fixing."
+    "ESTAT list_dataflows timeout: known flapping pattern (60s gateway deadline vs a slow provider listing endpoint, live recheck now takes ~27s). Streaks of 3-4 cycles have twice now cleared on their own (83-85, 92-94). Watch for a streak past 4-5 cycles before treating as a regression.",
+    "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence."
   ],
   "alerted": true
 }

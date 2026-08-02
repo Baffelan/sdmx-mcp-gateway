@@ -4,6 +4,45 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-02T12:44Z - cycle 100
+
+**Changed:** ESTAT healthy -> gateway_issue
+
+**Cycle saw:** ESTAT moved to `gateway_issue` at cycle 98 (2026-08-02T08:01Z)
+and has held that status through cycles 99 and 100, three consecutive cycles.
+The failing check each time is the same: `gateway metadata: tool call
+list_dataflows timed out after 60.0s`. No other endpoint changed status
+across cycles 97-100; `ABS, BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC,
+STATSNZ, UNICEF` stayed healthy the whole window. `/api/contracts` `changes`
+is empty at cycle 100; the only non-`ok` verdict in the matrix is the
+already-known `STATSNZ auth:listing capability_appeared`, unchanged.
+
+**Live recheck:** direct ESTAT dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT`)
+answered HTTP 200 just now, 37MB in 29.5s, well under the 60s gateway
+deadline on its own. Other endpoints are unaffected (confirmed by their
+status remaining healthy at cycle 100), so this is not a network problem on
+this run's side.
+
+**Classification:** `gateway_issue` - direct path OK, gateway path failing.
+This is the known/expected kind: our own 60s call deadline firing on a slow
+provider listing endpoint, not a code bug, and not a provider outage.
+
+**History:** matches the documented "list_dataflows times out at 60s under
+load, then recovers" pattern (see the cycle 97 entry below and the skill's
+flapping list). Two prior streaks of this exact pattern (83-85, 92-94) each
+ran 3 cycles and cleared on their own. This is a third streak, currently 3
+cycles long (98-100) and still open as of this run - at the edge of, not yet
+past, the previously observed range.
+
+**Recommended action:** watch the next cycle. If ESTAT is still
+`gateway_issue` at cycle 101 this streak would be longer than both prior
+occurrences and should be treated as a possible regression rather than the
+same recurring pattern.
+
+**Could not determine:** whether cycle 101 will clear on its own like the
+prior two streaks, since that cycle has not run yet.
+
 ## 2026-08-02T06:44Z - cycle 97
 
 **Changed:** ESTAT gateway_issue -> healthy, ILO degraded -> healthy (both

@@ -38,6 +38,9 @@ from models.schemas import (
     InvalidCode,
     KeyBuildResult,
     MetadataAttribute,
+    MetadataAttributeValuesResult,
+    MetadataCoverage,
+    MetadataValue,
     PaginationInfo,
     ProgressiveCheckResult,
     ReferenceMetadataResult,
@@ -87,5 +90,8 @@ __all__ = [
     "DiscoveryGuideResult",
     # Reference metadata
     "MetadataAttribute",
+    "MetadataCoverage",
+    "MetadataValue",
+    "MetadataAttributeValuesResult",
     "ReferenceMetadataResult",
 ]

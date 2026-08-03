@@ -892,44 +892,117 @@ class SuggestionResult(BaseModel):
 
 
 class MetadataAttribute(BaseModel):
-    """One piece of reference metadata, with where it came from.
+    """One reference metadata attribute the provider declares for a dataflow.
 
-    `level` says what the value attaches to. From the MSD channel it is
-    `"dataflow"` (the value describes the whole dataflow) or `"partial_key"`
-    (the value only describes the slice in `key_context`, e.g. one reference
-    area); from the DSD-attribute fallback it is `"dataset"`, `"series"` or
-    `"observation"`, the message level the attribute was read from. A
-    `"partial_key"` value is only meaningful together with `key_context`:
-    without it there is no way to tell which dimension combination the value
-    actually applies to. `distinct_value_count` and `values` surface when a
-    column carried more than one value across rows -- the headline `value`
-    above is not necessarily the whole story.
+    `status` separates two answers this project has repeatedly conflated.
+    `populated` means the provider published a value. `declared_empty` means
+    the attribute was blank throughout the response read: for the whole
+    dataflow when no key was supplied, or for the slice queried when one
+    was, since a keyed request only reads that slice. Either way it is a
+    different statement from the attribute not existing, and the one that
+    tells a caller to go and ask the provider. An attribute the provider
+    never declared is absent from this list entirely.
+
+    `value` is filled when exactly one distinct value exists and either it
+    describes the whole dataflow (`dataflow` or `dataset` scope), or it was
+    identical on every data row the query actually returned
+    (`all_observed_rows` scope, e.g. SPC's `DF_SDG`, which publishes the
+    same value on every per-country row and has no dataflow-wide row at
+    all). The second case is a weaker claim than the first: it says nothing
+    about rows the query did not return, such as a different key or rows
+    beyond a truncated response's row cap, so `drill_down` stays true for
+    it even though `value` is filled. Where a value describes one slice
+    without appearing on every row read, such as OECD's recommended-uses
+    text that differs per country, `value` is null and `drill_down` is
+    true, because volunteering one country's text as the dataflow's answer
+    is wrong even when only one country has any.
     """
 
     id: str = Field(description="Attribute identifier")
-    path: str = Field(description="Full path, preserving MSD hierarchy")
-    label: str | None = Field(default=None, description="Human-readable label")
-    value: str = Field(description="Parsed text, markup removed")
-    language: str | None = Field(default=None, description="Language of the value")
-    level: str | None = Field(
-        default=None, description="dataflow, partial_key, dataset, series or observation"
+    path: str = Field(
+        description="Full path preserving MSD hierarchy; equals id where there is none"
     )
-    source: str = Field(description="msd or dsd_attribute")
+    label: str | None = Field(default=None, description="Human-readable label")
+    status: str = Field(description="populated or declared_empty")
+    scope: str | None = Field(
+        default=None,
+        description=(
+            "What the value attaches to: dataflow or partial_key from the MSD "
+            "channel; dataset, series or observation from the DSD-attribute "
+            "channel; or all_observed_rows, meaning it was identical on every "
+            "row this query returned, which is weaker than dataflow: a "
+            "provider never marked it unqualified, so rows outside the query "
+            "are not covered. Null when declared_empty."
+        ),
+    )
+    value_kind: str = Field(
+        default="unknown", description="prose, url, date or unknown"
+    )
+    distinct_values: int = Field(
+        default=0, description="How many distinct values exist; 0 when declared_empty"
+    )
+    value: str | None = Field(
+        default=None,
+        description=(
+            "The value, when it describes the whole dataflow (scope dataflow "
+            "or dataset) or was identical on every row this query returned "
+            "(scope all_observed_rows)"
+        ),
+    )
+    language: str | None = Field(
+        default=None, description="Language of value, when there is one"
+    )
+    sample_key_context: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "One example of the dimension values a partial-key value attaches "
+            "to. A sample, not the whole set: use get_metadata_attribute for all."
+        ),
+    )
+    drill_down: bool = Field(
+        default=False,
+        description="True when get_metadata_attribute would return more than this",
+    )
+
+
+class MetadataCoverage(BaseModel):
+    """How much of what the provider declares is actually filled in."""
+
+    declared: int = Field(description="Attributes the provider declares")
+    populated: int = Field(description="Attributes carrying at least one value")
+    empty: int = Field(description="Attributes declared and left blank")
+
+
+class MetadataValue(BaseModel):
+    """One value of one attribute, with the slice it applies to."""
+
+    value: str = Field(description="Parsed text, markup removed")
     key_context: dict[str, str] | None = Field(
         default=None,
-        description="Concrete dimension values this value attaches to, for "
-        "a partial_key value; empty or None for a dataflow-level one",
+        description="Dimension values this applies to. Null means one of two "
+        "different things depending on the channel: from the MSD channel, "
+        "null means this value is dataflow-wide; from the DSD-attribute "
+        "fallback channel, null means the channel has no per-value key to "
+        "report at all, even when the value actually attaches to a series "
+        "or observation narrower than the whole dataflow. A note on the "
+        "result says which channel supplied the attribute.",
     )
-    distinct_value_count: int | None = Field(
-        default=None,
-        description="How many distinct values this column carried across "
-        "rows, so a caller knows the headline value is not the whole story",
+    language: str | None = Field(default=None, description="Language of the value")
+
+
+class MetadataAttributeValuesResult(BaseModel):
+    """Result from get_metadata_attribute(): one attribute, every value."""
+
+    dataflow_id: str = Field(description="Dataflow queried")
+    attribute_id: str = Field(description="Attribute queried")
+    label: str | None = Field(default=None, description="Human-readable label")
+    value_kind: str = Field(default="unknown", description="prose, url, date or unknown")
+    values: list[MetadataValue] = Field(default_factory=list, description="Values found")
+    total: int = Field(default=0, description="Count of (value, key_context) pairs found")
+    truncated: bool = Field(
+        default=False, description="True when values holds fewer than total"
     )
-    values: list[str] | None = Field(
-        default=None,
-        description="Up to a few of the distinct values this column "
-        "carried across rows (headline first), when it carried more than one",
-    )
+    notes: list[str] = Field(default_factory=list, description="Remarks for the caller")
 
 
 class ReferenceMetadataResult(BaseModel):
@@ -941,6 +1014,12 @@ class ReferenceMetadataResult(BaseModel):
     version: str | None = Field(default=None, description="Resolved version")
     metadata_attributes: list[MetadataAttribute] = Field(
         default_factory=list, description="Reference metadata found"
+    )
+    coverage: MetadataCoverage | None = Field(
+        default=None,
+        description="Declared / populated / empty counts from the MSD channel, "
+        "the only channel that can see a declared-but-empty attribute; null "
+        "when the MSD channel did not answer found on an untruncated read",
     )
     channels: dict[str, str] = Field(
         default_factory=dict,

@@ -3,8 +3,9 @@
 
 import pytest
 
+import tools.reference_metadata as reference_metadata_module
 from config import get_metadata_support
-from tools.reference_metadata import parse_localised_value, strip_markup
+from tools.reference_metadata import parse_localised_value, parse_msd_csv, strip_markup
 
 pytestmark = pytest.mark.unit
 
@@ -110,3 +111,212 @@ def test_every_endpoint_is_classified_exactly_once():
 def test_unsupported_reasons_name_the_observed_failure():
     assert "404" in get_metadata_support("ABS")["reason"]
     assert "500" in get_metadata_support("ILO")["reason"]
+
+
+FBOS_CSV = (
+    "STRUCTURE,STRUCTURE_ID,STRUCTURE_NAME,ACTION,"
+    "FREQ,Frequency of observation,REF_AREA,Reference area,"
+    "COMPILING_ORG,Compiling agency,UNIT,Note on unit,COVERAGE,Note on coverage\n"
+    "DATAFLOW,FBOS:DF_BOP_TABLE1(1.0),Balance of Payments,I,"
+    "~,~,~,~,Fiji Bureau of Statistics,,,,,\n"
+)
+
+
+def test_declared_but_empty_columns_are_reported():
+    """FBOS declares three metadata attributes and populates one. Dropping
+    the two empty ones makes a blank licence or coverage field
+    indistinguishable from a provider that has no such concept."""
+    out = parse_msd_csv(FBOS_CSV, dimension_ids={"FREQ", "REF_AREA"})
+    by_id = {a["id"]: a for a in out}
+
+    assert by_id["COMPILING_ORG"]["status"] == "populated"
+    assert by_id["COMPILING_ORG"]["value"] == "Fiji Bureau of Statistics"
+    assert by_id["COMPILING_ORG"]["scope"] == "dataflow"
+
+    for empty in ("UNIT", "COVERAGE"):
+        assert by_id[empty]["status"] == "declared_empty"
+        assert by_id[empty]["value"] is None
+        assert by_id[empty]["distinct_value_count"] == 0
+        assert by_id[empty]["scope"] is None
+        # The label still tells the caller what the provider left blank.
+        assert by_id[empty]["label"]
+
+
+def test_parse_msd_csv_signals_truncation_when_the_row_cap_is_hit(monkeypatch):
+    """I1: at the row cap the parser used to stop reading and only log it,
+    so a column populated only beyond that point read as a plain
+    declared_empty -- indistinguishable from a column the provider never
+    fills. The cap is lowered here so a 3-row fixture can exceed it instead
+    of needing a 5000-row one."""
+    monkeypatch.setattr(reference_metadata_module, "_MAX_MSD_DATA_ROWS", 2)
+    csv_text = (
+        "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+        "COVERAGE,Coverage\n"
+        "dataflow,OECD:DF(1.0),I,AUS,Australia,,\n"
+        "dataflow,OECD:DF(1.0),I,GBR,United Kingdom,,\n"
+        'dataflow,OECD:DF(1.0),I,USA,United States,'
+        '"en:""<p>Whole thing</p>""","Coverage"\n'
+    )
+    out = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
+    coverage = next(a for a in out if a["id"] == "COVERAGE")
+    # The only value is on the row beyond the (lowered) cap, so it still
+    # reads as declared_empty -- but the parser must say the read stopped
+    # early, so a caller can tell this apart from a genuinely blank column.
+    assert coverage["status"] == "declared_empty"
+    assert out.truncated is True
+
+
+def test_parse_msd_csv_does_not_report_truncated_when_every_row_is_read():
+    out = parse_msd_csv(FBOS_CSV, dimension_ids={"FREQ", "REF_AREA"})
+    assert out.truncated is False
+
+
+def test_all_values_are_kept_uncapped_for_drill_down():
+    """The summary caps what it shows; the parser must not lose the rest."""
+    csv_text = (
+        "STRUCTURE,STRUCTURE_ID,STRUCTURE_NAME,ACTION,"
+        "REF_AREA,Reference area,REC_USE_LIM,Recommended uses\n"
+        "DATAFLOW,X:Y(1.0),Y,I,AUS,Australia,limits for AUS,\n"
+        "DATAFLOW,X:Y(1.0),Y,I,CAN,Canada,limits for CAN,\n"
+        "DATAFLOW,X:Y(1.0),Y,I,JPN,Japan,limits for JPN,\n"
+        "DATAFLOW,X:Y(1.0),Y,I,IND,India,limits for IND,\n"
+    )
+    out = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
+    attr = next(a for a in out if a["id"] == "REC_USE_LIM")
+
+    assert attr["distinct_value_count"] == 4
+    assert len(attr["all_values"]) == 4
+    contexts = [v["key_context"]["REF_AREA"] for v in attr["all_values"]]
+    assert contexts == ["AUS", "CAN", "JPN", "IND"]
+    assert all(v["scope"] == "partial_key" for v in attr["all_values"])
+
+
+DF_SDG_LIKE_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "DATA_SOURCE.DATA_SOURCE_ORGANIZATION,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,FJI,Fiji,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,TON,Tonga,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,VUT,Vanuatu,"
+    "UNSD,Source organisation\n"
+)
+
+
+def test_a_value_on_every_row_is_scoped_all_observed_rows():
+    """SPC's DF_SDG publishes the same value on every per-country row and
+    has no dataflow-wide row at all, so every row is partial_key. The value
+    still describes everything this query returned, even though no row
+    ever appeared unqualified."""
+    out = parse_msd_csv(DF_SDG_LIKE_CSV, dimension_ids={"REF_AREA"})
+    org = next(a for a in out if a["id"] == "DATA_SOURCE_ORGANIZATION")
+    assert org["scope"] == "all_observed_rows"
+    assert org["value"] == "UNSD"
+    assert org["distinct_value_count"] == 1
+    assert org["key_context"] is None
+    # The headline is a weaker claim than "dataflow", so the per-row detail
+    # behind it must still be reachable -- one entry per country, not just
+    # the first one seen.
+    assert len(org["all_values"]) == 3
+
+
+FJI_TON_WSM_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "DATA_SOURCE.DATA_SOURCE_ORGANIZATION,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,FJI,Fiji,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,TON,Tonga,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,WSM,Samoa,"
+    "UNSD,Source organisation\n"
+)
+
+
+def test_repeated_values_keep_every_row_context_instead_of_only_the_first():
+    """Deduping on the value text alone (the pre-fix behaviour) kept only
+    the FJI row's context and silently dropped TON and WSM. That is worse
+    than data loss: the surviving entry then misattributes a Pacific-wide
+    value to Fiji alone. Each row's own context must survive as its own
+    entry in all_values, keyed on the (value, key_context) pair rather than
+    the value alone."""
+    out = parse_msd_csv(FJI_TON_WSM_CSV, dimension_ids={"REF_AREA"})
+    org = next(a for a in out if a["id"] == "DATA_SOURCE_ORGANIZATION")
+    # distinct_value_count still counts distinct values, not pairs: one
+    # value ("UNSD") drives the headline rule regardless of how many
+    # countries published it.
+    assert org["distinct_value_count"] == 1
+    assert org["scope"] == "all_observed_rows"
+    assert org["key_context"] is None
+    assert len(org["all_values"]) == 3
+    contexts = [v["key_context"] for v in org["all_values"]]
+    assert contexts == [
+        {"REF_AREA": "FJI"}, {"REF_AREA": "TON"}, {"REF_AREA": "WSM"},
+    ]
+    assert all(v["value"] == "UNSD" for v in org["all_values"])
+
+
+PARTIAL_COVERAGE_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "COVERAGE,Coverage\n"
+    "dataflow,OECD:DF(1.0),I,AUS,Australia,"
+    "Whole country,Coverage\n"
+    "dataflow,OECD:DF(1.0),I,GBR,United Kingdom,,\n"
+    "dataflow,OECD:DF(1.0),I,USA,United States,"
+    "Whole country,Coverage\n"
+)
+
+
+def test_a_value_on_only_some_rows_keeps_partial_key_scope():
+    """Two of three rows carry the identical text; the third leaves the
+    column blank. Only one distinct value was ever seen, but it did not
+    appear on every row this query read, so it must not be promoted to
+    all_observed_rows: that would claim more than was actually true."""
+    out = parse_msd_csv(PARTIAL_COVERAGE_CSV, dimension_ids={"REF_AREA"})
+    coverage = next(a for a in out if a["id"] == "COVERAGE")
+    assert coverage["distinct_value_count"] == 1
+    assert coverage["scope"] == "partial_key"
+    assert coverage["key_context"] is not None
+
+
+def test_truncation_blocks_the_all_observed_rows_scope(monkeypatch):
+    """Truncation makes "every row" unknowable: a value identical on every
+    row actually read might still disagree with a row past the cap, so a
+    truncated response must not claim it covers all observed rows."""
+    monkeypatch.setattr(reference_metadata_module, "_MAX_MSD_DATA_ROWS", 2)
+    out = parse_msd_csv(DF_SDG_LIKE_CSV, dimension_ids={"REF_AREA"})
+    org = next(a for a in out if a["id"] == "DATA_SOURCE_ORGANIZATION")
+    assert out.truncated is True
+    assert org["scope"] == "partial_key"
+    assert org["value"] == "UNSD"
+
+
+def test_value_kind_is_unknown_rather_than_guessed():
+    """Defaulting to prose would imply the value was examined and found to be
+    text. Where nothing can be established, say so."""
+    from tools.reference_metadata import classify_value_kind
+
+    assert classify_value_kind("https://unstats.un.org/sdgs") == "url"
+    assert classify_value_kind("2026-05-26") == "date"
+    assert classify_value_kind("2026-05-26T06:11:07Z") == "date"
+    # A coded value such as "I15" is labelled prose, not "code": neither
+    # metadata channel carries the attribute's codelist reference, so there
+    # is no way to tell a code apart from ordinary short text.
+    assert classify_value_kind("I15") == "prose"
+    assert classify_value_kind("Data are compiled by UNSD.") == "prose"
+    assert classify_value_kind(None) == "unknown"
+    assert classify_value_kind("") == "unknown"
+
+
+def test_classify_value_kind_no_longer_accepts_has_codelist():
+    """has_codelist advertised a "code" kind that neither production call
+    site could ever trigger (both hard-code has_codelist=False, since
+    neither channel carries a codelist reference), so a caller branching on
+    "code" was writing dead code. Removed from the contract entirely rather
+    than left as an unreachable parameter."""
+    import inspect
+
+    from tools.reference_metadata import classify_value_kind
+
+    assert "has_codelist" not in inspect.signature(classify_value_kind).parameters
+    with pytest.raises(TypeError):
+        classify_value_kind("I15", has_codelist=True)

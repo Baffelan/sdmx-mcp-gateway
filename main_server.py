@@ -55,6 +55,10 @@ from models.schemas import (
     EndpointListResult,
     FilterInfo,
     KeyBuildResult,
+    MetadataAttribute,
+    MetadataAttributeValuesResult,
+    MetadataCoverage,
+    MetadataValue,
     PaginationInfo,
     ProbeResult,
     QuerySuggestion,
@@ -2686,7 +2690,81 @@ async def get_reference_metadata(
         if hint:
             notes.append(hint)
 
-    return ReferenceMetadataResult(**{**result, "notes": notes})
+    attributes = [
+        MetadataAttribute(**attr) for attr in result.get("metadata_attributes", [])
+    ]
+    coverage = (
+        MetadataCoverage(**result["coverage"]) if result.get("coverage") is not None else None
+    )
+
+    return ReferenceMetadataResult(**{
+        **result,
+        "notes": notes,
+        "metadata_attributes": attributes,
+        "coverage": coverage,
+    })
+
+
+@mcp.tool()
+async def get_metadata_attribute(
+    dataflow_id: str,
+    attribute_id: str,
+    key: str | None = None,
+    agency_id: str | None = None,
+    endpoint: str | None = None,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> MetadataAttributeValuesResult:
+    """Get every value of one reference metadata attribute, with the slice each applies to.
+
+    Use after get_reference_metadata() reports drill_down=true for an
+    attribute, which means more detail remains than the summary shows. This
+    can happen because the attribute's values differ across the dataflow (for
+    example recommended-uses text that differs per country), or because a
+    single value was identical on every row this query returned but drill_down
+    stays true since other rows queried differently might differ.
+
+    Args:
+        dataflow_id: The dataflow to read
+        attribute_id: An attribute id from get_reference_metadata()
+        key: Optional dimension key to narrow the query. Strongly recommended
+            for large dataflows: an unfiltered request that is too large to
+            return is reported back rather than guessed at, but supplying a
+            key (for example a single indicator or reference area) up front
+            avoids that round trip.
+        agency_id: The agency that owns the dataflow
+        endpoint: Optional endpoint key for this call only
+
+    Returns:
+        Every value of the attribute, each with the dimension key it applies to
+    """
+    from tools.reference_metadata import get_metadata_attribute_values as get_values_impl
+
+    client, ep_key = await _resolve_client(ctx, endpoint)
+    result = await get_values_impl(
+        client=client,
+        dataflow_id=dataflow_id,
+        attribute_id=attribute_id,
+        key=key,
+        agency_id=agency_id,
+        ctx=ctx,
+    )
+
+    notes = list(result.get("notes", []))
+    if "error" in result:
+        notes.insert(0, "Error: " + str(result["error"]))
+
+    values = [MetadataValue(**v) for v in result.get("values", [])]
+
+    return MetadataAttributeValuesResult(
+        dataflow_id=result.get("dataflow_id", dataflow_id),
+        attribute_id=result.get("attribute_id", attribute_id),
+        label=result.get("label"),
+        value_kind=result.get("value_kind", "unknown"),
+        values=values,
+        total=result.get("total", 0),
+        truncated=result.get("truncated", False),
+        notes=notes,
+    )
 
 
 # =============================================================================

@@ -706,6 +706,26 @@ def _channel_status_notes(msd_status: str, dsd_status: str | None) -> list[str]:
     return notes
 
 
+def _unresolved_attribute_result(
+    dataflow_id: str, attribute_id: str, msd_status: str, dsd_status: str | None
+) -> dict[str, Any]:
+    """The shared "we do not know" shape get_metadata_attribute_values
+    returns whenever no channel resolved to a declared set it can speak
+    for, whether that is discovered before any attribute lookup was even
+    attempted or only once the lookup found nothing to report.
+    """
+    return {
+        "dataflow_id": dataflow_id,
+        "attribute_id": attribute_id,
+        "label": None,
+        "value_kind": "unknown",
+        "values": [],
+        "total": 0,
+        "truncated": False,
+        "notes": _channel_status_notes(msd_status, dsd_status),
+    }
+
+
 _DATAFLOW_WIDE_SCOPES = frozenset({"dataflow", "dataset"})
 
 
@@ -938,11 +958,15 @@ async def get_metadata_attribute_values(
     Four distinct answers matter here and must not be collapsed into one
     another:
 
-    - Neither channel delivering a confirmed declared set (too_broad,
-      inconclusive or unsupported on both) is reported as that channel
-      state, using the same wording get_reference_metadata uses -- it is
-      not evidence the attribute does not exist, so it must not be phrased
-      as the unknown-attribute error below.
+    - Neither channel resolving to a declared set it can speak for is
+      reported as that channel state, using the same wording
+      get_reference_metadata uses. This includes an MSD channel that
+      answered `too_broad`, `inconclusive` or `unsupported` even when the
+      DSD fallback on its own resolved to `empty`, since that fallback
+      cannot see a declared-but-blank attribute and so cannot confirm the
+      declared set by itself; only the MSD channel's own `found` or
+      `empty` answer can. It is not evidence the attribute does not exist,
+      so it must not be phrased as the unknown-attribute error below.
     - `attribute_id` absent from a declared set a channel *did* confirm is
       an error naming the declared ids, never an empty value list -- an
       empty list reads as "this attribute has no values" when the true
@@ -1006,16 +1030,7 @@ async def get_metadata_attribute_values(
     # empty" would misreport a DSD-side fetch failure as a caller mistake.
     channel_confirmed = msd_status == "found" or dsd_status in ("found", "empty")
     if not channel_confirmed:
-        return {
-            "dataflow_id": dataflow_id,
-            "attribute_id": attribute_id,
-            "label": None,
-            "value_kind": "unknown",
-            "values": [],
-            "total": 0,
-            "truncated": False,
-            "notes": _channel_status_notes(msd_status, dsd_status),
-        }
+        return _unresolved_attribute_result(dataflow_id, attribute_id, msd_status, dsd_status)
 
     match = next((attr for attr in attributes if attr["id"] == attribute_id), None)
     if match is None:
@@ -1025,9 +1040,24 @@ async def get_metadata_attribute_values(
                 "Unknown attribute '" + attribute_id + "' for " + dataflow_id
                 + ": declared attributes are " + declared
             )
+        elif msd_status not in ("found", "empty"):
+            # `attributes` is empty here only because dsd_status == "empty":
+            # that is the one way channel_confirmed can be true without
+            # msd_status itself being found or empty (see the note above).
+            # The DSD fallback saw a message with no attributes at all, but
+            # by its own documented contract (fetch_dsd_attribute_metadata)
+            # it never sees a declared-but-blank attribute, so it cannot
+            # confirm the declared set on its own; only the MSD channel's
+            # own found/empty answer can, the same rule
+            # get_reference_metadata's coverage count uses. Reporting
+            # "confirmed empty" here would misread a too_broad, inconclusive
+            # or unsupported MSD channel as a genuine declared-empty answer.
+            return _unresolved_attribute_result(
+                dataflow_id, attribute_id, msd_status, dsd_status
+            )
         else:
             # A confirmed channel that found nothing at all is a different
-            # answer from "some other attribute exists but not this one" --
+            # answer from "some other attribute exists but not this one":
             # naming an empty list after a colon reads as a formatting bug,
             # not as "this dataflow declares no reference metadata."
             error = (

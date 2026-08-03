@@ -1437,6 +1437,65 @@ async def test_drill_down_on_a_confirmed_empty_declared_set_is_not_worded_as_unk
     assert not result["error"].rstrip().endswith(":")
 
 
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_does_not_claim_confirmed_empty_when_msd_is_too_broad():
+    """N1: the MSD channel saw megabytes of data and refused to return it
+    unfiltered, which is positive evidence metadata exists, while the DSD
+    fallback's own message carried no attributes at all. The DSD channel
+    cannot confirm a declared set on its own (fetch_dsd_attribute_metadata
+    only ever sees what is populated), so this must not be worded as
+    "confirmed empty"; it is the same "we do not know" answer the too_broad
+    channel-status note already gives."""
+    from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
+
+    huge = "STRUCTURE,A.B,label\n" + ("x" * (UNKEYED_SIZE_CAP_BYTES + 1))
+    bare = ('<?xml version="1.0"?><mes:StructureSpecificData '
+            'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+            'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+            '<mes:DataSet ss:dataScope="DataStructure"/></mes:StructureSpecificData>')
+    respx.get(url__startswith=_msd_url()).respond(200, text=huge)
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=bare)
+    result = await get_metadata_attribute_values(
+        client=FakeClient(), dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_LICENSE",
+    )
+    assert "error" not in result
+    assert result["total"] == 0
+    assert result["values"] == []
+    joined = " ".join(result["notes"]).lower()
+    assert "too large" in joined
+    assert "confirmed empty" not in joined
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_does_not_claim_confirmed_empty_when_msd_is_unsupported():
+    """N1: a provider without a /v2/ endpoint has no MSD channel to confirm
+    anything with. The DSD fallback answering "empty" only means the one
+    message it read carried no attributes; by its own documented contract
+    it never sees a declared-but-blank attribute, so it cannot confirm the
+    declared set on its own either. This must not be worded as "confirmed
+    empty"."""
+    class EcbClient(FakeClient):
+        endpoint_key = "ECB"
+        agency_id = "ECB"
+
+    bare = ('<?xml version="1.0"?><mes:StructureSpecificData '
+            'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+            'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+            '<mes:DataSet ss:dataScope="DataStructure"/></mes:StructureSpecificData>')
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=bare)
+    result = await get_metadata_attribute_values(
+        client=EcbClient(), dataflow_id="EXR", attribute_id="LICENSE", key="all",
+    )
+    assert "error" not in result
+    assert result["total"] == 0
+    assert result["values"] == []
+    joined = " ".join(result["notes"]).lower()
+    assert "confirmed empty" not in joined
+    assert "not configured for the v2 metadata endpoint" in joined
+
+
 DSD_MULTI_VALUE_XML = (
     '<?xml version="1.0"?>'
     '<mes:StructureSpecificData '

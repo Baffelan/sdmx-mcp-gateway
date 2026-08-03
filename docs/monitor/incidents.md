@@ -4,6 +4,61 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-03T06:45Z - cycle 109
+
+**Changed:** ESTAT `healthy` -> `gateway_issue`.
+
+**Cycle saw:** the same failing check as every prior ESTAT episode: `gateway
+metadata: tool call list_dataflows timed out after 60.0s`. Direct path (both
+metadata and data) and gateway data checks kept passing throughout; only the
+gateway's `list_dataflows` call failed. It started at cycle 107
+(2026-08-03T02:01:22Z), right after the two healthy cycles (105, 106) the
+last entry recorded, and was still failing at cycle 108 and cycle 109
+(2026-08-03T06:01:22Z) - 3 consecutive cycles so far. No other endpoint
+changed status across cycles 106-109; all eleven others stayed healthy. The
+only `/api/contracts` `changes` entry at cycle 109 is OECD's
+`encoding:structure_xml` observed value swapping the order of its
+`charset`/`version` parameters (verdict stays `ok`), the same cosmetic
+Content-Type reordering already known and dismissed for ABS. No assertion is
+`broken` or newly `capability_appeared`; `STATSNZ auth:listing
+capability_appeared` (open since cycle 60) and `BIS`/`ILO`
+`references:contentconstraint ignored` remain the only non-`ok` verdicts,
+both already known and architectural.
+
+**Live recheck:** fetched the direct ESTAT full dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?references=none`,
+matching the cycle 106 entry's methodology) just now: HTTP 200, 37MB in
+29.0s, essentially identical to the cycle 106 recheck (27.9s for the same
+size). The raw transfer is not the bottleneck now any more than it was then.
+An initial recheck attempt that omitted `?references=none` downloaded 27MB
+in 65s without finishing, which only shows that the unqualified URL pulls a
+much larger payload (likely `references=all`-equivalent) and is not a
+like-for-like comparison; it is not used as evidence here.
+
+**Classification:** `gateway_issue` (ours). Direct metadata and data both
+succeed; only the gateway's own `list_dataflows` call exceeds its 60s
+deadline. This points at parse/processing time on top of a transfer that
+consistently fits in ~29s, not at Eurostat being unreachable or slow to
+respond.
+
+**History:** third distinct `gateway_issue` episode for this exact check.
+First: cycles 98-104 (7 cycles, longest on record). Second: none between -
+it cleared at 105-106. Third: cycles 107-109, ongoing as of this run. The
+cycle 106 entry explicitly deferred action with the condition "if ESTAT
+returns to `gateway_issue` a third time, ... action them rather than watched
+again." This is that third time.
+
+**Recommended action:** action one of the previously recommended fixes now
+rather than deferring again: raise the gateway's call deadline for this
+endpoint, paginate/stream the listing instead of parsing it whole, or cache
+the parsed result between cycles.
+
+**Could not determine:** whether this episode will clear on its own like the
+first one did, or reflects a durable change (catalog growth, slower parsing
+under load) that will keep recurring until one of the recommended fixes is
+applied. No gateway-side parse-duration metric is exposed to distinguish
+these.
+
 ## 2026-08-03T00:43Z - cycle 106
 
 **Changed:** ESTAT `gateway_issue` -> `healthy`.

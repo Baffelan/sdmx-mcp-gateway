@@ -4,6 +4,53 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-03T12:43Z - cycle 112
+
+**Changed:** ESTAT `gateway_issue` -> `healthy`.
+
+**Cycle saw:** the third `gateway_issue` episode (cycles 107-109, recorded in
+the cycle 109 entry) cleared at cycle 110 (2026-08-03T08:01:22Z) and has held
+healthy through cycles 110, 111, and 112 (2026-08-03T12:01:22+00:00) - 3
+consecutive healthy cycles. No other endpoint changed status anywhere in
+cycles 109-112; all eleven others stayed healthy throughout. `/api/contracts`
+`changes` is empty at cycle 112. The only non-`ok` verdicts present are the
+same two already-known, unchanged items: `STATSNZ auth:listing
+capability_appeared` (open since cycle 60, still present, not re-reported
+because unchanged) and `BIS`/`ILO`/`IMF` `references:contentconstraint
+ignored` (architectural, expected).
+
+**Live recheck:** fetched the direct ESTAT dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT?references=none`)
+just now: HTTP 200, 37MB in 28.1s, matching the transfer times seen in the
+cycle 106 and cycle 109 entries (27.9s and 29.0s for the same payload). The
+raw transfer time has not changed. More telling: cycle 112's own gateway
+metadata check for ESTAT recorded a latency of 49,095ms against the 60,000ms
+deadline - 82% of the budget consumed on a cycle the monitor still counted as
+a pass. The symptom cleared, but the margin did not widen.
+
+**Classification:** recovery from `gateway_issue` (ours). The underlying
+mechanism named in the cycle 109 entry - transfer consistently fits in
+~28-29s, so the remainder is gateway-side parse/processing time - is
+unchanged. At 49.1s against a 60s deadline this cycle passed with roughly 11s
+to spare, which is not a comfortable margin.
+
+**History:** third episode (cycles 107-109) resolved after 3 cycles, the
+shortest of the three recorded episodes (first: cycles 98-104, 7 cycles;
+second: none, cleared 105-106; third: cycles 107-109, 3 cycles). No fix has
+been applied yet; the cycle 109 entry's recommended actions (raise the
+deadline, stream the listing, or cache the parsed result) remain outstanding.
+
+**Recommended action:** the pattern has now recurred three times without a
+code change, each time clearing on its own within a handful of cycles. Given
+cycle 112's latency sat at 82% of the deadline while still passing, treat the
+next occurrence as the trigger to actually apply one of the outstanding
+fixes rather than watching a fourth time.
+
+**Could not determine:** why parse/processing time varies enough to push the
+same ~28s transfer over a 60s deadline on some cycles and not others (catalog
+size at fetch time, host load, GC pauses are all plausible and none are
+observable from outside the gateway).
+
 ## 2026-08-03T06:45Z - cycle 109
 
 **Changed:** ESTAT `healthy` -> `gateway_issue`.

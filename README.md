@@ -128,12 +128,14 @@ Pass `key` to narrow the query to one series. This matters for large dataflows: 
 
 #### `get_metadata_attribute`: the drill-down
 
-Call `get_metadata_attribute(dataflow_id, attribute_id, key=None, agency_id=None)` after `get_reference_metadata` reports `drill_down: true` for an attribute, to read every distinct value with the dimension key (`key_context`) it applies to. `attribute_id` is the short `id` from the summary, not the full dotted `path`. Four answers matter and are kept distinct:
+Call `get_metadata_attribute(dataflow_id, attribute_id, key=None, agency_id=None)` after `get_reference_metadata` reports `drill_down: true` for an attribute, to read every distinct value with the dimension key (`key_context`) it applies to. `attribute_id` is the short `id` from the summary, not the full dotted `path`. The result (`MetadataAttributeValuesResult`) has no separate error field; every case below is a normally-shaped result distinguished by `total` and by the text of `notes`. Four answers matter and are kept distinct:
 
 - **Populated**: every distinct value, each with its `key_context`, `total` (the true count) and `truncated` (`true` once more than 200 distinct values exist, in which case `values` holds only the first 200).
-- **Declared but empty**: `total: 0`, no error, and a note stating the attribute is declared and left blank by the provider.
-- **Unknown attribute id**: an `error` naming the dataflow's declared attribute ids, so a typo reads as "here is what exists" rather than as an empty result.
-- **No channel confirmed a declared set** (every channel answered `too_broad`, `inconclusive` or `unsupported`): no error and no values, with a note explaining which channel could not answer and why that is not evidence the attribute is missing.
+- **Declared but empty**: `total: 0`, `values: []`, and a note stating the attribute is declared and left blank by the provider. The first note does not start with `"Error:"`.
+- **Unknown attribute id**: `total: 0`, `values: []`, and a first note starting `"Error: Unknown attribute '<id>' for <dataflow>: declared attributes are <ids>"`, naming the dataflow's declared attribute ids so a typo reads as "here is what exists" rather than as an empty result. A caller distinguishes this from the declared-but-empty case above by checking whether the first note starts with `"Error:"`, not by looking for a field that does not exist on this result.
+- **No channel confirmed a declared set** (every channel answered `too_broad`, `inconclusive` or `unsupported`): `total: 0`, `values: []`, and notes explaining which channel could not answer and why that is not evidence the attribute is missing. Like the declared-but-empty case, the notes here do not start with `"Error:"`.
+
+Each value's `key_context` is `null` in two different situations that a caller must not conflate: from the MSD channel, `null` means the value is genuinely dataflow-wide; from the DSD-attribute fallback channel (used by providers without a `/v2/` endpoint), `null` means that channel has no per-value key to report at all, even when the value actually attaches to one series or observation rather than to the whole dataflow. A note on the result says which channel supplied the attribute when this applies.
 
 ### Endpoint Management
 

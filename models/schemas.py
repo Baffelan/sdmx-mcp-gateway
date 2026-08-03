@@ -963,7 +963,13 @@ class MetadataValue(BaseModel):
     value: str = Field(description="Parsed text, markup removed")
     key_context: dict[str, str] | None = Field(
         default=None,
-        description="Dimension values this applies to; null for dataflow-wide",
+        description="Dimension values this applies to. Null means one of two "
+        "different things depending on the channel: from the MSD channel, "
+        "null means this value is dataflow-wide; from the DSD-attribute "
+        "fallback channel, null means the channel has no per-value key to "
+        "report at all, even when the value actually attaches to a series "
+        "or observation narrower than the whole dataflow. A note on the "
+        "result says which channel supplied the attribute.",
     )
     language: str | None = Field(default=None, description="Language of the value")
 

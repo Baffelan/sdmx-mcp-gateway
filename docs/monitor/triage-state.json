@@ -1,13 +1,13 @@
 {
-  "last_cycle_id": 103,
-  "last_cycle_started_at": "2026-08-02T18:01:22Z",
-  "last_run": "2026-08-02T18:44Z",
+  "last_cycle_id": 106,
+  "last_cycle_started_at": "2026-08-03T00:01:22Z",
+  "last_run": "2026-08-03T00:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "gateway_issue",
+    "ESTAT": "healthy",
     "FBOS": "healthy",
     "ILO": "healthy",
     "IMF": "healthy",
@@ -18,8 +18,8 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT list_dataflows timeout: gateway_issue since cycle 98, still open at cycle 103 (6 consecutive cycles, 12 hours). Now a confirmed regression, not a flap: double the length of either prior streak (83-85, 92-94, three cycles each, both of which cleared on their own). Live recheck of the raw direct fetch still lands around 28-29s, well under the 60s deadline, so the gateway-side overrun is presumably in XML parsing of the 37MB payload, not in the transfer itself, though that has not been directly measured. Recommended real fix: raise the deadline for this endpoint, paginate/stream the ESTAT listing, or cache the parsed result. Report again only if the status changes (clears, or the failure shape changes) or if it is still open after another watch cycle with no fix in sight.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 103: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout: resolved as of cycle 105 after 7 consecutive cycles of gateway_issue (98-104, longest streak on record). Healthy through cycle 106. Recommended fixes (raise deadline, stream the listing, cache the parsed result) were not applied; if it recurs a third time, action them rather than watching again.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 106: listing served without credentials. Still open, not re-reported since no new change.",
     "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence."
   ],

@@ -4,6 +4,54 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-03T00:43Z - cycle 106
+
+**Changed:** ESTAT `gateway_issue` -> `healthy`.
+
+**Cycle saw:** ESTAT held `gateway_issue` continuously from cycle 98 through
+104 (2026-08-02T08:01Z to 2026-08-02T20:01Z, 7 consecutive cycles, 14 hours),
+the same failing check throughout: `gateway metadata: tool call
+list_dataflows timed out after 60.0s`. It cleared on its own at cycle 105
+(2026-08-02T22:01:22Z) and stayed clear at cycle 106
+(2026-08-03T00:01:22Z), both with `failing: []`. No other endpoint changed
+status across cycles 103-106; `ABS, BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC,
+STATSNZ, UNICEF` stayed healthy throughout. `/api/contracts` `changes` is
+empty at cycle 106; the only non-`ok` verdicts in the matrix are the
+already-known `STATSNZ auth:listing capability_appeared` (open since cycle
+60) and `BIS references:contentconstraint ignored` (architectural, expected).
+
+**Live recheck:** direct ESTAT full dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?references=none`)
+answered HTTP 200 just now, 37MB in 27.9s, in line with every prior live
+recheck in this file (27.5-29.5s). The raw transfer has never been the
+bottleneck; it is the gap between that and the gateway's 60s call deadline
+that closed. Could not directly measure gateway-side XML parsing time, so
+whether the recovery is a genuine speedup (less load, faster parse) or the
+timeout margin narrowly clearing by chance is not established.
+
+**Classification:** `gateway_issue` resolved. This was previously flagged
+(cycle 103 entry) as a confirmed regression, not a flap, at double the
+length of either prior streak (83-85, 92-94, three cycles each). It has now
+cleared for two consecutive cycles, longer than the recovery window of
+either prior streak, so treat it as resolved rather than a third occurrence
+of the same flap. Nothing in this diagnosis pointed to a gateway code
+change; the previous entry's recommended fixes (raise the deadline, stream
+the listing, cache the parsed result) were not applied as far as this
+routine can tell from the repository history available to it.
+
+**History:** 7 consecutive cycles of `gateway_issue` (98-104), longest ESTAT
+streak on record, now healthy at 105 and 106.
+
+**Recommended action:** none required now that it has cleared. If ESTAT
+returns to `gateway_issue` a third time, the recommended fixes from the
+cycle 103 entry (raise the deadline for this endpoint, paginate/stream the
+listing, or cache the parsed result) still apply and should be actioned
+rather than watched again.
+
+**Could not determine:** why the gateway-side timing recovered; no
+gateway-side parse-duration metric is exposed by the monitor to confirm
+whether this was a genuine speedup or a narrow margin clearing by chance.
+
 ## 2026-08-02T18:44Z - cycle 103
 
 **Changed:** no status change since the cycle 100 entry (ESTAT was already

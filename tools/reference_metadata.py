@@ -47,12 +47,18 @@ def strip_markup(raw: str) -> str:
     return " ".join(text.split())
 
 
-def classify_value_kind(value: str | None, has_codelist: bool = False) -> str:
+def classify_value_kind(value: str | None) -> str:
     """Say what kind of thing a metadata value is, so a caller knows whether
-    it can be expanded (a code), followed (a url), or read as final (prose).
+    it can be followed (a url) or read as final (prose or a date).
 
     Returns "unknown" rather than falling back to "prose" when there is
     nothing to inspect, so an empty answer is not dressed up as examined text.
+
+    A coded value (e.g. "I15") would ideally classify as "code" rather than
+    "prose", but recognising one needs the attribute's codelist reference to
+    check the text against, and neither the MSD channel nor the DSD-attribute
+    channel carries one -- both metadata channels here read a data message,
+    which has no codelist references at all. Left out rather than guessed.
     """
     if not value or not value.strip():
         return "unknown"
@@ -61,8 +67,6 @@ def classify_value_kind(value: str | None, has_codelist: bool = False) -> str:
         return "url"
     if _ISO_DATE.match(text):
         return "date"
-    if has_codelist:
-        return "code"
     return "prose"
 
 
@@ -841,7 +845,7 @@ def _to_summary_attribute(attr: dict[str, Any]) -> dict[str, Any]:
         "label": attr["label"],
         "status": "populated",
         "scope": attr["scope"],
-        "value_kind": classify_value_kind(attr["value"], has_codelist=False),
+        "value_kind": classify_value_kind(attr["value"]),
         "distinct_values": attr["distinct_value_count"],
         "value": attr["value"] if has_headline else None,
         "language": attr["language"] if has_headline else None,
@@ -1241,7 +1245,7 @@ async def get_metadata_attribute_values(
         "dataflow_id": dataflow_id,
         "attribute_id": attribute_id,
         "label": match["label"],
-        "value_kind": classify_value_kind(match["value"], has_codelist=False),
+        "value_kind": classify_value_kind(match["value"]),
         "values": values,
         "total": total,
         "truncated": truncated,

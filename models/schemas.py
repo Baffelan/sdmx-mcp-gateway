@@ -936,7 +936,7 @@ class MetadataAttribute(BaseModel):
         ),
     )
     value_kind: str = Field(
-        default="unknown", description="prose, code, url, date or unknown"
+        default="unknown", description="prose, url, date or unknown"
     )
     distinct_values: int = Field(
         default=0, description="How many distinct values exist; 0 when declared_empty"
@@ -996,7 +996,7 @@ class MetadataAttributeValuesResult(BaseModel):
     dataflow_id: str = Field(description="Dataflow queried")
     attribute_id: str = Field(description="Attribute queried")
     label: str | None = Field(default=None, description="Human-readable label")
-    value_kind: str = Field(default="unknown", description="prose, code, url, date or unknown")
+    value_kind: str = Field(default="unknown", description="prose, url, date or unknown")
     values: list[MetadataValue] = Field(default_factory=list, description="Values found")
     total: int = Field(default=0, description="How many values were found")
     truncated: bool = Field(

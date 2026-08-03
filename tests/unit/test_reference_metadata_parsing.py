@@ -298,7 +298,25 @@ def test_value_kind_is_unknown_rather_than_guessed():
     assert classify_value_kind("https://unstats.un.org/sdgs") == "url"
     assert classify_value_kind("2026-05-26") == "date"
     assert classify_value_kind("2026-05-26T06:11:07Z") == "date"
-    assert classify_value_kind("I15", has_codelist=True) == "code"
+    # A coded value such as "I15" is labelled prose, not "code": neither
+    # metadata channel carries the attribute's codelist reference, so there
+    # is no way to tell a code apart from ordinary short text.
+    assert classify_value_kind("I15") == "prose"
     assert classify_value_kind("Data are compiled by UNSD.") == "prose"
     assert classify_value_kind(None) == "unknown"
     assert classify_value_kind("") == "unknown"
+
+
+def test_classify_value_kind_no_longer_accepts_has_codelist():
+    """has_codelist advertised a "code" kind that neither production call
+    site could ever trigger (both hard-code has_codelist=False, since
+    neither channel carries a codelist reference), so a caller branching on
+    "code" was writing dead code. Removed from the contract entirely rather
+    than left as an unreachable parameter."""
+    import inspect
+
+    from tools.reference_metadata import classify_value_kind
+
+    assert "has_codelist" not in inspect.signature(classify_value_kind).parameters
+    with pytest.raises(TypeError):
+        classify_value_kind("I15", has_codelist=True)

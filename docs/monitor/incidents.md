@@ -4,6 +4,67 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-03T18:43Z - cycle 115
+
+**Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy`, flapped between
+runs.
+
+**Cycle saw:** at cycle 113 (2026-08-03T14:01:22+00:00), the gateway metadata
+check for ESTAT hit the hard 60,000ms deadline: `tool call list_dataflows
+timed out after 60.0s`, 2 attempts, direct path (metadata, data, json) stayed
+healthy throughout. It recovered at cycle 114 (2026-08-03T16:01:22+00:00),
+latency 46,729ms on 2 attempts, and stayed healthy at cycle 115
+(2026-08-03T18:01:22+00:00), latency 50,562ms on 1 attempt (84% of the
+deadline). This is the same failing check as every prior ESTAT episode and,
+per the cycle 112 entry's own framing, the fourth distinct occurrence since
+cycle 85. It is also the shortest: 1 cycle, versus 7, ~6 (cleared 105-106),
+and 3 for the first three. No other endpoint changed status across cycles
+112-115; all eleven others stayed healthy throughout. `/api/contracts`
+`changes` is empty at cycle 115, and ESTAT's own contract rows stayed `ok`
+even during the cycle 113 timeout (12 total, 0 broken) - the timeout only
+took out the gateway metadata check, nothing else. The only non-`ok` verdict
+anywhere is the same already-known `STATSNZ auth:listing
+capability_appeared` (open since cycle 60, unchanged, not re-reported).
+
+**Live recheck:** current state confirmed live via cycle 115's own gateway
+metadata check (50,562ms, ok) - no separate direct-path fetch was needed
+since the endpoint is presently healthy and cycle 115 already re-ran the
+exact check in question 42 minutes before this triage run.
+
+**Classification:** `gateway_issue` (ours), consistent with every prior
+episode: direct path fine, only the gateway's `list_dataflows` call fails.
+Likely code site unchanged from the cycle 109/112 entries:
+`monitor/checks_gateway.py` (`READ_TIMEOUT_FLOOR_S = 60.0`, the 60s deadline
+that fired) wrapping whatever `list_dataflows` does in `tools/sdmx_tools.py`
+against the ESTAT metadata endpoint.
+
+**History:** fourth episode, cycles 113-113 (1 cycle, resolved same day).
+Prior episodes: cycles ~85-96 (first, ~7 cycles per cycle 106 entry), cycles
+100-106 (second, 7-cycle streak), cycles 107-109 (third, 3 cycles). The
+cycle 112 entry explicitly flagged this as the trigger point: "treat the
+next occurrence as the trigger to actually apply one of the outstanding
+fixes rather than watching a fourth time." That next occurrence is this one.
+The margin did not widen in between: cycle 112 sat at 49,095ms/60,000ms
+(82%), cycle 113 timed out at exactly 60,000ms, cycle 114 recovered at
+46,729ms (78%, 2 attempts), cycle 115 sits at 50,562ms (84%, 1 attempt). The
+budget is being consumed at 78-84% on every recent passing cycle, not just
+the ones that fail.
+
+**Recommended action:** this run is scoped to `docs/monitor/` only and does
+not carry authorization to change gateway or monitor code, so no fix is
+applied here. Recording explicitly that the fourth-occurrence trigger named
+in the cycle 112 entry has now been hit, so the next session with a broader
+mandate should treat applying one of the three outstanding fixes (raise the
+deadline, stream the listing, cache the parsed result) as due rather than
+optional.
+
+**Could not determine:** why cycle 113 timed out on the second attempt (2
+attempts recorded, same as the recovered cycle 114) when the retry mechanism
+apparently gives the call a second try within the same 60s budget - whether
+both attempts share the deadline or each gets its own is not observable from
+the monitor's output alone, and matters for judging how close to failing the
+"healthy" cycles actually are.
+
 ## 2026-08-03T12:43Z - cycle 112
 
 **Changed:** ESTAT `gateway_issue` -> `healthy`.

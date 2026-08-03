@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 112,
-  "last_cycle_started_at": "2026-08-03T12:01:22Z",
-  "last_run": "2026-08-03T12:43Z",
+  "last_cycle_id": 115,
+  "last_cycle_started_at": "2026-08-03T18:01:22Z",
+  "last_run": "2026-08-03T18:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,8 +18,8 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT list_dataflows timeout: third distinct gateway_issue episode (cycles 107-109) resolved by cycle 110, healthy through cycle 112. No fix applied yet; cycle 112's own gateway metadata latency was 49,095ms against the 60,000ms deadline (82% of budget) on a cycle that still passed, so the margin has not widened. Recommended fixes still pending: raise the deadline, stream the listing, or cache the parsed result. Next run should treat a fourth episode as the trigger to actually apply a fix rather than watching again.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 112: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout: fourth distinct gateway_issue episode, cycle 113 only (1 cycle, the shortest yet), recovered by cycle 114 and still healthy at cycle 115. The cycle 112 entry named the next occurrence as the trigger to apply a fix rather than watch again; that trigger has now fired. No fix applied by this run (docs/monitor-only scope). Margin has not widened: recent passing cycles sit at 78-84% of the 60,000ms deadline (112: 49,095ms/82%; 114: 46,729ms/78%; 115: 50,562ms/84%). Recommended fixes still pending: raise the deadline, stream the listing, or cache the parsed result. Next session with code-change scope should apply one rather than continue watching.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 115: listing served without credentials. Still open, not re-reported since no new change.",
     "ABS/OECD Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence."
   ],

@@ -1509,12 +1509,15 @@ async def test_drill_down_does_not_claim_unknown_when_msd_empty_and_dsd_unresolv
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_drill_down_on_a_confirmed_empty_declared_set_is_not_worded_as_unknown():
-    """C1's second half: when both channels resolve and agree on zero
-    declared attributes, that is a real, confirmed answer -- but it must
-    not be worded as "declared attributes are " with nothing after the
-    colon, which reads as a formatting bug rather than as a dataflow that
-    genuinely declares no reference metadata."""
+async def test_drill_down_on_msd_empty_and_dsd_empty_is_unresolved_not_confirmed():
+    """C1's second half, revisited: an MSD "empty" plus a DSD "empty" used
+    to be read as both channels agreeing on zero declared attributes. But
+    the DSD-attribute channel only ever sees what a message actually
+    populates (fetch_dsd_attribute_metadata's own docstring says so), so
+    its "empty" cannot vouch for the full declared set any more than a DSD
+    "found" can -- only the MSD channel's own `found` answer can license
+    that claim. This must read as unresolved, the same "we do not know"
+    answer a too_broad or unsupported MSD channel already gives."""
     bare = ('<?xml version="1.0"?><mes:StructureSpecificData '
             'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
             'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
@@ -1528,9 +1531,10 @@ async def test_drill_down_on_a_confirmed_empty_declared_set_is_not_worded_as_unk
     )
     assert result["total"] == 0
     assert result["values"] == []
-    assert "error" in result
-    assert not result["error"].rstrip().endswith("declared attributes are")
-    assert not result["error"].rstrip().endswith(":")
+    assert "error" not in result
+    joined = " ".join(result["notes"]).lower()
+    assert "declared attributes are" not in joined
+    assert "could not be established" in joined
 
 
 @pytest.mark.asyncio
@@ -1625,6 +1629,34 @@ async def test_drill_down_through_the_dsd_channel_notes_the_lost_slice():
     assert result["total"] == 2
     assert all(v["key_context"] is None for v in result["values"])
     assert any("DSD-attribute channel" in n for n in result["notes"])
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_dsd_found_channel_does_not_license_an_unknown_attribute_claim():
+    """The real bug this pins: ECB has no MSD channel at all, so a data
+    message carrying SOURCE_AGENCY but never mentioning LICENSE (blank and
+    declared, or simply not attached at this level) must not read as
+    "Unknown attribute 'LICENSE': declared attributes are SOURCE_AGENCY" --
+    the DSD-attribute channel only ever sees what a message populates, so
+    SOURCE_AGENCY being present says nothing about whether LICENSE is
+    declared. Only the MSD channel's own `found` answer can license that
+    claim, and ECB has none."""
+    class EcbClient(FakeClient):
+        endpoint_key = "ECB"
+        agency_id = "ECB"
+
+    respx.get(url__startswith="https://example.org/rest/data/").respond(
+        200, text=DSD_MULTI_VALUE_XML)
+    result = await get_metadata_attribute_values(
+        client=EcbClient(), dataflow_id="EXR", attribute_id="LICENSE", key="all",
+    )
+    assert "error" not in result
+    assert result["total"] == 0
+    assert result["values"] == []
+    joined = " ".join(result["notes"]).lower()
+    assert "declared attributes are" not in joined
+    assert "not configured for the v2 metadata endpoint" in joined
 
 
 @pytest.mark.asyncio

@@ -996,9 +996,37 @@ class MetadataAttributeValuesResult(BaseModel):
     dataflow_id: str = Field(description="Dataflow queried")
     attribute_id: str = Field(description="Attribute queried")
     label: str | None = Field(default=None, description="Human-readable label")
+    status: str = Field(
+        description=(
+            "One of four outcomes, mirroring the populated/declared_empty "
+            "vocabulary on MetadataAttribute: 'values' -- the attribute has "
+            "values, returned in `values`. 'declared_empty' -- the provider "
+            "declares this attribute for this dataflow and published no "
+            "value. 'unknown_attribute' -- no such attribute in the "
+            "declared set; the declared ids are named in `notes`. "
+            "'unestablished' -- no channel resolved to a declared set, so "
+            "nothing can be concluded about whether the attribute exists. "
+            "This last value must never be rendered as 'no metadata': it is "
+            "not an observation that the attribute is absent, only that "
+            "this provider's channels could not confirm one way or the "
+            "other."
+        )
+    )
     value_kind: str = Field(default="unknown", description="prose, url, date or unknown")
     values: list[MetadataValue] = Field(default_factory=list, description="Values found")
     total: int = Field(default=0, description="Count of (value, key_context) pairs found")
+    distinct_values: int = Field(
+        default=0,
+        description=(
+            "Count of distinct value texts among the values found. `total` "
+            "counts (value, key_context) pairs and answers a different "
+            "question: three countries publishing the same source "
+            "organisation give total: 3, distinct_values: 1. Counted over "
+            "the full uncapped set, not the capped 200, so it stays "
+            "truthful when `truncated` is true. 0 for the three non-'values' "
+            "statuses."
+        ),
+    )
     truncated: bool = Field(
         default=False, description="True when values holds fewer than total"
     )

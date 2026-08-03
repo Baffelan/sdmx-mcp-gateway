@@ -2751,6 +2751,10 @@ async def get_metadata_attribute(
 
     notes = list(result.get("notes", []))
     if "error" in result:
+        # Retained for compatibility with consumers reading the "Error: "
+        # prefix on notes[0]; the typed `status` field below is the
+        # supported way to tell the four outcomes apart. Remove this once
+        # consumers have moved to `status`.
         notes.insert(0, "Error: " + str(result["error"]))
 
     values = [MetadataValue(**v) for v in result.get("values", [])]
@@ -2759,9 +2763,11 @@ async def get_metadata_attribute(
         dataflow_id=result.get("dataflow_id", dataflow_id),
         attribute_id=result.get("attribute_id", attribute_id),
         label=result.get("label"),
+        status=result["status"],
         value_kind=result.get("value_kind", "unknown"),
         values=values,
         total=result.get("total", 0),
+        distinct_values=result.get("distinct_values", 0),
         truncated=result.get("truncated", False),
         notes=notes,
     )

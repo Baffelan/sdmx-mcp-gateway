@@ -36,12 +36,24 @@ _HREF = re.compile(r'<a\s[^>]*href=\\?"([^"\\]+)\\?"[^>]*>(.*?)</a>', re.IGNOREC
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?)?$")
 
 
+def _replace_href(match: re.Match[str]) -> str:
+    """Render one `<a href="X">Y</a>` match as plain text.
+
+    Keeps a link's text and its target, since the URL is often the useful
+    part, unless the anchor text already IS the href (surrounding whitespace
+    aside), in which case appending "(X)" would just repeat the same URL.
+    """
+    href, text = match.group(1), match.group(2)
+    if text.strip() == href.strip():
+        return text
+    return text + " (" + href + ")"
+
+
 def strip_markup(raw: str) -> str:
     """Plain text from the HTML fragments providers embed in metadata values."""
     if not raw:
         return ""
-    # Keep a link's text and its target, since the URL is often the useful part.
-    text = _HREF.sub(lambda m: m.group(2) + " (" + m.group(1) + ")", raw)
+    text = _HREF.sub(_replace_href, raw)
     text = _TAG.sub(" ", text)
     text = html.unescape(text).replace("\xa0", " ")
     return " ".join(text.split())
@@ -780,9 +792,11 @@ def _unresolved_attribute_result(
         "dataflow_id": dataflow_id,
         "attribute_id": attribute_id,
         "label": None,
+        "status": "unestablished",
         "value_kind": "unknown",
         "values": [],
         "total": 0,
+        "distinct_values": 0,
         "truncated": False,
         "notes": _channel_status_notes(msd_status, dsd_status),
     }
@@ -1048,38 +1062,45 @@ async def get_metadata_attribute_values(
     hierarchical path.
 
     Four distinct answers matter here and must not be collapsed into one
-    another:
+    another. Each is tagged with its own `status`, mirroring the vocabulary
+    already used by `MetadataAttribute.status`, so a caller does not have to
+    infer which of the four it got from a string prefix on `notes[0]`:
 
-    - `attribute_id` absent from what was actually read is reported as the
-      unknown-attribute error below only when the MSD channel itself
-      answered `found`: that is the one channel outcome that can vouch for
-      a provider's full declared set, per fetch_dsd_attribute_metadata's
-      own documented contract (it sees only what a message populates, never
-      an attribute the DSD declares but this response leaves blank). Every
-      other case -- an MSD channel that answered `too_broad`,
-      `inconclusive` or `unsupported`, or the MSD channel's own `empty`
-      answer (which still routes the lookup through the DSD-sourced
-      attributes, see `from_dsd` below) -- reports the unresolved channel
-      state instead, with a note that the declared set could not be
-      established on this channel. Neither is evidence the attribute does
-      not exist, so neither is phrased as the unknown-attribute error.
+    - `attribute_id` absent from what was actually read is reported as
+      `status: "unestablished"` (not the unknown-attribute error below)
+      unless the MSD channel itself answered `found`: that is the one
+      channel outcome that can vouch for a provider's full declared set,
+      per fetch_dsd_attribute_metadata's own documented contract (it sees
+      only what a message populates, never an attribute the DSD declares
+      but this response leaves blank). Every other case -- an MSD channel
+      that answered `too_broad`, `inconclusive` or `unsupported`, or the
+      MSD channel's own `empty` answer (which still routes the lookup
+      through the DSD-sourced attributes, see `from_dsd` below) -- reports
+      the unresolved channel state instead, with a note that the declared
+      set could not be established on this channel. This is the answer
+      that must never be rendered as "this dataflow does not publish
+      reference metadata": nothing was established either way.
     - `attribute_id` absent from a declared set the MSD channel *did*
-      confirm (`found`) is an error naming the declared ids, never an empty
-      value list -- an empty list reads as "this attribute has no values"
-      when the true answer is "you asked for something that does not
-      exist".
+      confirm (`found`) is `status: "unknown_attribute"`, an error naming
+      the declared ids, never an empty value list -- an empty list reads as
+      "this attribute has no values" when the true answer is "you asked for
+      something that does not exist".
     - A declared-but-empty attribute (the MSD channel's `declared_empty`
       status: the provider defines it for this dataflow and every row
-      leaves it blank) returns `total: 0` with no error, only a note --
-      that is a real, observed answer, not a failure.
-    - A populated attribute returns its values, capped at
-      `_MAX_ATTRIBUTE_VALUES` with `truncated` set and `total` left as the
-      true, uncapped count. Values read through the DSD-attribute fallback
-      carry `key_context: null` for every entry regardless of how many
-      distinct values there are, because that channel has no per-value key
-      to report (see fetch_dsd_attribute_metadata) -- a note says so rather
-      than letting several disagreeing values look like several
-      dataflow-wide statements.
+      leaves it blank) is `status: "declared_empty"`, returning `total: 0`
+      with no error, only a note -- that is a real, observed answer, not a
+      failure.
+    - A populated attribute is `status: "values"`, returning its values,
+      capped at `_MAX_ATTRIBUTE_VALUES` with `truncated` set and `total`
+      left as the true, uncapped count. `distinct_values` counts distinct
+      value *texts* rather than (value, key_context) pairs like `total`,
+      also over the full uncapped set. Values read through the
+      DSD-attribute fallback carry `key_context: null` for every entry
+      regardless of how many distinct values there are, because that
+      channel has no per-value key to report (see
+      fetch_dsd_attribute_metadata) -- a note says so rather than letting
+      several disagreeing values look like several dataflow-wide
+      statements.
     """
     agency = agency_id or client.agency_id
 
@@ -1165,9 +1186,11 @@ async def get_metadata_attribute_values(
             "dataflow_id": dataflow_id,
             "attribute_id": attribute_id,
             "label": None,
+            "status": "unknown_attribute",
             "value_kind": "unknown",
             "values": [],
             "total": 0,
+            "distinct_values": 0,
             "truncated": False,
             "notes": [],
             "error": error,
@@ -1202,15 +1225,22 @@ async def get_metadata_attribute_values(
             "dataflow_id": dataflow_id,
             "attribute_id": attribute_id,
             "label": match["label"],
+            "status": "declared_empty",
             "value_kind": "unknown",
             "values": [],
             "total": 0,
+            "distinct_values": 0,
             "truncated": False,
             "notes": empty_notes,
         }
 
     all_values = match["all_values"]
     total = len(all_values)
+    # Distinct value *texts*, not (value, key_context) pairs like `total` --
+    # counted over the full uncapped set so it stays truthful when
+    # `truncated` is true, e.g. three countries all publishing "UNSD" as
+    # DATA_SOURCE_ORGANIZATION give total: 3, distinct_values: 1.
+    distinct_values = len({v["value"] for v in all_values})
     capped = all_values[:_MAX_ATTRIBUTE_VALUES]
     truncated = total > len(capped)
     values = [
@@ -1245,9 +1275,11 @@ async def get_metadata_attribute_values(
         "dataflow_id": dataflow_id,
         "attribute_id": attribute_id,
         "label": match["label"],
+        "status": "values",
         "value_kind": classify_value_kind(match["value"]),
         "values": values,
         "total": total,
+        "distinct_values": distinct_values,
         "truncated": truncated,
         "notes": notes,
     }

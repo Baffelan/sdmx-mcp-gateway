@@ -1182,7 +1182,11 @@ async def test_a_truncated_msd_response_notes_that_declared_empty_may_be_an_arte
     """I1: a column populated only beyond the row cap must not silently read
     as a plain declared_empty. This lowers the cap so a 3-row fixture can
     exceed it, then pins that get_reference_metadata surfaces a note
-    saying the response was cut off."""
+    saying the response was cut off. It also pins that `coverage` is
+    withheld: the MSD channel answered `found`, but a truncated read cannot
+    prove COVERAGE is genuinely empty (the value beyond the cap was never
+    read), so an `empty` count built from it would assert something the
+    scan cannot establish."""
     monkeypatch.setattr(reference_metadata_module, "_MAX_MSD_DATA_ROWS", 2)
     csv_text = (
         "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
@@ -1200,6 +1204,7 @@ async def test_a_truncated_msd_response_notes_that_declared_empty_may_be_an_arte
     assert any(
         "truncat" in n.lower() or "cut off" in n.lower() for n in result["notes"]
     )
+    assert result["coverage"] is None
 
 
 @pytest.mark.asyncio
@@ -1218,6 +1223,31 @@ async def test_coverage_is_none_when_msd_is_empty_and_dsd_is_unresolved():
         DimAwareClient(dimension_ids={"FREQ"}), "DF_SDG", key=None)
     assert result["channels"]["msd_v2"] == "empty"
     assert result["channels"]["dsd_attributes"] == "inconclusive"
+    assert result["coverage"] is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_coverage_is_none_when_msd_and_dsd_are_both_empty():
+    """A blank read from the MSD channel plus a blank read from the DSD
+    fallback used to report {declared: 0, populated: 0, empty: 0}. But
+    DSD-`empty` only proves the one message it read carried no populated
+    attributes, not that the provider's DSD declares none -- it can never
+    see an attribute the DSD declares but that response leaves blank
+    (fetch_dsd_attribute_metadata's own docstring says so). Only the MSD
+    channel's own `found` answer can establish a declared set for
+    `coverage`; an MSD `empty` does not, even with DSD agreeing."""
+    bare = ('<?xml version="1.0"?><mes:StructureSpecificData '
+            'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+            'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+            '<mes:DataSet ss:dataScope="DataStructure"/></mes:StructureSpecificData>')
+    respx.get(url__startswith=_msd_url()).respond(
+        200, text="STRUCTURE,ACTION,FREQ,Frequency of observation\ndataflow,I,A,Annual\n")
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=bare)
+    result = await get_reference_metadata(
+        DimAwareClient(dimension_ids={"FREQ"}), "DF_SDG", key=None)
+    assert result["channels"]["msd_v2"] == "empty"
+    assert result["channels"]["dsd_attributes"] == "empty"
     assert result["coverage"] is None
 
 

@@ -867,8 +867,9 @@ async def get_reference_metadata(
     shape by `_to_summary_attribute`, which decides whether its value may be
     offered as the dataflow's headline answer, and `coverage` counts how
     many of the provider's declared attributes were actually populated --
-    reported only when a channel capable of seeing the declared set actually
-    answered, `None` otherwise.
+    reported only when the MSD channel itself answered `found` on an
+    untruncated read, since that is the only channel that can see a
+    declared-but-empty attribute; `None` otherwise.
     """
     agency = agency_id or client.agency_id
     channels: dict[str, str] = {}
@@ -920,7 +921,8 @@ async def get_reference_metadata(
         # from parse_msd_csv, which derives them per row rather than
         # assuming every value describes the whole dataflow.
         attributes.append({**attr, "source": "msd"})
-    if getattr(msd_attrs, "truncated", False):
+    msd_truncated = getattr(msd_attrs, "truncated", False)
+    if msd_truncated:
         notes.append(
             "This dataflow's metadata response was cut off after "
             + str(_MAX_MSD_DATA_ROWS) + " rows; a declared_empty attribute "
@@ -972,15 +974,16 @@ async def get_reference_metadata(
     # declared; it is evidence we do not know, so `coverage` must not
     # assert absence there either. In both cases the honest answer is
     # "unknown", which is what leaving `coverage` as `None` says.
-    # An MSD "empty" on its own is not the whole picture: the DSD fallback
-    # always runs whenever the MSD channel did not answer "found" (that
-    # includes a legitimate MSD "empty"), and its attributes are folded into
-    # `summary_attributes` alongside whatever the MSD channel contributed.
-    # So an MSD "empty" only makes the combined declared set known once the
-    # DSD fallback has also resolved (found or empty) -- if it is instead
-    # too_broad or inconclusive, an empty `summary_attributes` reflects a
-    # fetch that did not resolve, not a confirmed absence, and coverage must
-    # stay unknown there too.
+    # Only the MSD channel's own `found` answer can establish the declared
+    # set: an MSD `empty` does not, even when the DSD fallback that runs
+    # alongside it also resolves to `empty`, since that fallback only ever
+    # sees what a message actually populates and can never see an
+    # attribute the DSD declares but a given response leaves blank -- it
+    # cannot vouch for zero declared any more than for the true count.
+    # And a truncated MSD read cannot vouch for `empty` either: an attribute
+    # classified `declared_empty` here may simply be populated in a row past
+    # the cap, so a count built on it would assert something the scan never
+    # established.
     coverage: dict[str, int] | None = None
     if channels.get("dsd_attributes") == "found":
         notes.append(
@@ -989,10 +992,7 @@ async def get_reference_metadata(
             "declared set is not observable through this channel, so "
             "coverage counts are not reported."
         )
-    elif channels.get("msd_v2") == "found" or (
-        channels.get("msd_v2") == "empty"
-        and channels.get("dsd_attributes") == "empty"
-    ):
+    elif channels.get("msd_v2") == "found" and not msd_truncated:
         coverage = {
             "declared": len(summary_attributes),
             "populated": sum(1 for a in summary_attributes if a["status"] == "populated"),

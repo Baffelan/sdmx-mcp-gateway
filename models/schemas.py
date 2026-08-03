@@ -1017,7 +1017,9 @@ class ReferenceMetadataResult(BaseModel):
     )
     coverage: MetadataCoverage | None = Field(
         default=None,
-        description="Declared / populated / empty counts across all channels",
+        description="Declared / populated / empty counts from the MSD channel, "
+        "the only channel that can see a declared-but-empty attribute; null "
+        "when the MSD channel did not answer found on an untruncated read",
     )
     channels: dict[str, str] = Field(
         default_factory=dict,

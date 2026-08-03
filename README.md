@@ -109,11 +109,31 @@ sdmx-mcp-gateway/
 
 | Tool                      | Description                                          | Output Schema             |
 | -------------------------- | ----------------------------------------------------- | -------------------------- |
-| `get_reference_metadata`  | Get source, methodology, licence and caveats for a dataflow | `ReferenceMetadataResult` |
+| `get_reference_metadata`  | Summarise source, methodology, licence and caveats for a dataflow | `ReferenceMetadataResult` |
+| `get_metadata_attribute`  | Get every value of one metadata attribute, with the slice each applies to | `MetadataAttributeValuesResult` |
 
-Reference metadata is the descriptive material about a dataflow rather than its structure: who compiled it, from what source, under what licence, with what caveats. Coverage varies by provider, so the result's `channels` field reports which channel was available: `.Stat Suite` deployments (SPC, FBOS, SBS, OECD) publish it through a v2 MSD query, some other providers carry equivalent detail only in ordinary DSD attributes on the data message, and some publish neither. A channel status of `inconclusive` means the query did not produce a usable answer, which is not proof the dataflow lacks metadata; only `empty` is.
+Reference metadata is the descriptive material about a dataflow rather than its structure: who compiled it, from what source, under what licence, with what caveats. Coverage varies by provider, so the result's `channels` field reports which channel was available: `.Stat Suite` deployments (SPC, FBOS, SBS, OECD) publish it through a v2 MSD query, some other providers carry equivalent detail only in ordinary DSD attributes on the data message, and some publish neither. A channel status of `inconclusive` means the query did not produce a usable answer; that is different from a confirmed absence, which is what `empty` reports.
 
 Pass `key` to narrow the query to one series. This matters for large dataflows: SPC's `DF_SDG` metadata query is 5.37 MB unfiltered against 5.6 KB with a partial key, and the tool refuses an unfiltered query over 2 MB (`too_broad`) by aborting the read partway through rather than downloading it in full; the same cap applies to both the MSD query and the DSD-attribute fallback used by providers without a `/v2/` endpoint.
+
+#### `get_reference_metadata`: the summary
+
+`get_reference_metadata` returns one entry per attribute the provider declares, in `metadata_attributes`, plus a `coverage` count and a per-channel `channels` status. Each attribute carries:
+
+- `status`: `populated` when the provider published at least one value, `declared_empty` when the provider defines the attribute for this dataflow and left every occurrence blank. A declared-but-empty attribute is a real, observed answer, not a missing one, and it is listed rather than omitted, so a blank licence field reads differently from a provider that has no licence concept at all.
+- `value` and `drill_down`: `value` carries the headline text only when exactly one distinct value exists and it describes the whole dataflow. When the attribute's values differ by series, country or other slice, `value` is `null` and `drill_down` is `true`, meaning no single value can stand in as the dataflow's answer. This also fires when a provider happens to publish the identical text on every per-slice row without ever publishing an unqualified dataflow-wide row: the rule cannot tell "the same value repeated everywhere" apart from "one slice's value," so it withholds the headline in both cases and points to `get_metadata_attribute` instead.
+- `distinct_values` and `scope`: how many distinct values were found, and whether the headline (when present) attaches to the whole dataflow (`dataflow`/`dataset`) or to one slice (`partial_key`).
+
+`coverage` (`declared` / `populated` / `empty`) is reported only when a channel that can see the provider's full declared set actually answered (`found` or `empty` on the MSD channel); it is `None` when nothing confirmed a declared set, or when the only channel that answered was the DSD-attribute fallback, which shows populated attributes only and cannot see what a provider declares but leaves blank.
+
+#### `get_metadata_attribute`: the drill-down
+
+Call `get_metadata_attribute(dataflow_id, attribute_id, key=None, agency_id=None)` after `get_reference_metadata` reports `drill_down: true` for an attribute, to read every distinct value with the dimension key (`key_context`) it applies to. `attribute_id` is the short `id` from the summary, not the full dotted `path`. Four answers matter and are kept distinct:
+
+- **Populated**: every distinct value, each with its `key_context`, `total` (the true count) and `truncated` (`true` once more than 200 distinct values exist, in which case `values` holds only the first 200).
+- **Declared but empty**: `total: 0`, no error, and a note stating the attribute is declared and left blank by the provider.
+- **Unknown attribute id**: an `error` naming the dataflow's declared attribute ids, so a typo reads as "here is what exists" rather than as an empty result.
+- **No channel confirmed a declared set** (every channel answered `too_broad`, `inconclusive` or `unsupported`): no error and no values, with a note explaining which channel could not answer and why that is not evidence the attribute is missing.
 
 ### Endpoint Management
 

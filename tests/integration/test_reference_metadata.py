@@ -137,6 +137,37 @@ def test_a_dataflow_level_value_is_the_headline_over_a_disagreeing_partial_key_o
     assert values == ["Whole country", "United Kingdom only"]
 
 
+def test_msd_headline_scope_is_independent_of_row_order():
+    """SDMx-CSV row order is not part of the contract, so the same value
+    reappearing on a dataflow-wide row must be recognised as describing the
+    whole dataflow whether that row comes before or after the partial-key
+    row that first carried the identical text -- otherwise the same
+    response could parse to a different headline on different calls."""
+    csv_keyed_first = (
+        "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+        "METHODOLOGY,Methodology\n"
+        "dataflow,IMF:DF(1.0),I,GBR,United Kingdom,"
+        "Compiled to BPM6,Methodology\n"
+        "dataflow,IMF:DF(1.0),I,~,~,"
+        "Compiled to BPM6,Methodology\n"
+    )
+    csv_dataflow_first = (
+        "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+        "METHODOLOGY,Methodology\n"
+        "dataflow,IMF:DF(1.0),I,~,~,"
+        "Compiled to BPM6,Methodology\n"
+        "dataflow,IMF:DF(1.0),I,GBR,United Kingdom,"
+        "Compiled to BPM6,Methodology\n"
+    )
+    for csv_text in (csv_keyed_first, csv_dataflow_first):
+        rows = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
+        methodology = [r for r in rows if r["id"] == "METHODOLOGY"][0]
+        assert methodology["scope"] == "dataflow"
+        assert methodology["value"] == "Compiled to BPM6"
+        assert methodology["key_context"] is None
+        assert methodology["distinct_value_count"] == 1
+
+
 def test_metadata_attribute_schema_preserves_attachment_context():
     """A partial_key value is only meaningful if the caller can see the key.
 
@@ -1034,3 +1065,117 @@ async def test_coverage_counts_declared_populated_and_empty():
     licence = next(a for a in result["metadata_attributes"]
                    if a["id"] == "DATA_SOURCE_LICENSE")
     assert licence["status"] == "declared_empty"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_coverage_is_none_when_no_channel_gave_a_confirmed_answer():
+    """SPC's DF_SDG unkeyed is the real case this pins: the MSD channel is
+    too_broad (it saw megabytes and refused them) and the DSD fallback is
+    inconclusive. Zero attributes here is not evidence of zero declared --
+    it is evidence we do not know, so `coverage` must stay null rather than
+    assert `{"declared": 0, ...}`, which would flatly contradict the
+    too_broad note saying the metadata exists and is too large to return."""
+    from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
+
+    huge = "STRUCTURE,A.B,label\n" + ("x" * (UNKEYED_SIZE_CAP_BYTES + 1))
+    respx.get(url__startswith=_msd_url()).respond(200, text=huge)
+    respx.get(url__startswith="https://example.org/rest/data/").respond(204)
+    result = await get_reference_metadata(FakeClient(), "DF_SDG", key=None)
+    assert result["channels"]["msd_v2"] == "too_broad"
+    assert result["coverage"] is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_coverage_is_none_when_only_the_dsd_channel_answered():
+    """The DSD-attribute channel reads only what a data message actually
+    carries, so it cannot see a declared-but-empty attribute the way the
+    MSD channel's `declared_empty` status can. Reporting `declared`/`empty`
+    from it would just relabel `populated` as `declared` and always claim
+    zero blanks -- exactly the shape IMF, ECB, ILO and ESTAT would get on
+    every call, since none of them has an MSD channel at all."""
+    class EcbClient(FakeClient):
+        endpoint_key = "ECB"
+        agency_id = "ECB"
+
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
+    result = await get_reference_metadata(EcbClient(), "EXR", key="all")
+    assert result["channels"]["dsd_attributes"] == "found"
+    assert result["coverage"] is None
+    assert any("declared set is not observable" in note for note in result["notes"])
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dataset_scope_keeps_its_headline_but_series_and_observation_do_not():
+    """The headline rule's dataflow-wide scopes are `dataflow` (MSD channel)
+    and `dataset` (DSD channel). All of the earlier headline-rule tests
+    drive the MSD channel only, so narrowing `_DATAFLOW_WIDE_SCOPES` to
+    just `{"dataflow"}` would silently strip every DSD-sourced headline --
+    IMF's dataset-level attributes among them -- without failing anything
+    else in the suite. This drives the DSD channel directly and checks all
+    three of its scopes in one message: `dataset` keeps its value,
+    `series` and `observation` do not, even though each is the only value
+    seen for its attribute."""
+    class EcbClient(FakeClient):
+        endpoint_key = "ECB"
+        agency_id = "ECB"
+
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
+    result = await get_reference_metadata(EcbClient(), "EXR", key="all")
+    by_id = {a["id"]: a for a in result["metadata_attributes"]}
+
+    dataset_attr = by_id["FULL_DESCRIPTION"]
+    assert dataset_attr["scope"] == "dataset"
+    assert dataset_attr["value"] is not None
+    assert dataset_attr["drill_down"] is False
+
+    series_attr = by_id["SOURCE_AGENCY"]
+    assert series_attr["scope"] == "series"
+    assert series_attr["value"] is None
+    assert series_attr["drill_down"] is True
+
+    observation_attr = by_id["NOTE_INDICATOR"]
+    assert observation_attr["scope"] == "observation"
+    assert observation_attr["value"] is None
+    assert observation_attr["drill_down"] is True
+
+
+@pytest.mark.asyncio
+async def test_the_wrapper_builds_a_populated_metadata_coverage():
+    """`coverage` is built via `MetadataCoverage(**result["coverage"])` in
+    the wrapper; nothing else in this suite exercises that construction
+    with a non-null `coverage` dict (the other wrapper-level tests mock
+    returns that omit the key entirely), so a key-name mismatch between the
+    raw dict and the model would ship undetected."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def coverage_impl(client, dataflow_id, key=None, agency_id=None, ctx=None):
+        return {
+            "dataflow_id": dataflow_id,
+            "agency_id": agency_id or client.agency_id,
+            "endpoint": "SPC",
+            "version": "4.3",
+            "metadata_attributes": [],
+            "coverage": {"declared": 9, "populated": 7, "empty": 2},
+            "channels": {"msd_v2": "found", "dsd_attributes": "skipped"},
+            "notes": [],
+        }
+
+    with patch("tools.reference_metadata.get_reference_metadata", side_effect=coverage_impl):
+        from main_server import get_reference_metadata as handler
+
+        result = await handler(dataflow_id="DF_SDG", endpoint="SPC", ctx=ctx)
+
+    assert result.coverage is not None
+    assert result.coverage.declared == 9
+    assert result.coverage.populated == 7
+    assert result.coverage.empty == 2

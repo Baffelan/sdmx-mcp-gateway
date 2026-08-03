@@ -161,13 +161,17 @@ def parse_msd_csv(
     `key_context` come from each row's own dimension cells (`_row_level`): a
     value attaches to the whole dataflow only when the row that carried it
     had every dimension wildcarded, otherwise it attaches to that row's
-    partial key. When a column carries several distinct values, the
-    headline `value` (and its `scope`/`key_context`) prefers a dataflow-level
-    one over a partial-key one; `all_values` keeps every distinct value in
-    first-seen order uncapped for drill-down use, and `distinct_value_count`
-    records the total. Declared-but-empty columns are returned with
-    `status="declared_empty"` so callers can distinguish a blank licence field
-    from a provider that defines no licence concept.
+    partial key. Because row order is not part of the SDMx-CSV contract, a
+    value already seen on a partial-key row is promoted to `dataflow` scope
+    if a later row repeats the identical text with every dimension
+    wildcarded, so the same response parses to the same headline regardless
+    of which row came first. When a column carries several distinct values,
+    the headline `value` (and its `scope`/`key_context`) prefers a
+    dataflow-level one over a partial-key one; `all_values` keeps every
+    distinct value in first-seen order uncapped for drill-down use, and
+    `distinct_value_count` records the total. Declared-but-empty columns are
+    returned with `status="declared_empty"` so callers can distinguish a
+    blank licence field from a provider that defines no licence concept.
     """
     reader = csv.reader(io.StringIO(text))
     try:
@@ -195,9 +199,13 @@ def parse_msd_csv(
     # Per metadata column index: every distinct value seen, in first-seen
     # order, uncapped -- these values are kept in full in the assembled
     # result below (not capped), since callers need the complete dataset for
-    # drill-down purposes.
+    # drill-down purposes. `entry_by_value` indexes the same entries by their
+    # text so a later dataflow-scope row that repeats an already-seen value
+    # can promote it in place (see below) without a linear scan.
     collected: dict[int, list[dict[str, Any]]] = {index: [] for index, *_ in meta_columns}
-    seen: dict[int, set[str]] = {index: set() for index, *_ in meta_columns}
+    entry_by_value: dict[int, dict[str, dict[str, Any]]] = {
+        index: {} for index, *_ in meta_columns
+    }
 
     for row_number, row in enumerate(reader):
         if row_number >= _MAX_MSD_DATA_ROWS:
@@ -210,15 +218,29 @@ def parse_msd_csv(
         for index, _column, _attr_id, _label in meta_columns:
             raw = row[index] if index < len(row) else ""
             value, language = parse_localised_value(raw, prefer=prefer)
-            if value is None or value in seen[index]:
+            if value is None:
                 continue
-            seen[index].add(value)
-            collected[index].append({
+            existing = entry_by_value[index].get(value)
+            if existing is not None:
+                # SDMx-CSV row order is not contractual, so whichever row
+                # happens to carry a value first must not decide its scope
+                # for good: a later dataflow-scope row confirms the value
+                # describes the whole dataflow, even though an earlier
+                # partial-key row carried the identical text first. Without
+                # this, the same response could parse to a different
+                # headline depending only on row order.
+                if level == "dataflow":
+                    existing["scope"] = "dataflow"
+                    existing["key_context"] = None
+                continue
+            entry = {
                 "value": value,
                 "language": language,
                 "scope": level,
                 "key_context": key_context or None,
-            })
+            }
+            entry_by_value[index][value] = entry
+            collected[index].append(entry)
 
     out: list[dict[str, Any]] = []
     for index, column, attr_id, label in meta_columns:
@@ -521,10 +543,12 @@ async def fetch_dsd_attribute_metadata(
         return [], "inconclusive"
 
     # Per attribute name: every distinct value seen, in first-seen order,
-    # uncapped -- mirrors parse_msd_csv's `collected`/`seen` pair above. An
-    # attribute is declared at exactly one attachment level in the DSD, so
-    # `scope` is fixed the first time a name is seen; only its values can
-    # repeat, e.g. the same observation-level attribute on many Obs elements.
+    # uncapped -- mirrors parse_msd_csv's `collected`/`entry_by_value` pair
+    # above. An attribute is declared at exactly one attachment level in the
+    # DSD, so `scope` is fixed the first time a name is seen (unlike
+    # parse_msd_csv's per-row `scope`, there is no later row that could
+    # promote it); only its values can repeat, e.g. the same
+    # observation-level attribute on many Obs elements.
     order: list[str] = []
     scope_by_id: dict[str, str] = {}
     values_by_id: dict[str, list[dict[str, Any]]] = {}
@@ -647,7 +671,9 @@ async def get_reference_metadata(
     "we could not find out". Each attribute found is reduced to a summary
     shape by `_to_summary_attribute`, which decides whether its value may be
     offered as the dataflow's headline answer, and `coverage` counts how
-    many of the provider's declared attributes were actually populated.
+    many of the provider's declared attributes were actually populated --
+    reported only when a channel capable of seeing the declared set actually
+    answered, `None` otherwise.
     """
     agency = agency_id or client.agency_id
     channels: dict[str, str] = {}
@@ -754,11 +780,32 @@ async def get_reference_metadata(
         notes.append("No reference metadata was found for this dataflow.")
 
     summary_attributes = [_to_summary_attribute(attr) for attr in attributes]
-    coverage = {
-        "declared": len(summary_attributes),
-        "populated": sum(1 for a in summary_attributes if a["status"] == "populated"),
-        "empty": sum(1 for a in summary_attributes if a["status"] == "declared_empty"),
-    }
+
+    # `coverage` counts the provider's declared attributes against how many
+    # are actually populated. Only the MSD channel can see a declared-but-
+    # empty attribute -- parse_msd_csv reports "declared_empty" for a column
+    # every row leaves blank -- so when the DSD-attribute fallback answered,
+    # `declared` would just be `populated` relabelled and `empty` would
+    # always read zero, which is not what those numbers claim to mean.
+    # And when neither channel gave a confirmed answer (inconclusive,
+    # too_broad, unsupported), zero attributes is not evidence of zero
+    # declared; it is evidence we do not know, so `coverage` must not
+    # assert absence there either. In both cases the honest answer is
+    # "unknown", which is what leaving `coverage` as `None` says.
+    coverage: dict[str, int] | None = None
+    if channels.get("dsd_attributes") == "found":
+        notes.append(
+            "This dataflow's metadata came from the DSD-attribute channel, "
+            "which shows only populated attributes. The provider's full "
+            "declared set is not observable through this channel, so "
+            "coverage counts are not reported."
+        )
+    elif channels.get("msd_v2") in ("found", "empty"):
+        coverage = {
+            "declared": len(summary_attributes),
+            "populated": sum(1 for a in summary_attributes if a["status"] == "populated"),
+            "empty": sum(1 for a in summary_attributes if a["status"] == "declared_empty"),
+        }
 
     return {
         "dataflow_id": dataflow_id,

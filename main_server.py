@@ -56,7 +56,9 @@ from models.schemas import (
     FilterInfo,
     KeyBuildResult,
     MetadataAttribute,
+    MetadataAttributeValuesResult,
     MetadataCoverage,
+    MetadataValue,
     PaginationInfo,
     ProbeResult,
     QuerySuggestion,
@@ -2701,6 +2703,62 @@ async def get_reference_metadata(
         "metadata_attributes": attributes,
         "coverage": coverage,
     })
+
+
+@mcp.tool()
+async def get_metadata_attribute(
+    dataflow_id: str,
+    attribute_id: str,
+    key: str | None = None,
+    agency_id: str | None = None,
+    endpoint: str | None = None,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> MetadataAttributeValuesResult:
+    """Get every value of one reference metadata attribute, with the slice each applies to.
+
+    Use after get_reference_metadata() reports drill_down=true for an
+    attribute, which means its values differ across the dataflow (for example
+    recommended-uses text that differs per country) and no single value
+    describes the whole dataflow.
+
+    Args:
+        dataflow_id: The dataflow to read
+        attribute_id: An attribute id from get_reference_metadata()
+        key: Optional partial key to narrow the query
+        agency_id: The agency that owns the dataflow
+        endpoint: Optional endpoint key for this call only
+
+    Returns:
+        Every value of the attribute, each with the dimension key it applies to
+    """
+    from tools.reference_metadata import get_metadata_attribute_values as get_values_impl
+
+    client, ep_key = await _resolve_client(ctx, endpoint)
+    result = await get_values_impl(
+        client=client,
+        dataflow_id=dataflow_id,
+        attribute_id=attribute_id,
+        key=key,
+        agency_id=agency_id,
+        ctx=ctx,
+    )
+
+    notes = list(result.get("notes", []))
+    if "error" in result:
+        notes.insert(0, "Error: " + str(result["error"]))
+
+    values = [MetadataValue(**v) for v in result.get("values", [])]
+
+    return MetadataAttributeValuesResult(
+        dataflow_id=result.get("dataflow_id", dataflow_id),
+        attribute_id=result.get("attribute_id", attribute_id),
+        label=result.get("label"),
+        value_kind=result.get("value_kind", "unknown"),
+        values=values,
+        total=result.get("total", 0),
+        truncated=result.get("truncated", False),
+        notes=notes,
+    )
 
 
 # =============================================================================

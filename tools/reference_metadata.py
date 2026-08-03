@@ -837,3 +837,141 @@ async def get_reference_metadata(
         "channels": channels,
         "notes": notes,
     }
+
+
+# Above this many values, get_metadata_attribute_values caps what it returns
+# and reports the true count separately via `total`/`truncated`, the same
+# shape UNKEYED_SIZE_CAP_BYTES protects the channel fetch itself against.
+_MAX_ATTRIBUTE_VALUES = 200
+
+
+async def get_metadata_attribute_values(
+    client: Any,
+    dataflow_id: str,
+    attribute_id: str,
+    key: str | None = None,
+    agency_id: str | None = None,
+    ctx: Any | None = None,
+) -> dict[str, Any]:
+    """Get every value of one reference metadata attribute, with the slice
+    each applies to.
+
+    This is the drill-down get_reference_metadata() points to whenever a
+    summary attribute reports `drill_down=true`: its values differ across
+    the dataflow, so no single value can stand in as the dataflow's answer,
+    and this call is what lets a caller actually read all of them.
+
+    Fetches exactly as get_reference_metadata does -- fetch_msd_metadata,
+    falling back to fetch_dsd_attribute_metadata when the MSD channel does
+    not answer -- so the two calls can never disagree about what a provider
+    published; only the attribute selected and how much of it is returned
+    differ. `attribute_id` is matched against each attribute's `id` (the
+    part of `path` after the last dot), since that is what a caller reads
+    back from get_reference_metadata()'s summary output, not the full
+    hierarchical path.
+
+    Three distinct answers matter here and must not be collapsed into one
+    another:
+
+    - `attribute_id` absent from the declared set is an error naming the
+      declared ids, never an empty value list -- an empty list reads as
+      "this attribute has no values" when the true answer is "you asked
+      for something that does not exist".
+    - A declared-but-empty attribute (the MSD channel's `declared_empty`
+      status: the provider defines it for this dataflow and every row
+      leaves it blank) returns `total: 0` with no error, only a note --
+      that is a real, observed answer, not a failure.
+    - A populated attribute returns its values, capped at
+      `_MAX_ATTRIBUTE_VALUES` with `truncated` set and `total` left as the
+      true, uncapped count.
+    """
+    agency = agency_id or client.agency_id
+
+    try:
+        structure = await client.get_structure_summary(
+            dataflow_id=dataflow_id, agency_id=agency
+        )
+        dimension_ids = {dim.id for dim in structure.dimensions}
+    except Exception as exc:
+        logger.info("could not resolve dimensions for %s: %s", dataflow_id, exc)
+        dimension_ids = set()
+
+    try:
+        version = await client.resolve_version(
+            dataflow_id=dataflow_id, agency_id=agency, ctx=ctx
+        )
+    except Exception as exc:
+        logger.info("could not resolve version for %s: %s", dataflow_id, exc)
+        version = None
+
+    msd_attrs, msd_status = await fetch_msd_metadata(
+        client, dataflow_id, agency, key, ctx=ctx, version=version, dimension_ids=dimension_ids
+    )
+    attributes = msd_attrs
+    if msd_status != "found":
+        dsd_attrs, _dsd_status = await fetch_dsd_attribute_metadata(
+            client, dataflow_id, agency, key or "all", ctx=ctx, dimension_ids=dimension_ids
+        )
+        attributes = dsd_attrs
+
+    match = next((attr for attr in attributes if attr["id"] == attribute_id), None)
+    if match is None:
+        declared = ", ".join(sorted(attr["id"] for attr in attributes))
+        return {
+            "dataflow_id": dataflow_id,
+            "attribute_id": attribute_id,
+            "label": None,
+            "value_kind": "unknown",
+            "values": [],
+            "total": 0,
+            "truncated": False,
+            "notes": [],
+            "error": (
+                "Unknown attribute '" + attribute_id + "' for " + dataflow_id
+                + ": declared attributes are " + declared
+            ),
+        }
+
+    if match["status"] == "declared_empty":
+        return {
+            "dataflow_id": dataflow_id,
+            "attribute_id": attribute_id,
+            "label": match["label"],
+            "value_kind": "unknown",
+            "values": [],
+            "total": 0,
+            "truncated": False,
+            "notes": [
+                "'" + attribute_id + "' is declared for this dataflow and the "
+                "provider has published no value for it."
+            ],
+        }
+
+    all_values = match["all_values"]
+    total = len(all_values)
+    capped = all_values[:_MAX_ATTRIBUTE_VALUES]
+    truncated = total > len(capped)
+    values = [
+        {
+            "value": v["value"],
+            "key_context": v.get("key_context"),
+            "language": v.get("language"),
+        }
+        for v in capped
+    ]
+    notes: list[str] = []
+    if truncated:
+        notes.append(
+            "Showing the first " + str(_MAX_ATTRIBUTE_VALUES) + " of " + str(total)
+            + " values."
+        )
+    return {
+        "dataflow_id": dataflow_id,
+        "attribute_id": attribute_id,
+        "label": match["label"],
+        "value_kind": classify_value_kind(match["value"], has_codelist=False),
+        "values": values,
+        "total": total,
+        "truncated": truncated,
+        "notes": notes,
+    }

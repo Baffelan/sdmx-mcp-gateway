@@ -6,6 +6,7 @@ from tools.reference_metadata import (
     _row_level,
     fetch_dsd_attribute_metadata,
     fetch_msd_metadata,
+    get_metadata_attribute_values,
     get_reference_metadata,
     parse_msd_csv,
 )
@@ -1179,3 +1180,94 @@ async def test_the_wrapper_builds_a_populated_metadata_coverage():
     assert result.coverage.declared == 9
     assert result.coverage.populated == 7
     assert result.coverage.empty == 2
+
+
+# =============================================================================
+# get_metadata_attribute_values (the drill-down call)
+# =============================================================================
+
+
+def _drill_msd_url(dataflow_id, version="4.3", key=None):
+    # Same shape as _msd_url above, generalised to a dataflow id other than
+    # DF_SDG so these tests can use realistic dataflow names.
+    segment = key if key else ""
+    return ("https://example.org/rest/v2/data/dataflow/SPC/" + dataflow_id + "/"
+            + version + "/" + segment)
+
+
+HICP_REC_USE_LIM_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "REC_USE_LIM,Recommended uses\n"
+    "dataflow,OECD:DF_PRICES_HICP(1.0),I,AUS,Australia,"
+    "Interpret with caution in Australia,Recommended uses\n"
+    "dataflow,OECD:DF_PRICES_HICP(1.0),I,CAN,Canada,"
+    "Interpret with caution in Canada,Recommended uses\n"
+    "dataflow,OECD:DF_PRICES_HICP(1.0),I,JPN,Japan,"
+    "Interpret with caution in Japan,Recommended uses\n"
+    "dataflow,OECD:DF_PRICES_HICP(1.0),I,IND,India,"
+    "Interpret with caution in India,Recommended uses\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_returns_every_value_with_its_own_context():
+    """Four countries, four disagreeing values: the drill-down call is what
+    lets a caller actually read them, one per slice, in the order seen."""
+    respx.get(url__startswith=_drill_msd_url("DF_PRICES_HICP")).respond(
+        200, text=HICP_REC_USE_LIM_CSV)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(dimension_ids={"REF_AREA"}),
+        dataflow_id="DF_PRICES_HICP",
+        attribute_id="REC_USE_LIM",
+    )
+    assert result["total"] == 4
+    assert result["truncated"] is False
+    areas = [v["key_context"]["REF_AREA"] for v in result["values"]]
+    assert areas == ["AUS", "CAN", "JPN", "IND"]
+
+
+BOP_TABLE1_MSD_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "COMPILING_ORG,Compiling organisation,"
+    "COVERAGE,Coverage\n"
+    "dataflow,IMF:DF_BOP_TABLE1(1.0),I,~,~,"
+    "International Monetary Fund,Compiling organisation,"
+    ",Coverage\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_on_an_unknown_attribute_lists_the_declared_ids():
+    """Same treatment as an unknown availability filter: say what may be used
+    rather than returning an empty list that reads as 'no values'."""
+    respx.get(url__startswith=_drill_msd_url("DF_BOP_TABLE1")).respond(
+        200, text=BOP_TABLE1_MSD_CSV)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(dimension_ids={"REF_AREA"}),
+        dataflow_id="DF_BOP_TABLE1",
+        attribute_id="NOT_AN_ATTRIBUTE",
+    )
+    assert "error" in result
+    assert "COMPILING_ORG" in result["error"] or any(
+        "COMPILING_ORG" in n for n in result["notes"]
+    )
+    assert result["values"] == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_on_a_declared_empty_attribute_says_so():
+    """Zero values because the provider left it blank is not the same as an
+    attribute that does not exist."""
+    respx.get(url__startswith=_drill_msd_url("DF_BOP_TABLE1")).respond(
+        200, text=BOP_TABLE1_MSD_CSV)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(dimension_ids={"REF_AREA"}),
+        dataflow_id="DF_BOP_TABLE1",
+        attribute_id="COVERAGE",
+    )
+    assert result["total"] == 0
+    assert "error" not in result
+    assert any("declared" in n.lower() for n in result["notes"])

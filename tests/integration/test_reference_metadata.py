@@ -2,6 +2,7 @@ import httpx
 import pytest
 import respx
 
+import tools.reference_metadata as reference_metadata_module
 from tools.reference_metadata import (
     _row_level,
     fetch_dsd_attribute_metadata,
@@ -1271,3 +1272,198 @@ async def test_drill_down_on_a_declared_empty_attribute_says_so():
     assert result["total"] == 0
     assert "error" not in result
     assert any("declared" in n.lower() for n in result["notes"])
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_reaches_a_dotted_attribute_by_its_id():
+    """SPC nests MSD attributes under a dotted hierarchy
+    (DATA_SOURCE.DATA_SOURCE_ORGANIZATION); `id` is the part after the last
+    dot, and that is what a caller supplies here (matching what
+    get_reference_metadata()'s summary reports back as `id`). Matching on
+    `path` instead would make every SPC attribute unreachable through this
+    call while every flat-column provider kept working, so this must be
+    pinned with a dotted fixture, not the flat ones the other tests use."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=MSD_CSV)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(), dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_ORGANIZATION",
+    )
+    assert "error" not in result
+    assert result["total"] == 1
+    assert result["values"][0]["value"] == "UNSD"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_caps_values_but_reports_the_true_total(monkeypatch):
+    """Rewriting `total` as `len(values)` after slicing would keep this
+    green even if values beyond the cap silently vanished, so `total` and
+    `len(values)` are asserted separately against the same four-country
+    fixture used above, with the cap lowered to 2 rather than requiring a
+    204-row fixture to exceed the real cap of 200."""
+    monkeypatch.setattr(reference_metadata_module, "_MAX_ATTRIBUTE_VALUES", 2)
+    respx.get(url__startswith=_drill_msd_url("DF_PRICES_HICP")).respond(
+        200, text=HICP_REC_USE_LIM_CSV)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(dimension_ids={"REF_AREA"}),
+        dataflow_id="DF_PRICES_HICP",
+        attribute_id="REC_USE_LIM",
+    )
+    assert result["total"] == 4
+    assert len(result["values"]) == 2
+    assert result["truncated"] is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_does_not_claim_unknown_when_no_channel_confirmed():
+    """SPC's DF_SDG unkeyed is the real case this pins: the MSD channel is
+    too_broad (it saw megabytes and refused them) and the DSD fallback is
+    inconclusive. Neither channel ever produced a declared set, so the
+    answer must not be phrased as "declared attributes are" (which would
+    read as an empty declared set, i.e. the attribute does not exist) --
+    that would misreport a fetch that never resolved as a caller mistake."""
+    from tools.reference_metadata import UNKEYED_SIZE_CAP_BYTES
+
+    huge = "STRUCTURE,A.B,label\n" + ("x" * (UNKEYED_SIZE_CAP_BYTES + 1))
+    respx.get(url__startswith=_msd_url()).respond(200, text=huge)
+    respx.get(url__startswith="https://example.org/rest/data/").respond(204)
+    result = await get_metadata_attribute_values(
+        client=FakeClient(), dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_LICENSE",
+    )
+    assert "error" not in result
+    assert result["total"] == 0
+    assert result["values"] == []
+    joined = " ".join(result["notes"]).lower()
+    assert "too large" in joined
+    assert "declared attributes are" not in joined
+
+
+DSD_MULTI_VALUE_XML = (
+    '<?xml version="1.0"?>'
+    '<mes:StructureSpecificData '
+    'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+    'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+    '<mes:DataSet ss:dataScope="DataStructure">'
+    '<Series FREQ="A" SOURCE_AGENCY="4F0"><Obs TIME_PERIOD="2020" OBS_VALUE="1.5"/></Series>'
+    '<Series FREQ="A" SOURCE_AGENCY="5B0"><Obs TIME_PERIOD="2021" OBS_VALUE="1.6"/></Series>'
+    '</mes:DataSet></mes:StructureSpecificData>'
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_through_the_dsd_channel_notes_the_lost_slice():
+    """fetch_dsd_attribute_metadata sets key_context=None on every value by
+    construction (it has no per-value key to report), so two disagreeing
+    SOURCE_AGENCY values coming back with key_context null would otherwise
+    read as two contradictory dataflow-wide statements rather than two
+    different series' values. A note must say the slice is not observable
+    through this channel."""
+    class EcbClient(FakeClient):
+        endpoint_key = "ECB"
+        agency_id = "ECB"
+
+    respx.get(url__startswith="https://example.org/rest/data/").respond(
+        200, text=DSD_MULTI_VALUE_XML)
+    result = await get_metadata_attribute_values(
+        client=EcbClient(), dataflow_id="EXR", attribute_id="SOURCE_AGENCY", key="all",
+    )
+    assert result["total"] == 2
+    assert all(v["key_context"] is None for v in result["values"])
+    assert any("DSD-attribute channel" in n for n in result["notes"])
+
+
+@pytest.mark.asyncio
+async def test_the_attribute_wrapper_marks_an_unknown_attribute_as_an_error():
+    """MetadataAttributeValuesResult has no `error` field, so the "Error: "
+    prefix main_server.py inserts into `notes` is the only thing at the tool
+    boundary telling this apart from the declared-empty answer below --
+    without this test, deleting that insertion would leave the two
+    indistinguishable and nothing would fail."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def unknown_impl(client, dataflow_id, attribute_id, key=None, agency_id=None, ctx=None):
+        return {
+            "dataflow_id": dataflow_id,
+            "attribute_id": attribute_id,
+            "label": None,
+            "value_kind": "unknown",
+            "values": [],
+            "total": 0,
+            "truncated": False,
+            "notes": [],
+            "error": (
+                "Unknown attribute 'NOT_AN_ATTRIBUTE' for DF_BOP_TABLE1: "
+                "declared attributes are COMPILING_ORG, COVERAGE"
+            ),
+        }
+
+    with patch(
+        "tools.reference_metadata.get_metadata_attribute_values", side_effect=unknown_impl
+    ):
+        from main_server import get_metadata_attribute as handler
+
+        result = await handler(
+            dataflow_id="DF_BOP_TABLE1", attribute_id="NOT_AN_ATTRIBUTE",
+            endpoint="SPC", ctx=ctx,
+        )
+
+    assert result.total == 0
+    assert result.values == []
+    assert result.notes[0].startswith("Error: Unknown attribute")
+
+
+@pytest.mark.asyncio
+async def test_the_attribute_wrapper_does_not_mark_a_declared_empty_attribute_as_an_error():
+    """The counterpart to the test above: a declared-but-empty attribute
+    must reach the caller without the "Error: " prefix, or the two answers
+    this whole task exists to keep apart would look identical again at the
+    tool boundary."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def declared_empty_impl(
+        client, dataflow_id, attribute_id, key=None, agency_id=None, ctx=None
+    ):
+        return {
+            "dataflow_id": dataflow_id,
+            "attribute_id": attribute_id,
+            "label": "Coverage",
+            "value_kind": "unknown",
+            "values": [],
+            "total": 0,
+            "truncated": False,
+            "notes": [
+                "'COVERAGE' is declared for this dataflow and the provider "
+                "has published no value for it."
+            ],
+        }
+
+    with patch(
+        "tools.reference_metadata.get_metadata_attribute_values",
+        side_effect=declared_empty_impl,
+    ):
+        from main_server import get_metadata_attribute as handler
+
+        result = await handler(
+            dataflow_id="DF_BOP_TABLE1", attribute_id="COVERAGE", endpoint="SPC", ctx=ctx,
+        )
+
+    assert result.total == 0
+    assert result.values == []
+    assert not result.notes[0].startswith("Error:")
+    assert any("declared" in n.lower() for n in result.notes)

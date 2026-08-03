@@ -630,6 +630,51 @@ async def fetch_dsd_attribute_metadata(
     return [], "empty"
 
 
+def _channel_status_notes(msd_status: str, dsd_status: str | None) -> list[str]:
+    """Plain-language notes for a channel status that did not deliver a
+    confirmed declared set (unsupported, inconclusive or too_broad).
+
+    Shared between get_reference_metadata and get_metadata_attribute_values
+    so the two report the same channel failure the same way rather than
+    drifting into two different descriptions of the same fact. `dsd_status`
+    is `None` when the DSD fallback never ran (the MSD channel answered
+    `found`), which matches every condition below being skipped.
+    """
+    notes: list[str] = []
+    if msd_status == "unsupported":
+        notes.append(
+            "This provider is not configured for the v2 metadata endpoint; "
+            "any attributes shown come from the data message."
+        )
+    if msd_status == "inconclusive":
+        notes.append(
+            "The metadata query did not produce a usable result, which can "
+            "mean either that this dataflow has no metadata or that the "
+            "request failed or was not understood. Treat it as unknown "
+            "rather than as absence."
+        )
+    if msd_status == "too_broad":
+        notes.append(
+            "This dataflow's metadata is too large to return unfiltered. "
+            "Supply a dimension key to narrow it, for example a single "
+            "indicator or reference area."
+        )
+    if dsd_status == "inconclusive":
+        notes.append(
+            "The DSD-attribute fallback query did not return a usable "
+            "response, which can mean either that this dataflow carries no "
+            "descriptive attributes or that the request failed. Treat it as "
+            "unknown rather than as absence."
+        )
+    if dsd_status == "too_broad":
+        notes.append(
+            "This dataflow's attribute data is too large to return "
+            "unfiltered. Supply a dimension key to narrow it, for example a "
+            "single indicator or reference area."
+        )
+    return notes
+
+
 _DATAFLOW_WIDE_SCOPES = frozenset({"dataflow", "dataset"})
 
 
@@ -756,37 +801,7 @@ async def get_reference_metadata(
     else:
         channels["dsd_attributes"] = "skipped"
 
-    if msd_status == "unsupported":
-        notes.append(
-            "This provider is not configured for the v2 metadata endpoint; "
-            "any attributes shown come from the data message."
-        )
-    if msd_status == "inconclusive":
-        notes.append(
-            "The metadata query did not produce a usable result, which can "
-            "mean either that this dataflow has no metadata or that the "
-            "request failed or was not understood. Treat it as unknown "
-            "rather than as absence."
-        )
-    if msd_status == "too_broad":
-        notes.append(
-            "This dataflow's metadata is too large to return unfiltered. "
-            "Supply a dimension key to narrow it, for example a single "
-            "indicator or reference area."
-        )
-    if channels.get("dsd_attributes") == "inconclusive":
-        notes.append(
-            "The DSD-attribute fallback query did not return a usable "
-            "response, which can mean either that this dataflow carries no "
-            "descriptive attributes or that the request failed. Treat it as "
-            "unknown rather than as absence."
-        )
-    if channels.get("dsd_attributes") == "too_broad":
-        notes.append(
-            "This dataflow's attribute data is too large to return "
-            "unfiltered. Supply a dimension key to narrow it, for example a "
-            "single indicator or reference area."
-        )
+    notes.extend(_channel_status_notes(msd_status, channels.get("dsd_attributes")))
     # `too_broad` on either channel means the tool positively observed
     # metadata and refused to return it unkeyed -- the opposite of "nothing
     # was found". Saying so here would contradict the too_broad notes above,
@@ -870,20 +885,30 @@ async def get_metadata_attribute_values(
     back from get_reference_metadata()'s summary output, not the full
     hierarchical path.
 
-    Three distinct answers matter here and must not be collapsed into one
+    Four distinct answers matter here and must not be collapsed into one
     another:
 
-    - `attribute_id` absent from the declared set is an error naming the
-      declared ids, never an empty value list -- an empty list reads as
-      "this attribute has no values" when the true answer is "you asked
-      for something that does not exist".
+    - Neither channel delivering a confirmed declared set (too_broad,
+      inconclusive or unsupported on both) is reported as that channel
+      state, using the same wording get_reference_metadata uses -- it is
+      not evidence the attribute does not exist, so it must not be phrased
+      as the unknown-attribute error below.
+    - `attribute_id` absent from a declared set a channel *did* confirm is
+      an error naming the declared ids, never an empty value list -- an
+      empty list reads as "this attribute has no values" when the true
+      answer is "you asked for something that does not exist".
     - A declared-but-empty attribute (the MSD channel's `declared_empty`
       status: the provider defines it for this dataflow and every row
       leaves it blank) returns `total: 0` with no error, only a note --
       that is a real, observed answer, not a failure.
     - A populated attribute returns its values, capped at
       `_MAX_ATTRIBUTE_VALUES` with `truncated` set and `total` left as the
-      true, uncapped count.
+      true, uncapped count. Values read through the DSD-attribute fallback
+      carry `key_context: null` for every entry regardless of how many
+      distinct values there are, because that channel has no per-value key
+      to report (see fetch_dsd_attribute_metadata) -- a note says so rather
+      than letting several disagreeing values look like several
+      dataflow-wide statements.
     """
     agency = agency_id or client.agency_id
 
@@ -907,12 +932,34 @@ async def get_metadata_attribute_values(
     msd_attrs, msd_status = await fetch_msd_metadata(
         client, dataflow_id, agency, key, ctx=ctx, version=version, dimension_ids=dimension_ids
     )
-    attributes = msd_attrs
-    if msd_status != "found":
-        dsd_attrs, _dsd_status = await fetch_dsd_attribute_metadata(
+    from_dsd = msd_status != "found"
+    dsd_status: str | None = None
+    if not from_dsd:
+        attributes = msd_attrs
+    else:
+        dsd_attrs, dsd_status = await fetch_dsd_attribute_metadata(
             client, dataflow_id, agency, key or "all", ctx=ctx, dimension_ids=dimension_ids
         )
         attributes = dsd_attrs
+
+    # A declared set is only known when at least one channel actually
+    # answered (found or empty). Anything else -- too_broad, inconclusive,
+    # unsupported on both -- is a fetch that did not resolve, and treating
+    # its empty `attributes` list as "the attribute does not exist" would
+    # misreport a provider hiccup as a caller mistake. This mirrors the same
+    # distinction the too_broad handling in get_reference_metadata protects.
+    channel_confirmed = msd_status in ("found", "empty") or dsd_status in ("found", "empty")
+    if not channel_confirmed:
+        return {
+            "dataflow_id": dataflow_id,
+            "attribute_id": attribute_id,
+            "label": None,
+            "value_kind": "unknown",
+            "values": [],
+            "total": 0,
+            "truncated": False,
+            "notes": _channel_status_notes(msd_status, dsd_status),
+        }
 
     match = next((attr for attr in attributes if attr["id"] == attribute_id), None)
     if match is None:
@@ -960,6 +1007,13 @@ async def get_metadata_attribute_values(
         for v in capped
     ]
     notes: list[str] = []
+    if from_dsd:
+        notes.append(
+            "This attribute came from the DSD-attribute channel, which has "
+            "no per-value key to report: key_context is null for every "
+            "value here even though they attach at " + match["scope"]
+            + " level, not to the whole dataflow."
+        )
     if truncated:
         notes.append(
             "Showing the first " + str(_MAX_ATTRIBUTE_VALUES) + " of " + str(total)

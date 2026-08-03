@@ -2724,7 +2724,11 @@ async def get_metadata_attribute(
     Args:
         dataflow_id: The dataflow to read
         attribute_id: An attribute id from get_reference_metadata()
-        key: Optional partial key to narrow the query
+        key: Optional dimension key to narrow the query. Strongly recommended
+            for large dataflows: an unfiltered request that is too large to
+            return is reported back rather than guessed at, but supplying a
+            key (for example a single indicator or reference area) up front
+            avoids that round trip.
         agency_id: The agency that owns the dataflow
         endpoint: Optional endpoint key for this call only
 

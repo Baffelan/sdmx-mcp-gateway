@@ -191,6 +191,66 @@ def test_all_values_are_kept_uncapped_for_drill_down():
     assert all(v["scope"] == "partial_key" for v in attr["all_values"])
 
 
+DF_SDG_LIKE_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "DATA_SOURCE.DATA_SOURCE_ORGANIZATION,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,FJI,Fiji,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,TON,Tonga,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,VUT,Vanuatu,"
+    "UNSD,Source organisation\n"
+)
+
+
+def test_a_value_on_every_row_is_scoped_all_observed_rows():
+    """SPC's DF_SDG publishes the same value on every per-country row and
+    has no dataflow-wide row at all, so every row is partial_key. The value
+    still describes everything this query returned, even though no row
+    ever appeared unqualified."""
+    out = parse_msd_csv(DF_SDG_LIKE_CSV, dimension_ids={"REF_AREA"})
+    org = next(a for a in out if a["id"] == "DATA_SOURCE_ORGANIZATION")
+    assert org["scope"] == "all_observed_rows"
+    assert org["value"] == "UNSD"
+    assert org["distinct_value_count"] == 1
+    assert org["key_context"] is None
+
+
+PARTIAL_COVERAGE_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "COVERAGE,Coverage\n"
+    "dataflow,OECD:DF(1.0),I,AUS,Australia,"
+    "Whole country,Coverage\n"
+    "dataflow,OECD:DF(1.0),I,GBR,United Kingdom,,\n"
+    "dataflow,OECD:DF(1.0),I,USA,United States,"
+    "Whole country,Coverage\n"
+)
+
+
+def test_a_value_on_only_some_rows_keeps_partial_key_scope():
+    """Two of three rows carry the identical text; the third leaves the
+    column blank. Only one distinct value was ever seen, but it did not
+    appear on every row this query read, so it must not be promoted to
+    all_observed_rows: that would claim more than was actually true."""
+    out = parse_msd_csv(PARTIAL_COVERAGE_CSV, dimension_ids={"REF_AREA"})
+    coverage = next(a for a in out if a["id"] == "COVERAGE")
+    assert coverage["distinct_value_count"] == 1
+    assert coverage["scope"] == "partial_key"
+    assert coverage["key_context"] is not None
+
+
+def test_truncation_blocks_the_all_observed_rows_scope(monkeypatch):
+    """Truncation makes "every row" unknowable: a value identical on every
+    row actually read might still disagree with a row past the cap, so a
+    truncated response must not claim it covers all observed rows."""
+    monkeypatch.setattr(reference_metadata_module, "_MAX_MSD_DATA_ROWS", 2)
+    out = parse_msd_csv(DF_SDG_LIKE_CSV, dimension_ids={"REF_AREA"})
+    org = next(a for a in out if a["id"] == "DATA_SOURCE_ORGANIZATION")
+    assert out.truncated is True
+    assert org["scope"] == "partial_key"
+    assert org["value"] == "UNSD"
+
+
 def test_value_kind_is_unknown_rather_than_guessed():
     """Defaulting to prose would imply the value was examined and found to be
     text. Where nothing can be established, say so."""

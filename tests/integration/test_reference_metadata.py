@@ -995,14 +995,19 @@ QUALITY_ASSMNT_MSD_CSV = (
     "QUALITY_ASSMNT,Quality management\n"
     "dataflow,OECD:DF(1.0),I,ITA,Italy,"
     "Assessed for Italy only,Quality management\n"
+    "dataflow,OECD:DF(1.0),I,FRA,France,,\n"
 )
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_single_value_at_partial_key_still_withholds_the_headline():
-    """QUALITY_ASSMNT has one value describing Italy alone. One value is not
-    the same as one that describes the dataflow."""
+    """QUALITY_ASSMNT has one value, describing Italy alone; France's row
+    leaves it blank. Under the all_observed_rows rule the discriminator is
+    whether a value appeared on every row a query read, not whether it is
+    the only distinct value seen, so this needs a second, blank row to stay
+    withheld. A single-row response would trivially satisfy "every row"
+    and is covered separately (all_observed_rows tests below)."""
     respx.get(url__startswith=_msd_url()).respond(200, text=QUALITY_ASSMNT_MSD_CSV)
     result = await get_reference_metadata(
         DimAwareClient(dimension_ids={"REF_AREA"}), "DF_SDG", key=None)
@@ -1030,6 +1035,67 @@ async def test_dataflow_wide_single_value_keeps_its_headline():
     attr = next(a for a in result["metadata_attributes"] if a["id"] == "COMPILING_ORG")
     assert attr["value"] == "Fiji Bureau of Statistics"
     assert attr["drill_down"] is False
+
+
+DF_SDG_SINGLE_VALUE_MSD_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "DATA_SOURCE.DATA_SOURCE_ORGANIZATION,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,FJI,Fiji,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,TON,Tonga,"
+    "UNSD,Source organisation\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_value_on_every_row_gets_a_headline_but_keeps_drill_down():
+    """The approved fix for SPC's real DF_SDG: it publishes the same value
+    on every per-country row and has no dataflow-wide row at all, so every
+    row is partial_key and every populated attribute used to come back
+    value: null, drill_down: true. The summary showed no readable values
+    at all on the gateway's default provider. The value now surfaces as a
+    headline, but drill_down stays true since the per-row detail is still
+    reachable and the value only describes the rows this query returned."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=DF_SDG_SINGLE_VALUE_MSD_CSV)
+    result = await get_reference_metadata(
+        DimAwareClient(dimension_ids={"REF_AREA"}), "DF_SDG", key=None)
+    attr = next(a for a in result["metadata_attributes"]
+                if a["id"] == "DATA_SOURCE_ORGANIZATION")
+    assert attr["scope"] == "all_observed_rows"
+    assert attr["value"] == "UNSD"
+    assert attr["drill_down"] is True
+    assert attr["sample_key_context"] is None
+    joined = " ".join(result["notes"]).lower()
+    assert "identical on every" in joined
+    assert "not covered" in joined or "rows outside" in joined
+
+
+SINGLE_ROW_MSD_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "QUALITY_ASSMNT,Quality management\n"
+    "dataflow,OECD:DF(1.0),I,ITA,Italy,"
+    "Assessed for Italy only,Quality management\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_single_row_response_trivially_satisfies_every_row():
+    """A response with exactly one data row satisfies "appeared on every
+    row read" by construction: there is nothing else it could disagree
+    with. This is a deliberate consequence of the all_observed_rows rule,
+    pinned here so it reads as intentional rather than an untested edge
+    case; test_single_value_at_partial_key_still_withholds_the_headline
+    above is the contrasting case where a second, blank row keeps the
+    value withheld."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=SINGLE_ROW_MSD_CSV)
+    result = await get_reference_metadata(
+        DimAwareClient(dimension_ids={"REF_AREA"}), "DF_SDG", key=None)
+    attr = next(a for a in result["metadata_attributes"] if a["id"] == "QUALITY_ASSMNT")
+    assert attr["scope"] == "all_observed_rows"
+    assert attr["value"] == "Assessed for Italy only"
+    assert attr["drill_down"] is True
 
 
 COVERAGE_MSD_CSV = (

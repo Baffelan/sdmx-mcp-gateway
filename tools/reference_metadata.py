@@ -221,6 +221,19 @@ def parse_msd_csv(
     `distinct_value_count` records the total. Declared-but-empty columns are
     returned with `status="declared_empty"` so callers can distinguish a
     blank licence field from a provider that defines no licence concept.
+
+    A column whose single distinct value never appears on an unqualified
+    row still gets a `scope` of `"all_observed_rows"`, rather than staying
+    `partial_key`, when that value was present on every data row this call
+    actually read and the response was not truncated. SPC's `DF_SDG`
+    publishes the same value on every per-country row and has no
+    dataflow-wide row at all, so every row is `partial_key` on its own; the
+    value nonetheless describes everything this query returned. This is a
+    weaker claim than `"dataflow"`: it says the value was identical on every
+    row the query happened to return, not that the provider declared it
+    unqualified, so it never overrides an already-promoted `"dataflow"`
+    scope. Truncation makes "every row" unknowable, so a truncated response
+    never uses it even when the rows actually read all agreed.
     """
     reader = csv.reader(io.StringIO(text))
     try:
@@ -255,8 +268,16 @@ def parse_msd_csv(
     entry_by_value: dict[int, dict[str, dict[str, Any]]] = {
         index: {} for index, *_ in meta_columns
     }
+    # Per metadata column index: how many of the data rows actually read
+    # carried any value at all for it, regardless of whether that value was
+    # distinct from others seen. Compared against `total_rows_read` below to
+    # tell "the same value on every row" apart from "the same value on some
+    # of them, blank on the rest"; only the former earns the
+    # `"all_observed_rows"` scope.
+    rows_with_value: dict[int, int] = {index: 0 for index, *_ in meta_columns}
 
     truncated = False
+    total_rows_read = 0
     for row_number, row in enumerate(reader):
         if row_number >= _MAX_MSD_DATA_ROWS:
             logger.info(
@@ -265,12 +286,14 @@ def parse_msd_csv(
             )
             truncated = True
             break
+        total_rows_read += 1
         level, key_context = _row_level(row, dimension_columns)
         for index, _column, _attr_id, _label in meta_columns:
             raw = row[index] if index < len(row) else ""
             value, language = parse_localised_value(raw, prefer=prefer)
             if value is None:
                 continue
+            rows_with_value[index] += 1
             existing = entry_by_value[index].get(value)
             if existing is not None:
                 # SDMx-CSV row order is not contractual, so whichever row
@@ -314,15 +337,33 @@ def parse_msd_csv(
             })
             continue
         headline = next((v for v in values if v["scope"] == "dataflow"), values[0])
+        scope = headline["scope"]
+        key_context = headline["key_context"]
+        # A value that never appeared on an unqualified row is still worth
+        # surfacing as a headline when it was the only value seen and it
+        # was present on literally every row this call read: that is a
+        # weaker claim than `"dataflow"` (it says nothing about rows this
+        # query did not return, e.g. a different key or rows past the row
+        # cap), so it never overrides an already-promoted `"dataflow"`
+        # scope, and a truncated read can never earn it either.
+        if (
+            scope == "partial_key"
+            and len(values) == 1
+            and not truncated
+            and total_rows_read > 0
+            and rows_with_value[index] == total_rows_read
+        ):
+            scope = "all_observed_rows"
+            key_context = None
         out.append({
             "id": attr_id,
             "path": column,
             "label": label,
             "status": "populated",
-            "scope": headline["scope"],
+            "scope": scope,
             "value": headline["value"],
             "language": headline["language"],
-            "key_context": headline["key_context"],
+            "key_context": key_context,
             "distinct_value_count": len(values),
             "all_values": values,
         })
@@ -726,17 +767,35 @@ def _unresolved_attribute_result(
     }
 
 
+# Scopes eligible for a headline value: a provider-marked dataflow-wide
+# value (`dataflow`, `dataset`), or a value that was identical on every
+# data row a query actually returned (`all_observed_rows`, see
+# parse_msd_csv). `_DATAFLOW_WIDE_SCOPES` below is a strict subset of this
+# set: it also retires the drill-down, which only the provider-marked
+# scopes earn, since only they say anything about rows the query did not
+# return.
+_HEADLINE_SCOPES = frozenset({"dataflow", "dataset", "all_observed_rows"})
+
+# Scopes where no further per-slice detail remains to drill into: a strict
+# subset of `_HEADLINE_SCOPES`. `"all_observed_rows"` (see parse_msd_csv)
+# earns a headline value because it was identical on every row a query
+# returned, but says nothing about rows that query did not return, so
+# drill_down must stay true for it even though a headline is shown.
 _DATAFLOW_WIDE_SCOPES = frozenset({"dataflow", "dataset"})
 
 
 def _to_summary_attribute(attr: dict[str, Any]) -> dict[str, Any]:
     """Apply the headline rule: a value is only offered as the dataflow's
-    answer when exactly one distinct value exists and it describes the whole
-    dataflow (`scope` is `dataflow` or `dataset`). A value that describes
-    one slice, such as a single country's caveats or a single series'
-    source, is still that slice's answer, so it stays behind the drill-down
-    even when it is the only value seen -- one value is not the same as one
-    that describes the whole dataflow.
+    answer when exactly one distinct value exists and it either describes
+    the whole dataflow (`scope` is `dataflow` or `dataset`) or was identical
+    on every row a query actually returned (`all_observed_rows`). A value
+    that describes one slice, such as a single country's caveats or a
+    single series' source, is still that slice's answer, so it stays behind
+    the drill-down even when it is the only value seen: one value is not
+    the same as one that describes the whole dataflow. `all_observed_rows`
+    keeps the drill-down available too, even though it earns a headline:
+    unlike `dataflow`/`dataset`, it makes no claim about rows outside the
+    query, so the per-row detail behind it still matters.
     """
     if attr["status"] == "declared_empty":
         return {
@@ -753,7 +812,10 @@ def _to_summary_attribute(attr: dict[str, Any]) -> dict[str, Any]:
             "drill_down": False,
             "source": attr.get("source"),
         }
-    dataflow_wide = (
+    has_headline = (
+        attr["distinct_value_count"] == 1 and attr["scope"] in _HEADLINE_SCOPES
+    )
+    fully_resolved = (
         attr["distinct_value_count"] == 1 and attr["scope"] in _DATAFLOW_WIDE_SCOPES
     )
     return {
@@ -764,10 +826,10 @@ def _to_summary_attribute(attr: dict[str, Any]) -> dict[str, Any]:
         "scope": attr["scope"],
         "value_kind": classify_value_kind(attr["value"], has_codelist=False),
         "distinct_values": attr["distinct_value_count"],
-        "value": attr["value"] if dataflow_wide else None,
-        "language": attr["language"] if dataflow_wide else None,
-        "sample_key_context": attr["key_context"] if not dataflow_wide else None,
-        "drill_down": not dataflow_wide,
+        "value": attr["value"] if has_headline else None,
+        "language": attr["language"] if has_headline else None,
+        "sample_key_context": attr["key_context"] if not has_headline else None,
+        "drill_down": not fully_resolved,
         "source": attr.get("source"),
     }
 
@@ -873,6 +935,14 @@ async def get_reference_metadata(
         notes.append("No reference metadata was found for this dataflow.")
 
     summary_attributes = [_to_summary_attribute(attr) for attr in attributes]
+
+    if any(attr["scope"] == "all_observed_rows" for attr in summary_attributes):
+        notes.append(
+            "One or more attribute values were identical on every row this "
+            "query returned, so they are shown as a headline value. Rows "
+            "outside this query, such as a different key or rows beyond "
+            "the response's row limit, are not covered by that value."
+        )
 
     # `coverage` counts the provider's declared attributes against how many
     # are actually populated. Only the MSD channel can see a declared-but-

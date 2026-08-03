@@ -903,12 +903,19 @@ class MetadataAttribute(BaseModel):
     tells a caller to go and ask the provider. An attribute the provider
     never declared is absent from this list entirely.
 
-    `value` is filled only when it describes the whole dataflow: exactly one
-    distinct value, at `dataflow` or `dataset` scope. Where a value describes
-    one slice, such as OECD's recommended-uses text that differs per country,
-    `value` is null and `drill_down` is true, because volunteering one
-    country's text as the dataflow's answer is wrong even when only one
-    country has any.
+    `value` is filled when exactly one distinct value exists and either it
+    describes the whole dataflow (`dataflow` or `dataset` scope), or it was
+    identical on every data row the query actually returned
+    (`all_observed_rows` scope, e.g. SPC's `DF_SDG`, which publishes the
+    same value on every per-country row and has no dataflow-wide row at
+    all). The second case is a weaker claim than the first: it says nothing
+    about rows the query did not return, such as a different key or rows
+    beyond a truncated response's row cap, so `drill_down` stays true for
+    it even though `value` is filled. Where a value describes one slice
+    without appearing on every row read, such as OECD's recommended-uses
+    text that differs per country, `value` is null and `drill_down` is
+    true, because volunteering one country's text as the dataflow's answer
+    is wrong even when only one country has any.
     """
 
     id: str = Field(description="Attribute identifier")
@@ -922,7 +929,10 @@ class MetadataAttribute(BaseModel):
         description=(
             "What the value attaches to: dataflow or partial_key from the MSD "
             "channel; dataset, series or observation from the DSD-attribute "
-            "channel. Null when declared_empty."
+            "channel; or all_observed_rows, meaning it was identical on every "
+            "row this query returned, which is weaker than dataflow: a "
+            "provider never marked it unqualified, so rows outside the query "
+            "are not covered. Null when declared_empty."
         ),
     )
     value_kind: str = Field(
@@ -933,7 +943,11 @@ class MetadataAttribute(BaseModel):
     )
     value: str | None = Field(
         default=None,
-        description="The value, only when it describes the whole dataflow",
+        description=(
+            "The value, when it describes the whole dataflow (scope dataflow "
+            "or dataset) or was identical on every row this query returned "
+            "(scope all_observed_rows)"
+        ),
     )
     language: str | None = Field(
         default=None, description="Language of value, when there is one"

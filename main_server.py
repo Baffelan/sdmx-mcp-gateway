@@ -55,6 +55,8 @@ from models.schemas import (
     EndpointListResult,
     FilterInfo,
     KeyBuildResult,
+    MetadataAttribute,
+    MetadataCoverage,
     PaginationInfo,
     ProbeResult,
     QuerySuggestion,
@@ -2686,7 +2688,19 @@ async def get_reference_metadata(
         if hint:
             notes.append(hint)
 
-    return ReferenceMetadataResult(**{**result, "notes": notes})
+    attributes = [
+        MetadataAttribute(**attr) for attr in result.get("metadata_attributes", [])
+    ]
+    coverage = (
+        MetadataCoverage(**result["coverage"]) if result.get("coverage") is not None else None
+    )
+
+    return ReferenceMetadataResult(**{
+        **result,
+        "notes": notes,
+        "metadata_attributes": attributes,
+        "coverage": coverage,
+    })
 
 
 # =============================================================================

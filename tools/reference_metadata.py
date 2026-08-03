@@ -586,6 +586,52 @@ async def fetch_dsd_attribute_metadata(
     return [], "empty"
 
 
+_DATAFLOW_WIDE_SCOPES = frozenset({"dataflow", "dataset"})
+
+
+def _to_summary_attribute(attr: dict[str, Any]) -> dict[str, Any]:
+    """Apply the headline rule: a value is only offered as the dataflow's
+    answer when exactly one distinct value exists and it describes the whole
+    dataflow (`scope` is `dataflow` or `dataset`). A value that describes
+    one slice, such as a single country's caveats or a single series'
+    source, is still that slice's answer, so it stays behind the drill-down
+    even when it is the only value seen -- one value is not the same as one
+    that describes the whole dataflow.
+    """
+    if attr["status"] == "declared_empty":
+        return {
+            "id": attr["id"],
+            "path": attr["path"],
+            "label": attr["label"],
+            "status": "declared_empty",
+            "scope": None,
+            "value_kind": "unknown",
+            "distinct_values": 0,
+            "value": None,
+            "language": None,
+            "sample_key_context": None,
+            "drill_down": False,
+            "source": attr.get("source"),
+        }
+    dataflow_wide = (
+        attr["distinct_value_count"] == 1 and attr["scope"] in _DATAFLOW_WIDE_SCOPES
+    )
+    return {
+        "id": attr["id"],
+        "path": attr["path"],
+        "label": attr["label"],
+        "status": "populated",
+        "scope": attr["scope"],
+        "value_kind": "unknown",
+        "distinct_values": attr["distinct_value_count"],
+        "value": attr["value"] if dataflow_wide else None,
+        "language": attr["language"] if dataflow_wide else None,
+        "sample_key_context": attr["key_context"] if not dataflow_wide else None,
+        "drill_down": not dataflow_wide,
+        "source": attr.get("source"),
+    }
+
+
 async def get_reference_metadata(
     client: Any,
     dataflow_id: str,
@@ -598,7 +644,10 @@ async def get_reference_metadata(
     Reads the MSD channel where the provider supports it, falls back to
     descriptive DSD attributes otherwise, and reports the state of every
     channel so a caller can tell "this provider publishes nothing" from
-    "we could not find out".
+    "we could not find out". Each attribute found is reduced to a summary
+    shape by `_to_summary_attribute`, which decides whether its value may be
+    offered as the dataflow's headline answer, and `coverage` counts how
+    many of the provider's declared attributes were actually populated.
     """
     agency = agency_id or client.agency_id
     channels: dict[str, str] = {}
@@ -704,12 +753,20 @@ async def get_reference_metadata(
     ):
         notes.append("No reference metadata was found for this dataflow.")
 
+    summary_attributes = [_to_summary_attribute(attr) for attr in attributes]
+    coverage = {
+        "declared": len(summary_attributes),
+        "populated": sum(1 for a in summary_attributes if a["status"] == "populated"),
+        "empty": sum(1 for a in summary_attributes if a["status"] == "declared_empty"),
+    }
+
     return {
         "dataflow_id": dataflow_id,
         "agency_id": agency,
         "endpoint": getattr(client, "endpoint_key", None),
         "version": version,
-        "metadata_attributes": attributes,
+        "metadata_attributes": summary_attributes,
+        "coverage": coverage,
         "channels": channels,
         "notes": notes,
     }

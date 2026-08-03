@@ -109,14 +109,14 @@ def test_parse_msd_csv_finds_a_value_that_only_appears_in_a_later_row():
     by_id = {r["id"]: r for r in rows}
     assert "REC_USE_LIM" in by_id
     assert by_id["REC_USE_LIM"]["value"] == "Use with care"
-    assert by_id["REC_USE_LIM"]["level"] == "partial_key"
+    assert by_id["REC_USE_LIM"]["scope"] == "partial_key"
     assert by_id["REC_USE_LIM"]["key_context"] == {"REF_AREA": "USA"}
 
 
 def test_a_dataflow_level_value_is_the_headline_over_a_disagreeing_partial_key_one():
     """When rows disagree, a value that describes the whole dataflow is a
     more useful headline than one that only describes a slice of it -- but
-    the slice-specific value must still be visible in `values`, not
+    the slice-specific value must still be visible in `all_values`, not
     silently dropped, even though only the headline's own `key_context` is
     exposed structurally."""
     csv_text = (
@@ -130,25 +130,30 @@ def test_a_dataflow_level_value_is_the_headline_over_a_disagreeing_partial_key_o
     rows = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
     coverage = [r for r in rows if r["id"] == "COVERAGE"][0]
     assert coverage["value"] == "Whole country"
-    assert coverage["level"] == "dataflow"
+    assert coverage["scope"] == "dataflow"
     assert coverage["key_context"] is None
     assert coverage["distinct_value_count"] == 2
-    assert coverage["values"] == ["Whole country", "United Kingdom only"]
+    values = [v["value"] for v in coverage["all_values"]]
+    assert values == ["Whole country", "United Kingdom only"]
 
 
 def test_metadata_attribute_schema_preserves_attachment_context():
-    """A partial_key value is only meaningful if the caller can see the key."""
+    """A partial_key value is only meaningful if the caller can see the key.
+
+    Four disagreeing per-country values is exactly the shape the headline
+    rule withholds a value for, so `value` stays null and `drill_down` is
+    true even though `sample_key_context` still names one example key."""
     from models.schemas import MetadataAttribute
 
     attr = MetadataAttribute(
         id="REC_USE_LIM", path="REC_USE_LIM", label="Recommended uses",
-        value="Use with care", language="en", level="partial_key",
-        source="msd", key_context={"REF_AREA": "GBR"},
-        distinct_value_count=4, values=["Use with care", "Handle carefully"],
+        status="populated", scope="partial_key", value=None, language=None,
+        sample_key_context={"REF_AREA": "GBR"}, distinct_values=4, drill_down=True,
     )
-    assert attr.key_context == {"REF_AREA": "GBR"}
-    assert attr.distinct_value_count == 4
-    assert attr.values[0] == "Use with care"
+    assert attr.sample_key_context == {"REF_AREA": "GBR"}
+    assert attr.distinct_values == 4
+    assert attr.value is None
+    assert attr.drill_down is True
 
 
 class FakeClient:
@@ -190,10 +195,19 @@ class _FakeStructureSummary:
 
 class DimAwareClient(FakeClient):
     """A FakeClient that can actually answer get_structure_summary, for
-    tests that need to verify dimension ids reach both metadata channels."""
+    tests that need to verify dimension ids reach both metadata channels.
+
+    Defaults to `{"FREQ"}`, DF_SDG's own dimension, but accepts any set so
+    tests that need a different dimension excluded from the metadata columns
+    (e.g. `REF_AREA`, to exercise per-country values) can supply it.
+    """
+
+    def __init__(self, version="4.3", dimension_ids=frozenset({"FREQ"})):
+        super().__init__(version=version)
+        self._dimension_ids = dimension_ids
 
     async def get_structure_summary(self, dataflow_id, agency_id=None):
-        return _FakeStructureSummary({"FREQ"})
+        return _FakeStructureSummary(self._dimension_ids)
 
 
 def _msd_url(version="4.3", key=None):
@@ -860,9 +874,11 @@ async def test_the_wrapper_carries_key_context_through_for_a_partial_key_attribu
     """A caller reading the MCP tool's structured `ReferenceMetadataResult`,
     not the raw dict `get_reference_metadata_impl` returns, must still be
     able to see which key a partial_key value applies to -- that is the
-    whole point of putting `key_context` on `MetadataAttribute` at all.
-    Every one of OECD's HICP attributes lands as partial_key in practice, so
-    this is the common case being exercised, not an edge one."""
+    whole point of putting `sample_key_context` on `MetadataAttribute` at
+    all. Every one of OECD's HICP attributes lands as partial_key in
+    practice, so this is the common case being exercised, not an edge one.
+    Four disagreeing per-country values also means the headline rule
+    withholds `value`, so this pins that behaviour through the wrapper too."""
     from unittest.mock import patch
 
     from app_context import AppContext
@@ -882,13 +898,14 @@ async def test_the_wrapper_carries_key_context_through_for_a_partial_key_attribu
                 "id": "REC_USE_LIM",
                 "path": "REC_USE_LIM",
                 "label": "Recommended uses",
-                "value": "Use with care",
-                "language": "en",
-                "level": "partial_key",
-                "source": "msd",
-                "key_context": {"REF_AREA": "GBR"},
-                "distinct_value_count": 4,
-                "values": ["Use with care", "Handle carefully"],
+                "status": "populated",
+                "scope": "partial_key",
+                "value_kind": "unknown",
+                "distinct_values": 4,
+                "value": None,
+                "language": None,
+                "sample_key_context": {"REF_AREA": "GBR"},
+                "drill_down": True,
             }],
             "channels": {"msd_v2": "found", "dsd_attributes": "skipped"},
             "notes": [],
@@ -900,7 +917,120 @@ async def test_the_wrapper_carries_key_context_through_for_a_partial_key_attribu
         result = await handler(dataflow_id="DF_PRICES_HICP", endpoint="OECD", ctx=ctx)
 
     attr = result.metadata_attributes[0]
-    assert attr.level == "partial_key"
-    assert attr.key_context == {"REF_AREA": "GBR"}
-    assert attr.distinct_value_count == 4
-    assert attr.values == ["Use with care", "Handle carefully"]
+    assert attr.scope == "partial_key"
+    assert attr.sample_key_context == {"REF_AREA": "GBR"}
+    assert attr.distinct_values == 4
+    assert attr.value is None
+    assert attr.drill_down is True
+
+
+# =============================================================================
+# Headline rule and coverage (get_reference_metadata summary shape)
+# =============================================================================
+
+REC_USE_LIM_MSD_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "REC_USE_LIM,Recommended uses\n"
+    "dataflow,OECD:DF(1.0),I,AUS,Australia,"
+    "Interpret with caution in Australia,Recommended uses\n"
+    "dataflow,OECD:DF(1.0),I,GBR,United Kingdom,"
+    "Interpret with caution in the United Kingdom,Recommended uses\n"
+    "dataflow,OECD:DF(1.0),I,USA,United States,"
+    "Interpret with caution in the United States,Recommended uses\n"
+    "dataflow,OECD:DF(1.0),I,NZL,New Zealand,"
+    "Interpret with caution in New Zealand,Recommended uses\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_summary_withholds_a_headline_for_a_per_country_value():
+    """OECD's REC_USE_LIM differs by country. Returning Australia's text as
+    the answer means a question about Japan gets Australia's caveats."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=REC_USE_LIM_MSD_CSV)
+    result = await get_reference_metadata(
+        DimAwareClient(dimension_ids={"REF_AREA"}), "DF_SDG", key=None)
+    attr = next(a for a in result["metadata_attributes"] if a["id"] == "REC_USE_LIM")
+    assert attr["value"] is None
+    assert attr["distinct_values"] == 4
+    assert attr["drill_down"] is True
+    assert attr["sample_key_context"] == {"REF_AREA": "AUS"}
+
+
+QUALITY_ASSMNT_MSD_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "QUALITY_ASSMNT,Quality management\n"
+    "dataflow,OECD:DF(1.0),I,ITA,Italy,"
+    "Assessed for Italy only,Quality management\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_single_value_at_partial_key_still_withholds_the_headline():
+    """QUALITY_ASSMNT has one value describing Italy alone. One value is not
+    the same as one that describes the dataflow."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=QUALITY_ASSMNT_MSD_CSV)
+    result = await get_reference_metadata(
+        DimAwareClient(dimension_ids={"REF_AREA"}), "DF_SDG", key=None)
+    attr = next(a for a in result["metadata_attributes"] if a["id"] == "QUALITY_ASSMNT")
+    assert attr["value"] is None
+    assert attr["drill_down"] is True
+
+
+COMPILING_ORG_MSD_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "COMPILING_ORG,Compiling organisation\n"
+    "dataflow,FBOS:DF(1.0),I,~,~,"
+    "Fiji Bureau of Statistics,Compiling organisation\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_dataflow_wide_single_value_keeps_its_headline():
+    """FBOS's compiling agency applies to the whole dataflow, so withholding
+    it would be unhelpful in the other direction."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=COMPILING_ORG_MSD_CSV)
+    result = await get_reference_metadata(
+        DimAwareClient(dimension_ids={"REF_AREA"}), "DF_SDG", key=None)
+    attr = next(a for a in result["metadata_attributes"] if a["id"] == "COMPILING_ORG")
+    assert attr["value"] == "Fiji Bureau of Statistics"
+    assert attr["drill_down"] is False
+
+
+COVERAGE_MSD_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,FREQ,Frequency of observation,"
+    "DATA_SOURCE.DATA_SOURCE_ORGANIZATION,Source organisation,"
+    "DATA_SOURCE.DATA_SOURCE_TITLE,Title of the dataset,"
+    "DATA_SOURCE.DATA_SOURCE_LICENSE,Licence,"
+    "DATA_SOURCE.DATA_SOURCE_DATE,Date sourced,"
+    "DATA_SOURCE.DATA_SOURCE_URL,Source URL,"
+    "DATA_SOURCE.DATA_SOURCE_TYPE,Source type,"
+    "QUALITY.QUALITY_ASSESSMENT,Quality assessment,"
+    "QUALITY.QUALITY_DOC,Quality documentation,"
+    "COMPILATION.COMPILATION_ORG,Compiling organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,~,~,"
+    "UNSD,Source organisation,"
+    "SDG Global Database,Title of the dataset,"
+    ",Licence,"
+    ",Date sourced,"
+    "https://example.org/source,Source URL,"
+    "Administrative data,Source type,"
+    "Assessed annually,Quality assessment,"
+    "See methodology,Quality documentation,"
+    "Pacific Data Hub,Compiling organisation\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_coverage_counts_declared_populated_and_empty():
+    """SPC's DF_SDG declares 9 and populates 7; the 2 blanks include the
+    licence, which is exactly what a caller asks about."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=COVERAGE_MSD_CSV)
+    result = await get_reference_metadata(DimAwareClient(), "DF_SDG", key=None)
+    assert result["coverage"] == {"declared": 9, "populated": 7, "empty": 2}
+    licence = next(a for a in result["metadata_attributes"]
+                   if a["id"] == "DATA_SOURCE_LICENSE")
+    assert licence["status"] == "declared_empty"

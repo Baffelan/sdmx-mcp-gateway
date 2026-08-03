@@ -974,7 +974,7 @@ async def get_reference_metadata(
         )
     elif channels.get("msd_v2") == "found" or (
         channels.get("msd_v2") == "empty"
-        and channels.get("dsd_attributes") in ("found", "empty")
+        and channels.get("dsd_attributes") == "empty"
     ):
         coverage = {
             "declared": len(summary_attributes),
@@ -1012,9 +1012,10 @@ async def get_metadata_attribute_values(
     each applies to.
 
     This is the drill-down get_reference_metadata() points to whenever a
-    summary attribute reports `drill_down=true`: its values differ across
-    the dataflow, so no single value can stand in as the dataflow's answer,
-    and this call is what lets a caller actually read all of them.
+    summary attribute reports `drill_down=true`: more detail remains than the
+    summary shows, either because values differ across rows or because a
+    single value was identical only on the rows this query returned.
+    This call lets a caller read all distinct values and their slices.
 
     Fetches exactly as get_reference_metadata does -- fetch_msd_metadata,
     falling back to fetch_dsd_attribute_metadata when the MSD channel does

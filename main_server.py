@@ -2717,9 +2717,11 @@ async def get_metadata_attribute(
     """Get every value of one reference metadata attribute, with the slice each applies to.
 
     Use after get_reference_metadata() reports drill_down=true for an
-    attribute, which means its values differ across the dataflow (for example
-    recommended-uses text that differs per country) and no single value
-    describes the whole dataflow.
+    attribute, which means more detail remains than the summary shows. This
+    can happen because the attribute's values differ across the dataflow (for
+    example recommended-uses text that differs per country), or because a
+    single value was identical on every row this query returned but drill_down
+    stays true since other rows queried differently might differ.
 
     Args:
         dataflow_id: The dataflow to read

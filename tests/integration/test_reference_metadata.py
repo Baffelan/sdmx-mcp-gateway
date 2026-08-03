@@ -1341,6 +1341,36 @@ async def test_drill_down_returns_every_value_with_its_own_context():
     assert areas == ["AUS", "CAN", "JPN", "IND"]
 
 
+DF_SDG_THREE_COUNTRY_MSD_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "DATA_SOURCE.DATA_SOURCE_ORGANIZATION,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,FJI,Fiji,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,TON,Tonga,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,WSM,Samoa,"
+    "UNSD,Source organisation\n"
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_returns_every_context_for_a_value_repeated_on_every_row():
+    """The all_observed_rows headline for a value repeated across many
+    countries must not cost the drill-down its detail: each row's own
+    context stays reachable through get_metadata_attribute, one entry per
+    country, not just the first one seen."""
+    respx.get(url__startswith=_msd_url()).respond(200, text=DF_SDG_THREE_COUNTRY_MSD_CSV)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(dimension_ids={"REF_AREA"}),
+        dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_ORGANIZATION",
+    )
+    assert result["total"] == 3
+    areas = [v["key_context"]["REF_AREA"] for v in result["values"]]
+    assert areas == ["FJI", "TON", "WSM"]
+    assert all(v["value"] == "UNSD" for v in result["values"])
+
+
 BOP_TABLE1_MSD_CSV = (
     "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
     "COMPILING_ORG,Compiling organisation,"

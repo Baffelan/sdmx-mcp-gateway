@@ -210,17 +210,26 @@ def parse_msd_csv(
     `key_context` come from each row's own dimension cells (`_row_level`): a
     value attaches to the whole dataflow only when the row that carried it
     had every dimension wildcarded, otherwise it attaches to that row's
-    partial key. Because row order is not part of the SDMx-CSV contract, a
-    value already seen on a partial-key row is promoted to `dataflow` scope
-    if a later row repeats the identical text with every dimension
-    wildcarded, so the same response parses to the same headline regardless
-    of which row came first. When a column carries several distinct values,
-    the headline `value` (and its `scope`/`key_context`) prefers a
-    dataflow-level one over a partial-key one; `all_values` keeps every
-    distinct value in first-seen order uncapped for drill-down use, and
-    `distinct_value_count` records the total. Declared-but-empty columns are
-    returned with `status="declared_empty"` so callers can distinguish a
-    blank licence field from a provider that defines no licence concept.
+    partial key. Entries are deduped on the `(value, key_context)` pair, not
+    on the value text alone: SPC's `DF_SDG` publishes the same "UNSD" text
+    for FJI, TON and WSM on three separate rows, each with its own
+    key_context, and every one of those pairs survives as its own entry in
+    `all_values` -- deduping on the text alone would keep only the first
+    row's context and silently misattribute a Pacific-wide value to a
+    single country. A dataflow-level row always produces `key_context=None`,
+    so its pair can never collide with a partial-key row's pair for the same
+    value; this is what makes the same response parse to the same headline
+    regardless of which row came first, without needing to mutate an
+    already-recorded entry in place. When a column carries several distinct
+    values, the headline `value` (and its `scope`/`key_context`) prefers a
+    dataflow-level entry over a partial-key one, found by scanning
+    `all_values` for one; `all_values` keeps every distinct pair in
+    first-seen order uncapped for drill-down use, and `distinct_value_count`
+    counts distinct *values* (not pairs), since that is what the headline
+    rule and the `all_observed_rows` promotion below both key off. Declared-
+    but-empty columns are returned with `status="declared_empty"` so callers
+    can distinguish a blank licence field from a provider that defines no
+    licence concept.
 
     A column whose single distinct value never appears on an unqualified
     row still gets a `scope` of `"all_observed_rows"`, rather than staying
@@ -258,14 +267,15 @@ def parse_msd_csv(
     if not meta_columns:
         return _ParsedAttributes([])
 
-    # Per metadata column index: every distinct value seen, in first-seen
-    # order, uncapped -- these values are kept in full in the assembled
-    # result below (not capped), since callers need the complete dataset for
-    # drill-down purposes. `entry_by_value` indexes the same entries by their
-    # text so a later dataflow-scope row that repeats an already-seen value
-    # can promote it in place (see below) without a linear scan.
+    # Per metadata column index: every distinct (value, key_context) pair
+    # seen, in first-seen order, uncapped -- these pairs are kept in full in
+    # the assembled result below (not capped), since callers need the
+    # complete dataset for drill-down purposes. `entry_by_value` indexes the
+    # same entries by their pair, keyed on the value text plus a hashable
+    # form of key_context, so a repeat of an already-seen pair is recognised
+    # without a linear scan.
     collected: dict[int, list[dict[str, Any]]] = {index: [] for index, *_ in meta_columns}
-    entry_by_value: dict[int, dict[str, dict[str, Any]]] = {
+    entry_by_value: dict[int, dict[tuple[Any, ...], dict[str, Any]]] = {
         index: {} for index, *_ in meta_columns
     }
     # Per metadata column index: how many of the data rows actually read
@@ -294,18 +304,15 @@ def parse_msd_csv(
             if value is None:
                 continue
             rows_with_value[index] += 1
-            existing = entry_by_value[index].get(value)
-            if existing is not None:
-                # SDMx-CSV row order is not contractual, so whichever row
-                # happens to carry a value first must not decide its scope
-                # for good: a later dataflow-scope row confirms the value
-                # describes the whole dataflow, even though an earlier
-                # partial-key row carried the identical text first. Without
-                # this, the same response could parse to a different
-                # headline depending only on row order.
-                if level == "dataflow":
-                    existing["scope"] = "dataflow"
-                    existing["key_context"] = None
+            # A dataflow-level row always has an empty key_context, so its
+            # pair key can never collide with a partial-key row's pair for
+            # the same value -- a later dataflow-scope row confirming a
+            # value already seen at partial-key naturally becomes its own,
+            # additional entry rather than needing to mutate the earlier one
+            # in place. That is what keeps the headline scan below
+            # independent of row order without any promotion step here.
+            pair_key = (value, tuple(sorted(key_context.items())) if key_context else None)
+            if pair_key in entry_by_value[index]:
                 continue
             entry = {
                 "value": value,
@@ -313,7 +320,7 @@ def parse_msd_csv(
                 "scope": level,
                 "key_context": key_context or None,
             }
-            entry_by_value[index][value] = entry
+            entry_by_value[index][pair_key] = entry
             collected[index].append(entry)
 
     out: list[dict[str, Any]] = []
@@ -336,6 +343,13 @@ def parse_msd_csv(
                 "all_values": [],
             })
             continue
+        # `values` now holds distinct (value, key_context) pairs, so several
+        # entries can share the same value text -- distinct_value_count
+        # counts distinct values, since that is what the headline rule and
+        # the all_observed_rows promotion below both key off, and "one
+        # value published for twelve countries" must stay
+        # distinct_value_count == 1.
+        distinct_value_count = len({v["value"] for v in values})
         headline = next((v for v in values if v["scope"] == "dataflow"), values[0])
         scope = headline["scope"]
         key_context = headline["key_context"]
@@ -345,10 +359,13 @@ def parse_msd_csv(
         # weaker claim than `"dataflow"` (it says nothing about rows this
         # query did not return, e.g. a different key or rows past the row
         # cap), so it never overrides an already-promoted `"dataflow"`
-        # scope, and a truncated read can never earn it either.
+        # scope, and a truncated read can never earn it either. The
+        # headline entry itself keeps key_context=None here even though
+        # all_values may hold several per-country entries behind it: this
+        # is a sample-of-one headline, not a claim about a single slice.
         if (
             scope == "partial_key"
-            and len(values) == 1
+            and distinct_value_count == 1
             and not truncated
             and total_rows_read > 0
             and rows_with_value[index] == total_rows_read
@@ -364,7 +381,7 @@ def parse_msd_csv(
             "value": headline["value"],
             "language": headline["language"],
             "key_context": key_context,
-            "distinct_value_count": len(values),
+            "distinct_value_count": distinct_value_count,
             "all_values": values,
         })
     return _ParsedAttributes(out, truncated=truncated)

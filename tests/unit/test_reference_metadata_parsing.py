@@ -214,6 +214,45 @@ def test_a_value_on_every_row_is_scoped_all_observed_rows():
     assert org["value"] == "UNSD"
     assert org["distinct_value_count"] == 1
     assert org["key_context"] is None
+    # The headline is a weaker claim than "dataflow", so the per-row detail
+    # behind it must still be reachable -- one entry per country, not just
+    # the first one seen.
+    assert len(org["all_values"]) == 3
+
+
+FJI_TON_WSM_CSV = (
+    "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+    "DATA_SOURCE.DATA_SOURCE_ORGANIZATION,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,FJI,Fiji,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,TON,Tonga,"
+    "UNSD,Source organisation\n"
+    "dataflow,SPC:DF_SDG(4.3),I,WSM,Samoa,"
+    "UNSD,Source organisation\n"
+)
+
+
+def test_repeated_values_keep_every_row_context_instead_of_only_the_first():
+    """Deduping on the value text alone (the pre-fix behaviour) kept only
+    the FJI row's context and silently dropped TON and WSM. That is worse
+    than data loss: the surviving entry then misattributes a Pacific-wide
+    value to Fiji alone. Each row's own context must survive as its own
+    entry in all_values, keyed on the (value, key_context) pair rather than
+    the value alone."""
+    out = parse_msd_csv(FJI_TON_WSM_CSV, dimension_ids={"REF_AREA"})
+    org = next(a for a in out if a["id"] == "DATA_SOURCE_ORGANIZATION")
+    # distinct_value_count still counts distinct values, not pairs: one
+    # value ("UNSD") drives the headline rule regardless of how many
+    # countries published it.
+    assert org["distinct_value_count"] == 1
+    assert org["scope"] == "all_observed_rows"
+    assert org["key_context"] is None
+    assert len(org["all_values"]) == 3
+    contexts = [v["key_context"] for v in org["all_values"]]
+    assert contexts == [
+        {"REF_AREA": "FJI"}, {"REF_AREA": "TON"}, {"REF_AREA": "WSM"},
+    ]
+    assert all(v["value"] == "UNSD" for v in org["all_values"])
 
 
 PARTIAL_COVERAGE_CSV = (

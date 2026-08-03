@@ -796,6 +796,7 @@ def _unresolved_attribute_result(
         "value_kind": "unknown",
         "values": [],
         "total": 0,
+        "distinct_values": 0,
         "truncated": False,
         "notes": _channel_status_notes(msd_status, dsd_status),
     }
@@ -1091,7 +1092,9 @@ async def get_metadata_attribute_values(
       failure.
     - A populated attribute is `status: "values"`, returning its values,
       capped at `_MAX_ATTRIBUTE_VALUES` with `truncated` set and `total`
-      left as the true, uncapped count. Values read through the
+      left as the true, uncapped count. `distinct_values` counts distinct
+      value *texts* rather than (value, key_context) pairs like `total`,
+      also over the full uncapped set. Values read through the
       DSD-attribute fallback carry `key_context: null` for every entry
       regardless of how many distinct values there are, because that
       channel has no per-value key to report (see
@@ -1187,6 +1190,7 @@ async def get_metadata_attribute_values(
             "value_kind": "unknown",
             "values": [],
             "total": 0,
+            "distinct_values": 0,
             "truncated": False,
             "notes": [],
             "error": error,
@@ -1225,12 +1229,18 @@ async def get_metadata_attribute_values(
             "value_kind": "unknown",
             "values": [],
             "total": 0,
+            "distinct_values": 0,
             "truncated": False,
             "notes": empty_notes,
         }
 
     all_values = match["all_values"]
     total = len(all_values)
+    # Distinct value *texts*, not (value, key_context) pairs like `total` --
+    # counted over the full uncapped set so it stays truthful when
+    # `truncated` is true, e.g. three countries all publishing "UNSD" as
+    # DATA_SOURCE_ORGANIZATION give total: 3, distinct_values: 1.
+    distinct_values = len({v["value"] for v in all_values})
     capped = all_values[:_MAX_ATTRIBUTE_VALUES]
     truncated = total > len(capped)
     values = [
@@ -1269,6 +1279,7 @@ async def get_metadata_attribute_values(
         "value_kind": classify_value_kind(match["value"]),
         "values": values,
         "total": total,
+        "distinct_values": distinct_values,
         "truncated": truncated,
         "notes": notes,
     }

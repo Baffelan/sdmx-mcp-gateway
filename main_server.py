@@ -2767,6 +2767,7 @@ async def get_metadata_attribute(
         value_kind=result.get("value_kind", "unknown"),
         values=values,
         total=result.get("total", 0),
+        distinct_values=result.get("distinct_values", 0),
         truncated=result.get("truncated", False),
         notes=notes,
     )

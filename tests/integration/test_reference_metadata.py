@@ -212,6 +212,20 @@ def test_metadata_attribute_values_result_requires_a_status():
         MetadataAttributeValuesResult(dataflow_id="DF_SDG", attribute_id="X")
 
 
+def test_metadata_attribute_values_result_carries_distinct_values():
+    """`distinct_values` must be readable directly rather than requiring the
+    caller to dedupe `values` client-side and get it wrong when the texts
+    differ only in formatting."""
+    from models.schemas import MetadataAttributeValuesResult
+
+    result = MetadataAttributeValuesResult(
+        dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_ORGANIZATION",
+        status="values", total=3, distinct_values=1,
+    )
+    assert result.total == 3
+    assert result.distinct_values == 1
+
+
 class FakeClient:
     base_url = "https://example.org/rest"
     agency_id = "SPC"
@@ -1391,6 +1405,7 @@ async def test_drill_down_returns_every_value_with_its_own_context():
     assert result["total"] == 4
     assert result["truncated"] is False
     assert result["status"] == "values"
+    assert result["distinct_values"] == 4
     areas = [v["key_context"]["REF_AREA"] for v in result["values"]]
     assert areas == ["AUS", "CAN", "JPN", "IND"]
 
@@ -1413,7 +1428,12 @@ async def test_drill_down_returns_every_context_for_a_value_repeated_on_every_ro
     """The all_observed_rows headline for a value repeated across many
     countries must not cost the drill-down its detail: each row's own
     context stays reachable through get_metadata_attribute, one entry per
-    country, not just the first one seen."""
+    country, not just the first one seen.
+
+    Also the canonical distinct_values case: three countries publishing the
+    same source organisation give total 3 (one pair per country) but
+    distinct_values 1 (one text), since total counts (value, key_context)
+    pairs and distinct_values counts distinct value texts."""
     respx.get(url__startswith=_msd_url()).respond(200, text=DF_SDG_THREE_COUNTRY_MSD_CSV)
     result = await get_metadata_attribute_values(
         client=DimAwareClient(dimension_ids={"REF_AREA"}),
@@ -1421,6 +1441,7 @@ async def test_drill_down_returns_every_context_for_a_value_repeated_on_every_ro
     )
     assert result["total"] == 3
     assert result["status"] == "values"
+    assert result["distinct_values"] == 1
     areas = [v["key_context"]["REF_AREA"] for v in result["values"]]
     assert areas == ["FJI", "TON", "WSM"]
     assert all(v["value"] == "UNSD" for v in result["values"])
@@ -1454,6 +1475,7 @@ async def test_drill_down_on_an_unknown_attribute_lists_the_declared_ids():
     )
     assert result["values"] == []
     assert result["status"] == "unknown_attribute"
+    assert result["distinct_values"] == 0
 
 
 @pytest.mark.asyncio
@@ -1472,6 +1494,7 @@ async def test_drill_down_on_a_declared_empty_attribute_says_so():
     assert "error" not in result
     assert any("declared" in n.lower() for n in result["notes"])
     assert result["status"] == "declared_empty"
+    assert result["distinct_values"] == 0
 
 
 @pytest.mark.asyncio
@@ -1491,6 +1514,7 @@ async def test_drill_down_reaches_a_dotted_attribute_by_its_id():
     assert "error" not in result
     assert result["total"] == 1
     assert result["status"] == "values"
+    assert result["distinct_values"] == 1
     assert result["values"][0]["value"] == "UNSD"
 
 
@@ -1501,7 +1525,11 @@ async def test_drill_down_caps_values_but_reports_the_true_total(monkeypatch):
     green even if values beyond the cap silently vanished, so `total` and
     `len(values)` are asserted separately against the same four-country
     fixture used above, with the cap lowered to 2 rather than requiring a
-    204-row fixture to exceed the real cap of 200."""
+    204-row fixture to exceed the real cap of 200.
+
+    `distinct_values` must also be counted over the full uncapped set, not
+    the capped 200 (here, 2): all four HICP countries have their own text,
+    so distinct_values reads 4 even though only 2 values are returned."""
     monkeypatch.setattr(reference_metadata_module, "_MAX_ATTRIBUTE_VALUES", 2)
     respx.get(url__startswith=_drill_msd_url("DF_PRICES_HICP")).respond(
         200, text=HICP_REC_USE_LIM_CSV)
@@ -1514,6 +1542,7 @@ async def test_drill_down_caps_values_but_reports_the_true_total(monkeypatch):
     assert len(result["values"]) == 2
     assert result["truncated"] is True
     assert result["status"] == "values"
+    assert result["distinct_values"] == 4
 
 
 @pytest.mark.asyncio
@@ -1537,6 +1566,7 @@ async def test_drill_down_does_not_claim_unknown_when_no_channel_confirmed():
     assert result["total"] == 0
     assert result["values"] == []
     assert result["status"] == "unestablished"
+    assert result["distinct_values"] == 0
     joined = " ".join(result["notes"]).lower()
     assert "too large" in joined
     assert "declared attributes are" not in joined
@@ -1563,6 +1593,7 @@ async def test_drill_down_does_not_claim_unknown_when_msd_empty_and_dsd_unresolv
     assert result["total"] == 0
     assert result["values"] == []
     assert result["status"] == "unestablished"
+    assert result["distinct_values"] == 0
     joined = " ".join(result["notes"]).lower()
     assert "declared attributes are" not in joined
     assert "unknown" in joined or "not understood" in joined
@@ -1594,6 +1625,7 @@ async def test_drill_down_on_msd_empty_and_dsd_empty_is_unresolved_not_confirmed
     assert result["values"] == []
     assert "error" not in result
     assert result["status"] == "unestablished"
+    assert result["distinct_values"] == 0
     joined = " ".join(result["notes"]).lower()
     assert "declared attributes are" not in joined
     assert "could not be established" in joined
@@ -1625,6 +1657,7 @@ async def test_drill_down_does_not_claim_confirmed_empty_when_msd_is_too_broad()
     assert result["total"] == 0
     assert result["values"] == []
     assert result["status"] == "unestablished"
+    assert result["distinct_values"] == 0
     joined = " ".join(result["notes"]).lower()
     assert "too large" in joined
     assert "confirmed empty" not in joined
@@ -1655,6 +1688,7 @@ async def test_drill_down_does_not_claim_confirmed_empty_when_msd_is_unsupported
     assert result["total"] == 0
     assert result["values"] == []
     assert result["status"] == "unestablished"
+    assert result["distinct_values"] == 0
     joined = " ".join(result["notes"]).lower()
     assert "confirmed empty" not in joined
     assert "not configured for the v2 metadata endpoint" in joined
@@ -1692,6 +1726,7 @@ async def test_drill_down_through_the_dsd_channel_notes_the_lost_slice():
     )
     assert result["total"] == 2
     assert result["status"] == "values"
+    assert result["distinct_values"] == 2
     assert all(v["key_context"] is None for v in result["values"])
     assert any("DSD-attribute channel" in n for n in result["notes"])
 
@@ -1720,6 +1755,7 @@ async def test_a_dsd_found_channel_does_not_license_an_unknown_attribute_claim()
     assert result["total"] == 0
     assert result["values"] == []
     assert result["status"] == "unestablished"
+    assert result["distinct_values"] == 0
     joined = " ".join(result["notes"]).lower()
     assert "declared attributes are" not in joined
     assert "not configured for the v2 metadata endpoint" in joined
@@ -1743,6 +1779,7 @@ async def test_drill_down_does_not_contradict_the_headline_for_a_dataset_scope_a
         client=EcbClient(), dataflow_id="EXR", attribute_id="FULL_DESCRIPTION", key="all",
     )
     assert result["total"] == 1
+    assert result["distinct_values"] == 1
     assert not any("not to the whole dataflow" in n for n in result["notes"])
 
 
@@ -1762,6 +1799,7 @@ async def test_drill_down_on_a_declared_empty_attribute_says_slice_when_keyed():
     )
     assert result["total"] == 0
     assert result["status"] == "declared_empty"
+    assert result["distinct_values"] == 0
     joined = " ".join(result["notes"])
     assert "slice queried" in joined
     assert "for this dataflow and the provider has published no value" not in joined
@@ -1868,7 +1906,8 @@ async def test_the_attribute_wrapper_does_not_mark_a_declared_empty_attribute_as
 
 @pytest.mark.asyncio
 async def test_the_attribute_wrapper_passes_status_through_for_values():
-    """A populated result must reach the caller with `status: "values"`."""
+    """A populated result must reach the caller with `status: "values"` and
+    the deduped `distinct_values` count, not just the raw pair total."""
     from unittest.mock import patch
 
     from app_context import AppContext
@@ -1886,8 +1925,11 @@ async def test_the_attribute_wrapper_passes_status_through_for_values():
             "value_kind": "prose",
             "values": [
                 {"value": "UNSD", "key_context": {"REF_AREA": "FJI"}, "language": None},
+                {"value": "UNSD", "key_context": {"REF_AREA": "TON"}, "language": None},
+                {"value": "UNSD", "key_context": {"REF_AREA": "WSM"}, "language": None},
             ],
-            "total": 1,
+            "total": 3,
+            "distinct_values": 1,
             "truncated": False,
             "notes": [],
             "status": "values",
@@ -1904,7 +1946,8 @@ async def test_the_attribute_wrapper_passes_status_through_for_values():
         )
 
     assert result.status == "values"
-    assert result.total == 1
+    assert result.total == 3
+    assert result.distinct_values == 1
 
 
 @pytest.mark.asyncio
@@ -1949,4 +1992,5 @@ async def test_the_attribute_wrapper_passes_status_through_for_unestablished():
 
     assert result.status == "unestablished"
     assert result.total == 0
+    assert result.distinct_values == 0
     assert not result.notes[0].startswith("Error:")

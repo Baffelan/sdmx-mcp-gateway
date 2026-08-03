@@ -1015,6 +1015,18 @@ class MetadataAttributeValuesResult(BaseModel):
     value_kind: str = Field(default="unknown", description="prose, url, date or unknown")
     values: list[MetadataValue] = Field(default_factory=list, description="Values found")
     total: int = Field(default=0, description="Count of (value, key_context) pairs found")
+    distinct_values: int = Field(
+        default=0,
+        description=(
+            "Count of distinct value texts among the values found. `total` "
+            "counts (value, key_context) pairs and answers a different "
+            "question: three countries publishing the same source "
+            "organisation give total: 3, distinct_values: 1. Counted over "
+            "the full uncapped set, not the capped 200, so it stays "
+            "truthful when `truncated` is true. 0 for the three non-'values' "
+            "statuses."
+        ),
+    )
     truncated: bool = Field(
         default=False, description="True when values holds fewer than total"
     )

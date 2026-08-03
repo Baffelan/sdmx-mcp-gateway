@@ -36,12 +36,24 @@ _HREF = re.compile(r'<a\s[^>]*href=\\?"([^"\\]+)\\?"[^>]*>(.*?)</a>', re.IGNOREC
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?)?$")
 
 
+def _replace_href(match: re.Match[str]) -> str:
+    """Render one `<a href="X">Y</a>` match as plain text.
+
+    Keeps a link's text and its target, since the URL is often the useful
+    part, unless the anchor text already IS the href (surrounding whitespace
+    aside), in which case appending "(X)" would just repeat the same URL.
+    """
+    href, text = match.group(1), match.group(2)
+    if text.strip() == href.strip():
+        return text
+    return text + " (" + href + ")"
+
+
 def strip_markup(raw: str) -> str:
     """Plain text from the HTML fragments providers embed in metadata values."""
     if not raw:
         return ""
-    # Keep a link's text and its target, since the URL is often the useful part.
-    text = _HREF.sub(lambda m: m.group(2) + " (" + m.group(1) + ")", raw)
+    text = _HREF.sub(_replace_href, raw)
     text = _TAG.sub(" ", text)
     text = html.unescape(text).replace("\xa0", " ")
     return " ".join(text.split())

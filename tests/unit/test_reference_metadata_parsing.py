@@ -59,6 +59,31 @@ def test_strip_markup_collapses_whitespace_and_entities():
     assert strip_markup("<p>a&nbsp;b</p>\n<p>c</p>") == "a b c"
 
 
+def test_strip_markup_keeps_the_y_x_form_when_text_and_href_differ():
+    """The URL is the useful part when the link text is genuine prose, so
+    both must survive, in the "text (url)" order."""
+    raw = '<a href="https://unstats.un.org/sdgs">SDG portal</a>'
+    assert strip_markup(raw) == "SDG portal (https://unstats.un.org/sdgs)"
+
+
+def test_strip_markup_collapses_a_self_referential_link_to_one_occurrence():
+    """SPC's DATA_SOURCE_LINK anchor text is literally the href. The naive
+    "text (url)" substitution then prints the same URL twice:
+    'https://...SI_POV_DAY1 (https://...SI_POV_DAY1)'. There is nothing the
+    second copy adds, so it must collapse to a single occurrence."""
+    url = "https://unstats.un.org/sdgs/dataportal/SDMXMetadataPage?1.1.1-SI_POV_DAY1"
+    raw = '<a href="' + url + '">' + url + "</a>"
+    assert strip_markup(raw) == url
+
+
+def test_strip_markup_collapses_self_referential_link_despite_surrounding_whitespace():
+    """The comparison must ignore surrounding whitespace in the anchor text,
+    since that whitespace is markup formatting, not part of the answer."""
+    url = "https://example.org/x"
+    raw = '<a href="' + url + '">\n  ' + url + "  \n</a>"
+    assert strip_markup(raw) == url
+
+
 def test_providers_verified_serving_msd_metadata():
     for key in ("SPC", "OECD", "FBOS", "SBS"):
         support = get_metadata_support(key)

@@ -996,6 +996,22 @@ class MetadataAttributeValuesResult(BaseModel):
     dataflow_id: str = Field(description="Dataflow queried")
     attribute_id: str = Field(description="Attribute queried")
     label: str | None = Field(default=None, description="Human-readable label")
+    status: str = Field(
+        description=(
+            "One of four outcomes, mirroring the populated/declared_empty "
+            "vocabulary on MetadataAttribute: 'values' -- the attribute has "
+            "values, returned in `values`. 'declared_empty' -- the provider "
+            "declares this attribute for this dataflow and published no "
+            "value. 'unknown_attribute' -- no such attribute in the "
+            "declared set; the declared ids are named in `notes`. "
+            "'unestablished' -- no channel resolved to a declared set, so "
+            "nothing can be concluded about whether the attribute exists. "
+            "This last value must never be rendered as 'no metadata': it is "
+            "not an observation that the attribute is absent, only that "
+            "this provider's channels could not confirm one way or the "
+            "other."
+        )
+    )
     value_kind: str = Field(default="unknown", description="prose, url, date or unknown")
     values: list[MetadataValue] = Field(default_factory=list, description="Values found")
     total: int = Field(default=0, description="Count of (value, key_context) pairs found")

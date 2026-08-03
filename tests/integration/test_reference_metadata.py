@@ -189,6 +189,29 @@ def test_metadata_attribute_schema_preserves_attachment_context():
     assert attr.drill_down is True
 
 
+def test_metadata_attribute_values_result_carries_a_status():
+    """The four get_metadata_attribute outcomes must be distinguishable by
+    `status` alone, not by parsing `notes[0]` for an "Error: " prefix."""
+    from models.schemas import MetadataAttributeValuesResult
+
+    result = MetadataAttributeValuesResult(
+        dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_ORGANIZATION",
+        status="values", total=3,
+    )
+    assert result.status == "values"
+
+
+def test_metadata_attribute_values_result_requires_a_status():
+    """A construction site that forgets to set `status` must fail loudly
+    rather than silently defaulting to one of the four meanings."""
+    from pydantic import ValidationError
+
+    from models.schemas import MetadataAttributeValuesResult
+
+    with pytest.raises(ValidationError):
+        MetadataAttributeValuesResult(dataflow_id="DF_SDG", attribute_id="X")
+
+
 class FakeClient:
     base_url = "https://example.org/rest"
     agency_id = "SPC"
@@ -1367,6 +1390,7 @@ async def test_drill_down_returns_every_value_with_its_own_context():
     )
     assert result["total"] == 4
     assert result["truncated"] is False
+    assert result["status"] == "values"
     areas = [v["key_context"]["REF_AREA"] for v in result["values"]]
     assert areas == ["AUS", "CAN", "JPN", "IND"]
 
@@ -1396,6 +1420,7 @@ async def test_drill_down_returns_every_context_for_a_value_repeated_on_every_ro
         dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_ORGANIZATION",
     )
     assert result["total"] == 3
+    assert result["status"] == "values"
     areas = [v["key_context"]["REF_AREA"] for v in result["values"]]
     assert areas == ["FJI", "TON", "WSM"]
     assert all(v["value"] == "UNSD" for v in result["values"])
@@ -1428,6 +1453,7 @@ async def test_drill_down_on_an_unknown_attribute_lists_the_declared_ids():
         "COMPILING_ORG" in n for n in result["notes"]
     )
     assert result["values"] == []
+    assert result["status"] == "unknown_attribute"
 
 
 @pytest.mark.asyncio
@@ -1445,6 +1471,7 @@ async def test_drill_down_on_a_declared_empty_attribute_says_so():
     assert result["total"] == 0
     assert "error" not in result
     assert any("declared" in n.lower() for n in result["notes"])
+    assert result["status"] == "declared_empty"
 
 
 @pytest.mark.asyncio
@@ -1463,6 +1490,7 @@ async def test_drill_down_reaches_a_dotted_attribute_by_its_id():
     )
     assert "error" not in result
     assert result["total"] == 1
+    assert result["status"] == "values"
     assert result["values"][0]["value"] == "UNSD"
 
 
@@ -1485,6 +1513,7 @@ async def test_drill_down_caps_values_but_reports_the_true_total(monkeypatch):
     assert result["total"] == 4
     assert len(result["values"]) == 2
     assert result["truncated"] is True
+    assert result["status"] == "values"
 
 
 @pytest.mark.asyncio
@@ -1507,6 +1536,7 @@ async def test_drill_down_does_not_claim_unknown_when_no_channel_confirmed():
     assert "error" not in result
     assert result["total"] == 0
     assert result["values"] == []
+    assert result["status"] == "unestablished"
     joined = " ".join(result["notes"]).lower()
     assert "too large" in joined
     assert "declared attributes are" not in joined
@@ -1532,6 +1562,7 @@ async def test_drill_down_does_not_claim_unknown_when_msd_empty_and_dsd_unresolv
     assert "error" not in result
     assert result["total"] == 0
     assert result["values"] == []
+    assert result["status"] == "unestablished"
     joined = " ".join(result["notes"]).lower()
     assert "declared attributes are" not in joined
     assert "unknown" in joined or "not understood" in joined
@@ -1562,6 +1593,7 @@ async def test_drill_down_on_msd_empty_and_dsd_empty_is_unresolved_not_confirmed
     assert result["total"] == 0
     assert result["values"] == []
     assert "error" not in result
+    assert result["status"] == "unestablished"
     joined = " ".join(result["notes"]).lower()
     assert "declared attributes are" not in joined
     assert "could not be established" in joined
@@ -1592,6 +1624,7 @@ async def test_drill_down_does_not_claim_confirmed_empty_when_msd_is_too_broad()
     assert "error" not in result
     assert result["total"] == 0
     assert result["values"] == []
+    assert result["status"] == "unestablished"
     joined = " ".join(result["notes"]).lower()
     assert "too large" in joined
     assert "confirmed empty" not in joined
@@ -1621,6 +1654,7 @@ async def test_drill_down_does_not_claim_confirmed_empty_when_msd_is_unsupported
     assert "error" not in result
     assert result["total"] == 0
     assert result["values"] == []
+    assert result["status"] == "unestablished"
     joined = " ".join(result["notes"]).lower()
     assert "confirmed empty" not in joined
     assert "not configured for the v2 metadata endpoint" in joined
@@ -1657,6 +1691,7 @@ async def test_drill_down_through_the_dsd_channel_notes_the_lost_slice():
         client=EcbClient(), dataflow_id="EXR", attribute_id="SOURCE_AGENCY", key="all",
     )
     assert result["total"] == 2
+    assert result["status"] == "values"
     assert all(v["key_context"] is None for v in result["values"])
     assert any("DSD-attribute channel" in n for n in result["notes"])
 
@@ -1684,6 +1719,7 @@ async def test_a_dsd_found_channel_does_not_license_an_unknown_attribute_claim()
     assert "error" not in result
     assert result["total"] == 0
     assert result["values"] == []
+    assert result["status"] == "unestablished"
     joined = " ".join(result["notes"]).lower()
     assert "declared attributes are" not in joined
     assert "not configured for the v2 metadata endpoint" in joined
@@ -1725,6 +1761,7 @@ async def test_drill_down_on_a_declared_empty_attribute_says_slice_when_keyed():
         dataflow_id="DF_BOP_TABLE1", attribute_id="COVERAGE", key="A.FJI",
     )
     assert result["total"] == 0
+    assert result["status"] == "declared_empty"
     joined = " ".join(result["notes"])
     assert "slice queried" in joined
     assert "for this dataflow and the provider has published no value" not in joined
@@ -1756,6 +1793,7 @@ async def test_the_attribute_wrapper_marks_an_unknown_attribute_as_an_error():
             "total": 0,
             "truncated": False,
             "notes": [],
+            "status": "unknown_attribute",
             "error": (
                 "Unknown attribute 'NOT_AN_ATTRIBUTE' for DF_BOP_TABLE1: "
                 "declared attributes are COMPILING_ORG, COVERAGE"
@@ -1775,6 +1813,7 @@ async def test_the_attribute_wrapper_marks_an_unknown_attribute_as_an_error():
     assert result.total == 0
     assert result.values == []
     assert result.notes[0].startswith("Error: Unknown attribute")
+    assert result.status == "unknown_attribute"
 
 
 @pytest.mark.asyncio
@@ -1807,6 +1846,7 @@ async def test_the_attribute_wrapper_does_not_mark_a_declared_empty_attribute_as
                 "'COVERAGE' is declared for this dataflow and the provider "
                 "has published no value for it."
             ],
+            "status": "declared_empty",
         }
 
     with patch(
@@ -1823,3 +1863,90 @@ async def test_the_attribute_wrapper_does_not_mark_a_declared_empty_attribute_as
     assert result.values == []
     assert not result.notes[0].startswith("Error:")
     assert any("declared" in n.lower() for n in result.notes)
+    assert result.status == "declared_empty"
+
+
+@pytest.mark.asyncio
+async def test_the_attribute_wrapper_passes_status_through_for_values():
+    """A populated result must reach the caller with `status: "values"`."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def values_impl(client, dataflow_id, attribute_id, key=None, agency_id=None, ctx=None):
+        return {
+            "dataflow_id": dataflow_id,
+            "attribute_id": attribute_id,
+            "label": "Source organisation",
+            "value_kind": "prose",
+            "values": [
+                {"value": "UNSD", "key_context": {"REF_AREA": "FJI"}, "language": None},
+            ],
+            "total": 1,
+            "truncated": False,
+            "notes": [],
+            "status": "values",
+        }
+
+    with patch(
+        "tools.reference_metadata.get_metadata_attribute_values", side_effect=values_impl
+    ):
+        from main_server import get_metadata_attribute as handler
+
+        result = await handler(
+            dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_ORGANIZATION",
+            endpoint="SPC", ctx=ctx,
+        )
+
+    assert result.status == "values"
+    assert result.total == 1
+
+
+@pytest.mark.asyncio
+async def test_the_attribute_wrapper_passes_status_through_for_unestablished():
+    """The outcome the consumer bug report is about: nothing could be
+    concluded about whether the attribute exists at all. This must not be
+    confused with declared_empty at the tool boundary."""
+    from unittest.mock import patch
+
+    from app_context import AppContext
+    from session_manager import SessionManager
+
+    mgr = SessionManager(default_endpoint_key="SPC")
+    app_ctx = AppContext(session_manager=mgr)
+    ctx = _FakeCtx(app_ctx)
+
+    async def unestablished_impl(
+        client, dataflow_id, attribute_id, key=None, agency_id=None, ctx=None
+    ):
+        return {
+            "dataflow_id": dataflow_id,
+            "attribute_id": attribute_id,
+            "label": None,
+            "value_kind": "unknown",
+            "values": [],
+            "total": 0,
+            "truncated": False,
+            "notes": ["The metadata query did not produce a usable result."],
+            "status": "unestablished",
+        }
+
+    with patch(
+        "tools.reference_metadata.get_metadata_attribute_values",
+        side_effect=unestablished_impl,
+    ):
+        from main_server import get_metadata_attribute as handler
+
+        result = await handler(
+            dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_LICENSE",
+            endpoint="SPC", ctx=ctx,
+        )
+
+    assert result.status == "unestablished"
+    assert result.total == 0
+    assert not result.notes[0].startswith("Error:")

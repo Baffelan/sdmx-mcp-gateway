@@ -1,13 +1,13 @@
 {
-  "last_cycle_id": 106,
-  "last_cycle_started_at": "2026-08-03T00:01:22Z",
-  "last_run": "2026-08-03T00:43Z",
+  "last_cycle_id": 109,
+  "last_cycle_started_at": "2026-08-03T06:01:22Z",
+  "last_run": "2026-08-03T06:45Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "healthy",
+    "ESTAT": "gateway_issue",
     "FBOS": "healthy",
     "ILO": "healthy",
     "IMF": "healthy",
@@ -18,9 +18,9 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT list_dataflows timeout: resolved as of cycle 105 after 7 consecutive cycles of gateway_issue (98-104, longest streak on record). Healthy through cycle 106. Recommended fixes (raise deadline, stream the listing, cache the parsed result) were not applied; if it recurs a third time, action them rather than watching again.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 106: listing served without credentials. Still open, not re-reported since no new change.",
-    "ABS Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping; do not re-report unless the verdict itself changes.",
+    "ESTAT list_dataflows timeout: third distinct gateway_issue episode, cycles 107-109 ongoing as of cycle 109. Prior episodes: 98-104 (7 cycles, resolved by 105), then healthy through 106. Live recheck confirms raw transfer is not the bottleneck (29.0s for 37MB with references=none, same as the cycle 106 recheck), so the gateway's 60s deadline plus parse overhead is the constraint. The cycle 106 entry deferred fixing this until a third occurrence; this is that third occurrence. Recommended fixes still pending: raise the deadline, stream the listing, or cache the parsed result. Next run should check whether this cleared, worsened, or a fix was applied.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 109: listing served without credentials. Still open, not re-reported since no new change.",
+    "ABS/OECD Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Seen again on OECD at cycle 109. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence."
   ],
   "alerted": true

@@ -1110,6 +1110,53 @@ async def test_coverage_is_none_when_only_the_dsd_channel_answered():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_a_truncated_msd_response_notes_that_declared_empty_may_be_an_artefact(
+    monkeypatch,
+):
+    """I1: a column populated only beyond the row cap must not silently read
+    as a plain declared_empty. This lowers the cap so a 3-row fixture can
+    exceed it, then pins that get_reference_metadata surfaces a note
+    saying the response was cut off."""
+    monkeypatch.setattr(reference_metadata_module, "_MAX_MSD_DATA_ROWS", 2)
+    csv_text = (
+        "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+        "COVERAGE,Coverage\n"
+        "dataflow,OECD:DF(1.0),I,AUS,Australia,,\n"
+        "dataflow,OECD:DF(1.0),I,GBR,United Kingdom,,\n"
+        'dataflow,OECD:DF(1.0),I,USA,United States,'
+        '"en:""<p>Whole thing</p>""","Coverage"\n'
+    )
+    respx.get(url__startswith=_msd_url()).respond(200, text=csv_text)
+    result = await get_reference_metadata(
+        DimAwareClient(dimension_ids={"REF_AREA"}), "DF_SDG", key=None)
+    coverage_attr = next(a for a in result["metadata_attributes"] if a["id"] == "COVERAGE")
+    assert coverage_attr["status"] == "declared_empty"
+    assert any(
+        "truncat" in n.lower() or "cut off" in n.lower() for n in result["notes"]
+    )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_coverage_is_none_when_msd_is_empty_and_dsd_is_unresolved():
+    """C2: the MSD channel can legitimately confirm zero metadata columns
+    (status "empty") while the DSD fallback that always runs alongside it
+    fails to resolve (here, inconclusive). `coverage` must not assert
+    {declared: 0, populated: 0, empty: 0} next to a note saying the DSD
+    query did not produce a usable result -- that numeric zero reads as a
+    confirmed fact, not as "we don't know"."""
+    respx.get(url__startswith=_msd_url()).respond(
+        200, text="STRUCTURE,ACTION,FREQ,Frequency of observation\ndataflow,I,A,Annual\n")
+    respx.get(url__startswith="https://example.org/rest/data/").respond(204)
+    result = await get_reference_metadata(
+        DimAwareClient(dimension_ids={"FREQ"}), "DF_SDG", key=None)
+    assert result["channels"]["msd_v2"] == "empty"
+    assert result["channels"]["dsd_attributes"] == "inconclusive"
+    assert result["coverage"] is None
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_dataset_scope_keeps_its_headline_but_series_and_observation_do_not():
     """The headline rule's dataflow-wide scopes are `dataflow` (MSD channel)
     and `dataset` (DSD channel). All of the earlier headline-rule tests
@@ -1339,6 +1386,57 @@ async def test_drill_down_does_not_claim_unknown_when_no_channel_confirmed():
     assert "declared attributes are" not in joined
 
 
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_does_not_claim_unknown_when_msd_empty_and_dsd_unresolved():
+    """C1: the MSD channel can legitimately answer "empty" (zero metadata
+    columns in this dataflow's response) while the DSD fallback that always
+    runs alongside it fails to resolve (here, inconclusive). Treating the
+    whole lookup as "confirmed" from the MSD half alone let an attribute
+    lookup fall through to the unknown-attribute branch with an empty
+    declared list -- "declared attributes are " with nothing after the
+    colon -- misreporting a DSD-side fetch failure as a caller typo."""
+    respx.get(url__startswith=_msd_url()).respond(
+        200, text="STRUCTURE,ACTION,FREQ,Frequency of observation\ndataflow,I,A,Annual\n")
+    respx.get(url__startswith="https://example.org/rest/data/").respond(204)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(dimension_ids={"FREQ"}),
+        dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_LICENSE",
+    )
+    assert "error" not in result
+    assert result["total"] == 0
+    assert result["values"] == []
+    joined = " ".join(result["notes"]).lower()
+    assert "declared attributes are" not in joined
+    assert "unknown" in joined or "not understood" in joined
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_on_a_confirmed_empty_declared_set_is_not_worded_as_unknown():
+    """C1's second half: when both channels resolve and agree on zero
+    declared attributes, that is a real, confirmed answer -- but it must
+    not be worded as "declared attributes are " with nothing after the
+    colon, which reads as a formatting bug rather than as a dataflow that
+    genuinely declares no reference metadata."""
+    bare = ('<?xml version="1.0"?><mes:StructureSpecificData '
+            'xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" '
+            'xmlns:ss="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/structurespecific">'
+            '<mes:DataSet ss:dataScope="DataStructure"/></mes:StructureSpecificData>')
+    respx.get(url__startswith=_msd_url()).respond(
+        200, text="STRUCTURE,ACTION,FREQ,Frequency of observation\ndataflow,I,A,Annual\n")
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=bare)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(dimension_ids={"FREQ"}),
+        dataflow_id="DF_SDG", attribute_id="DATA_SOURCE_LICENSE",
+    )
+    assert result["total"] == 0
+    assert result["values"] == []
+    assert "error" in result
+    assert not result["error"].rstrip().endswith("declared attributes are")
+    assert not result["error"].rstrip().endswith(":")
+
+
 DSD_MULTI_VALUE_XML = (
     '<?xml version="1.0"?>'
     '<mes:StructureSpecificData '
@@ -1372,6 +1470,47 @@ async def test_drill_down_through_the_dsd_channel_notes_the_lost_slice():
     assert result["total"] == 2
     assert all(v["key_context"] is None for v in result["values"])
     assert any("DSD-attribute channel" in n for n in result["notes"])
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_does_not_contradict_the_headline_for_a_dataset_scope_attribute():
+    """I2: `_DATAFLOW_WIDE_SCOPES` treats `dataset` as dataflow-wide in the
+    summary's headline rule (get_reference_metadata keeps FULL_DESCRIPTION's
+    headline for exactly this reason), so the drill-down must not then say
+    the same value "attach[es] at dataset level, not to the whole
+    dataflow" -- that flatly contradicts the summary a caller may have just
+    read for the same attribute."""
+    class EcbClient(FakeClient):
+        endpoint_key = "ECB"
+        agency_id = "ECB"
+
+    respx.get(url__startswith="https://example.org/rest/data/").respond(200, text=DATA_XML)
+    result = await get_metadata_attribute_values(
+        client=EcbClient(), dataflow_id="EXR", attribute_id="FULL_DESCRIPTION", key="all",
+    )
+    assert result["total"] == 1
+    assert not any("not to the whole dataflow" in n for n in result["notes"])
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_drill_down_on_a_declared_empty_attribute_says_slice_when_keyed():
+    """I3: `declared_empty` means blank across the response actually read.
+    With a key supplied, that response is one slice, not the whole
+    dataflow -- SPC's DF_SDG can only be queried keyed, so this is the
+    normal path for its flagship dataflow -- and the wording must not claim
+    the provider published nothing for the dataflow as a whole."""
+    respx.get(url__startswith=_drill_msd_url("DF_BOP_TABLE1", key="A.FJI")).respond(
+        200, text=BOP_TABLE1_MSD_CSV)
+    result = await get_metadata_attribute_values(
+        client=DimAwareClient(dimension_ids={"REF_AREA"}),
+        dataflow_id="DF_BOP_TABLE1", attribute_id="COVERAGE", key="A.FJI",
+    )
+    assert result["total"] == 0
+    joined = " ".join(result["notes"])
+    assert "slice queried" in joined
+    assert "for this dataflow and the provider has published no value" not in joined
 
 
 @pytest.mark.asyncio

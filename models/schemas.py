@@ -896,10 +896,12 @@ class MetadataAttribute(BaseModel):
 
     `status` separates two answers this project has repeatedly conflated.
     `populated` means the provider published a value. `declared_empty` means
-    the provider defines the attribute for this dataflow and left it blank,
-    which is a different statement from the attribute not existing, and the
-    one that tells a caller to go and ask the provider. An attribute the
-    provider never declared is absent from this list entirely.
+    the attribute was blank throughout the response read: for the whole
+    dataflow when no key was supplied, or for the slice queried when one
+    was, since a keyed request only reads that slice. Either way it is a
+    different statement from the attribute not existing, and the one that
+    tells a caller to go and ask the provider. An attribute the provider
+    never declared is absent from this list entirely.
 
     `value` is filled only when it describes the whole dataflow: exactly one
     distinct value, at `dataflow` or `dataset` scope. Where a value describes

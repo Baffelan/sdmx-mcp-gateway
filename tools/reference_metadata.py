@@ -118,8 +118,32 @@ _STRUCTURAL_COLUMNS = frozenset({
 # Above this many data rows an MSD response is truncated rather than read in
 # full, so a pathological or misbehaving response cannot spin forever. Real
 # responses are nowhere near this: OECD's HICP metadata query, the largest
-# seen in practice, is 111 rows.
+# seen in practice, is 111 rows. This is not a size guard: a keyed request
+# is exempt from `UNKEYED_SIZE_CAP_BYTES` (see `_bounded_get`) but not from
+# this row cap, so a broad-but-legal key can still hit it.
 _MAX_MSD_DATA_ROWS = 5000
+
+
+class _ParsedAttributes(list):
+    """The list `parse_msd_csv` returns, plus whether the row scan stopped
+    early at `_MAX_MSD_DATA_ROWS`.
+
+    A plain `list` subclass rather than a separate return value, so every
+    existing caller that treats the result as a list of attribute dicts
+    (`for attr in parse_msd_csv(...)`, `parse_msd_csv(...) == []`) keeps
+    working unchanged; only a caller that wants to know about truncation
+    reads `.truncated`, via `getattr(result, "truncated", False)` so a
+    plain list (e.g. one built directly in a test) is treated as untruncated
+    rather than raising.
+
+    Truncation matters because a column whose only value lives in a row
+    past the cap reads as `declared_empty` -- indistinguishable, without
+    this flag, from a column the provider never fills at all.
+    """
+
+    def __init__(self, *args: Any, truncated: bool = False) -> None:
+        super().__init__(*args)
+        self.truncated = truncated
 
 
 def _row_level(
@@ -151,7 +175,7 @@ def parse_msd_csv(
     text: str,
     dimension_ids: set[str] | frozenset[str] = frozenset(),
     prefer: str = "en",
-) -> list[dict[str, Any]]:
+) -> _ParsedAttributes:
     """Pull metadata attributes out of a csvfilewithlabels response.
 
     Metadata columns are told apart from dimension and structural columns by
@@ -177,7 +201,12 @@ def parse_msd_csv(
     carries only 5, missing DATA_COMP, QUALITY_ASSMNT and REC_USE_LIM (the
     dataflow's recommended-uses-and-limitations text) entirely. Every row is
     read here, up to `_MAX_MSD_DATA_ROWS`, and each metadata column's
-    distinct non-empty values are collected across all of them. `scope` and
+    distinct non-empty values are collected across all of them. The returned
+    `_ParsedAttributes` is a `list` in every respect except one: its
+    `.truncated` flag is `True` when the row cap was hit, so a caller can
+    tell a column that reports `declared_empty` because a later, unread row
+    was the only one that populated it apart from a column the provider
+    genuinely never fills. `scope` and
     `key_context` come from each row's own dimension cells (`_row_level`): a
     value attaches to the whole dataflow only when the row that carried it
     had every dimension wildcarded, otherwise it attaches to that row's
@@ -197,7 +226,7 @@ def parse_msd_csv(
     try:
         header = next(reader)
     except StopIteration:
-        return []
+        return _ParsedAttributes([])
 
     dimension_columns: list[tuple[int, str]] = []
     meta_columns: list[tuple[int, str, str, str | None]] = []
@@ -214,7 +243,7 @@ def parse_msd_csv(
         meta_columns.append((index, column, attr_id, label))
 
     if not meta_columns:
-        return []
+        return _ParsedAttributes([])
 
     # Per metadata column index: every distinct value seen, in first-seen
     # order, uncapped -- these values are kept in full in the assembled
@@ -227,12 +256,14 @@ def parse_msd_csv(
         index: {} for index, *_ in meta_columns
     }
 
+    truncated = False
     for row_number, row in enumerate(reader):
         if row_number >= _MAX_MSD_DATA_ROWS:
             logger.info(
                 "reference metadata response had more than %s data rows; truncating",
                 _MAX_MSD_DATA_ROWS,
             )
+            truncated = True
             break
         level, key_context = _row_level(row, dimension_columns)
         for index, _column, _attr_id, _label in meta_columns:
@@ -295,7 +326,7 @@ def parse_msd_csv(
             "distinct_value_count": len(values),
             "all_values": values,
         })
-    return out
+    return _ParsedAttributes(out, truncated=truncated)
 
 
 def _looks_like_sdmx_csv(text: str) -> bool:
@@ -790,6 +821,13 @@ async def get_reference_metadata(
         # from parse_msd_csv, which derives them per row rather than
         # assuming every value describes the whole dataflow.
         attributes.append({**attr, "source": "msd"})
+    if getattr(msd_attrs, "truncated", False):
+        notes.append(
+            "This dataflow's metadata response was cut off after "
+            + str(_MAX_MSD_DATA_ROWS) + " rows; a declared_empty attribute "
+            "here may only appear in a row that was not read, not "
+            "genuinely absent."
+        )
 
     if msd_status != "found":
         dsd_attrs, dsd_status = await fetch_dsd_attribute_metadata(
@@ -827,6 +865,15 @@ async def get_reference_metadata(
     # declared; it is evidence we do not know, so `coverage` must not
     # assert absence there either. In both cases the honest answer is
     # "unknown", which is what leaving `coverage` as `None` says.
+    # An MSD "empty" on its own is not the whole picture: the DSD fallback
+    # always runs whenever the MSD channel did not answer "found" (that
+    # includes a legitimate MSD "empty"), and its attributes are folded into
+    # `summary_attributes` alongside whatever the MSD channel contributed.
+    # So an MSD "empty" only makes the combined declared set known once the
+    # DSD fallback has also resolved (found or empty) -- if it is instead
+    # too_broad or inconclusive, an empty `summary_attributes` reflects a
+    # fetch that did not resolve, not a confirmed absence, and coverage must
+    # stay unknown there too.
     coverage: dict[str, int] | None = None
     if channels.get("dsd_attributes") == "found":
         notes.append(
@@ -835,7 +882,10 @@ async def get_reference_metadata(
             "declared set is not observable through this channel, so "
             "coverage counts are not reported."
         )
-    elif channels.get("msd_v2") in ("found", "empty"):
+    elif channels.get("msd_v2") == "found" or (
+        channels.get("msd_v2") == "empty"
+        and channels.get("dsd_attributes") in ("found", "empty")
+    ):
         coverage = {
             "declared": len(summary_attributes),
             "populated": sum(1 for a in summary_attributes if a["status"] == "populated"),
@@ -942,13 +992,19 @@ async def get_metadata_attribute_values(
         )
         attributes = dsd_attrs
 
-    # A declared set is only known when at least one channel actually
-    # answered (found or empty). Anything else -- too_broad, inconclusive,
-    # unsupported on both -- is a fetch that did not resolve, and treating
-    # its empty `attributes` list as "the attribute does not exist" would
-    # misreport a provider hiccup as a caller mistake. This mirrors the same
-    # distinction the too_broad handling in get_reference_metadata protects.
-    channel_confirmed = msd_status in ("found", "empty") or dsd_status in ("found", "empty")
+    # `attributes` above came from whichever channel actually supplied it:
+    # msd_attrs when the MSD channel found something (the DSD fallback never
+    # runs then), otherwise dsd_attrs -- and the DSD fallback always runs
+    # whenever the MSD channel did not answer "found", which includes a
+    # legitimate MSD "empty" (zero metadata columns), not just a failure.
+    # So the declared set is known only when the channel that actually
+    # produced `attributes` resolved: MSD found (dsd_status is irrelevant,
+    # it was never queried), or the DSD fallback answered found or empty.
+    # An MSD "empty" on its own is not enough -- if the DSD fallback then
+    # failed to resolve, `attributes` is empty for a reason that has
+    # nothing to do with the declared set, and treating that as "confirmed
+    # empty" would misreport a DSD-side fetch failure as a caller mistake.
+    channel_confirmed = msd_status == "found" or dsd_status in ("found", "empty")
     if not channel_confirmed:
         return {
             "dataflow_id": dataflow_id,
@@ -963,7 +1019,21 @@ async def get_metadata_attribute_values(
 
     match = next((attr for attr in attributes if attr["id"] == attribute_id), None)
     if match is None:
-        declared = ", ".join(sorted(attr["id"] for attr in attributes))
+        if attributes:
+            declared = ", ".join(sorted(attr["id"] for attr in attributes))
+            error = (
+                "Unknown attribute '" + attribute_id + "' for " + dataflow_id
+                + ": declared attributes are " + declared
+            )
+        else:
+            # A confirmed channel that found nothing at all is a different
+            # answer from "some other attribute exists but not this one" --
+            # naming an empty list after a colon reads as a formatting bug,
+            # not as "this dataflow declares no reference metadata."
+            error = (
+                "Unknown attribute '" + attribute_id + "' for " + dataflow_id
+                + ": this dataflow's declared metadata attributes are confirmed empty."
+            )
         return {
             "dataflow_id": dataflow_id,
             "attribute_id": attribute_id,
@@ -973,13 +1043,34 @@ async def get_metadata_attribute_values(
             "total": 0,
             "truncated": False,
             "notes": [],
-            "error": (
-                "Unknown attribute '" + attribute_id + "' for " + dataflow_id
-                + ": declared attributes are " + declared
-            ),
+            "error": error,
         }
 
     if match["status"] == "declared_empty":
+        # `declared_empty` only describes the response actually read: the
+        # whole dataflow when no key was supplied, or the one slice queried
+        # when it was -- a keyed request never sees the other slices, so it
+        # cannot speak for them. SPC's DF_SDG can only be queried keyed, so
+        # this is the ordinary path for its flagship dataflow, not an edge
+        # case.
+        if key is not None:
+            declared_empty_note = (
+                "'" + attribute_id + "' is declared for this dataflow and the "
+                "provider published no value for it in the slice queried."
+            )
+        else:
+            declared_empty_note = (
+                "'" + attribute_id + "' is declared for this dataflow and the "
+                "provider has published no value for it."
+            )
+        empty_notes = [declared_empty_note]
+        if not from_dsd and getattr(attributes, "truncated", False):
+            empty_notes.append(
+                "This response was cut off after " + str(_MAX_MSD_DATA_ROWS)
+                + " rows; a value beyond that point would not have been read, "
+                "so this may be an artefact of truncation rather than the "
+                "provider's doing."
+            )
         return {
             "dataflow_id": dataflow_id,
             "attribute_id": attribute_id,
@@ -988,10 +1079,7 @@ async def get_metadata_attribute_values(
             "values": [],
             "total": 0,
             "truncated": False,
-            "notes": [
-                "'" + attribute_id + "' is declared for this dataflow and the "
-                "provider has published no value for it."
-            ],
+            "notes": empty_notes,
         }
 
     all_values = match["all_values"]
@@ -1007,7 +1095,14 @@ async def get_metadata_attribute_values(
         for v in capped
     ]
     notes: list[str] = []
-    if from_dsd:
+    # `_DATAFLOW_WIDE_SCOPES` treats `dataset` scope as dataflow-wide in the
+    # summary's headline rule (`_to_summary_attribute`), so for a
+    # dataset-scope value that null key_context is the expected,
+    # dataflow-wide meaning and needs no caveat -- only `series` and
+    # `observation` scope, which the headline rule does NOT treat as
+    # dataflow-wide, would otherwise have a null key_context misread as
+    # "dataflow-wide" when it actually means "this channel cannot say".
+    if from_dsd and match["scope"] not in _DATAFLOW_WIDE_SCOPES:
         notes.append(
             "This attribute came from the DSD-attribute channel, which has "
             "no per-value key to report: key_context is null for every "

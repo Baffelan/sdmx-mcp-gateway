@@ -3,6 +3,7 @@
 
 import pytest
 
+import tools.reference_metadata as reference_metadata_module
 from config import get_metadata_support
 from tools.reference_metadata import parse_localised_value, parse_msd_csv, strip_markup
 
@@ -122,9 +123,9 @@ FBOS_CSV = (
 
 
 def test_declared_but_empty_columns_are_reported():
-    """FBOS declares six metadata attributes and populates one. Dropping the
-    five empty ones makes a blank licence or coverage field indistinguishable
-    from a provider that has no such concept."""
+    """FBOS declares three metadata attributes and populates one. Dropping
+    the two empty ones makes a blank licence or coverage field
+    indistinguishable from a provider that has no such concept."""
     out = parse_msd_csv(FBOS_CSV, dimension_ids={"FREQ", "REF_AREA"})
     by_id = {a["id"]: a for a in out}
 
@@ -139,6 +140,35 @@ def test_declared_but_empty_columns_are_reported():
         assert by_id[empty]["scope"] is None
         # The label still tells the caller what the provider left blank.
         assert by_id[empty]["label"]
+
+
+def test_parse_msd_csv_signals_truncation_when_the_row_cap_is_hit(monkeypatch):
+    """I1: at the row cap the parser used to stop reading and only log it,
+    so a column populated only beyond that point read as a plain
+    declared_empty -- indistinguishable from a column the provider never
+    fills. The cap is lowered here so a 3-row fixture can exceed it instead
+    of needing a 5000-row one."""
+    monkeypatch.setattr(reference_metadata_module, "_MAX_MSD_DATA_ROWS", 2)
+    csv_text = (
+        "STRUCTURE,STRUCTURE_ID,ACTION,REF_AREA,Reference area,"
+        "COVERAGE,Coverage\n"
+        "dataflow,OECD:DF(1.0),I,AUS,Australia,,\n"
+        "dataflow,OECD:DF(1.0),I,GBR,United Kingdom,,\n"
+        'dataflow,OECD:DF(1.0),I,USA,United States,'
+        '"en:""<p>Whole thing</p>""","Coverage"\n'
+    )
+    out = parse_msd_csv(csv_text, dimension_ids={"REF_AREA"})
+    coverage = next(a for a in out if a["id"] == "COVERAGE")
+    # The only value is on the row beyond the (lowered) cap, so it still
+    # reads as declared_empty -- but the parser must say the read stopped
+    # early, so a caller can tell this apart from a genuinely blank column.
+    assert coverage["status"] == "declared_empty"
+    assert out.truncated is True
+
+
+def test_parse_msd_csv_does_not_report_truncated_when_every_row_is_read():
+    out = parse_msd_csv(FBOS_CSV, dimension_ids={"FREQ", "REF_AREA"})
+    assert out.truncated is False
 
 
 def test_all_values_are_kept_uncapped_for_drill_down():

@@ -998,7 +998,7 @@ class MetadataAttributeValuesResult(BaseModel):
     label: str | None = Field(default=None, description="Human-readable label")
     value_kind: str = Field(default="unknown", description="prose, url, date or unknown")
     values: list[MetadataValue] = Field(default_factory=list, description="Values found")
-    total: int = Field(default=0, description="How many values were found")
+    total: int = Field(default=0, description="Count of (value, key_context) pairs found")
     truncated: bool = Field(
         default=False, description="True when values holds fewer than total"
     )

@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 _LOCALISED = re.compile(r'([A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?):"((?:[^"\\]|\\.)*)"')
 _TAG = re.compile(r"<[^>]+>")
 _HREF = re.compile(r'<a\s[^>]*href=\\?"([^"\\]+)\\?"[^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?)?$")
 
 
 def strip_markup(raw: str) -> str:
@@ -44,6 +45,25 @@ def strip_markup(raw: str) -> str:
     text = _TAG.sub(" ", text)
     text = html.unescape(text).replace("\xa0", " ")
     return " ".join(text.split())
+
+
+def classify_value_kind(value: str | None, has_codelist: bool = False) -> str:
+    """Say what kind of thing a metadata value is, so a caller knows whether
+    it can be expanded (a code), followed (a url), or read as final (prose).
+
+    Returns "unknown" rather than falling back to "prose" when there is
+    nothing to inspect, so an empty answer is not dressed up as examined text.
+    """
+    if not value or not value.strip():
+        return "unknown"
+    text = value.strip()
+    if text.startswith(("http://", "https://")):
+        return "url"
+    if _ISO_DATE.match(text):
+        return "date"
+    if has_codelist:
+        return "code"
+    return "prose"
 
 
 def parse_localised_value(raw: str, prefer: str = "en") -> tuple[str | None, str | None]:
@@ -646,7 +666,7 @@ def _to_summary_attribute(attr: dict[str, Any]) -> dict[str, Any]:
         "label": attr["label"],
         "status": "populated",
         "scope": attr["scope"],
-        "value_kind": "unknown",
+        "value_kind": classify_value_kind(attr["value"], has_codelist=False),
         "distinct_values": attr["distinct_value_count"],
         "value": attr["value"] if dataflow_wide else None,
         "language": attr["language"] if dataflow_wide else None,

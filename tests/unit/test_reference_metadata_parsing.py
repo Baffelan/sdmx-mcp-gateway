@@ -159,3 +159,17 @@ def test_all_values_are_kept_uncapped_for_drill_down():
     contexts = [v["key_context"]["REF_AREA"] for v in attr["all_values"]]
     assert contexts == ["AUS", "CAN", "JPN", "IND"]
     assert all(v["scope"] == "partial_key" for v in attr["all_values"])
+
+
+def test_value_kind_is_unknown_rather_than_guessed():
+    """Defaulting to prose would imply the value was examined and found to be
+    text. Where nothing can be established, say so."""
+    from tools.reference_metadata import classify_value_kind
+
+    assert classify_value_kind("https://unstats.un.org/sdgs") == "url"
+    assert classify_value_kind("2026-05-26") == "date"
+    assert classify_value_kind("2026-05-26T06:11:07Z") == "date"
+    assert classify_value_kind("I15", has_codelist=True) == "code"
+    assert classify_value_kind("Data are compiled by UNSD.") == "prose"
+    assert classify_value_kind(None) == "unknown"
+    assert classify_value_kind("") == "unknown"

@@ -4,6 +4,98 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-04T06:43Z - cycle 121
+
+**Changed (1 of 2):** ECB `healthy` -> `degraded`, new. This is news: ECB has
+been healthy since cycle 43 and the standing assumption in this log has been
+that its earlier HTTP 406 problem is closed.
+
+**Cycle saw:** at cycle 121 (2026-08-04T06:01:22+00:00) four contract
+assertions flipped from their normal fast responses to HTTP 504 after
+~10.2s each: `errors:missing_artefact` (404 -> 504, "error semantics changed
+from HTTP 404"), `references:all` (200 -> 504), `references:descendants`
+(200 -> 504), `references:parents` (200 -> 504). A fifth assertion,
+`references:contentconstraint`, came back `skipped` with
+`RemoteProtocolError: Server disconnected without sending a response.`
+`auth:listing` also drew a 504 but its verdict stayed `ok` (it only checks
+for an auth wall, not success). The plain health checks (gateway
+metadata/data, direct metadata/data/json) all stayed `ok: true` on the same
+cycle, and `references:none`, `references:children`,
+`references:parentsandsiblings`, `dialect:sdmx3`, `encoding:structure_xml`,
+and `constraint:availableconstraint` all still passed. So this was narrow:
+specific reference-heavy dataflow-structure queries against `ECB/EXR`
+timing out or dropping the connection, not a wholesale ECB outage.
+
+**Live recheck:** re-ran all four broken queries directly against
+`https://data-api.ecb.europa.eu/service/dataflow/ECB/EXR/latest` at
+2026-08-04T06:43Z, about 40 minutes after the cycle: `references=all` HTTP
+200 in 1.18s, `references=parents` HTTP 200 in 0.92s, `references=descendants`
+HTTP 200 in 0.76s, and the missing-artefact probe
+(`/dataflow/ECB/NONEXISTENT_XYZ_2026/latest`) HTTP 404 in 0.63s, matching the
+gateway's assumption again. `references=none` (baseline) also 200 in 0.64s.
+Every one of them now passes and none are slow. Cycle saw failure, live
+recheck sees full recovery: this looks transient on ECB's side rather than a
+lasting break.
+
+**Classification:** provider-side (`degraded`, contract assertions `broken`
+on the direct-equivalent structure endpoint, not a `gateway_issue` - nothing
+here points at gateway code). Other endpoints' checks in the same cycle
+(ABS, BIS, ESTAT, FBOS, ILO, IMF, OECD, SBS, SPC, STATSNZ, UNICEF) were all
+healthy, so this was not the monitor's network being generally impaired.
+
+**History:** new as of cycle 121; `/api/history` shows ECB `healthy` with no
+failing checks across every cycle from 98 through 121 (48 hours), which
+confirms the underlying health-check series never flagged this - the
+contract layer caught something the health checks did not.
+
+**Recommended action:** no code change needed yet given the live recheck
+passed cleanly. Watch the next 1-2 cycles for a repeat; if
+`errors:missing_artefact`, `references:all`, `references:descendants`, or
+`references:parents` go `broken` again against ECB, that is a second
+occurrence and worth escalating past docs-only tracking.
+
+**Could not determine:** the root cause of the ~10s ECB timeouts at cycle
+121 (server-side load, a transient network path between Railway and
+Frankfurt, or something else) - only that it was real at the time (four
+independent assertions failing the same way) and gone by the time of this
+run's recheck.
+
+---
+
+**Changed (2 of 2):** ESTAT `gateway_issue` -> `healthy`, recovered. Closes
+out the fifth episode logged in the cycle 118 entry below.
+
+**Cycle saw:** the fifth `gateway_issue` episode (same `gateway metadata:
+tool call list_dataflows timed out after 60.0s` failure documented at cycle
+118) was still failing at cycle 119 (2026-08-04T02:01:22+00:00) and
+recovered at cycle 120 (2026-08-04T04:01:22+00:00); cycle 121
+(2026-08-04T06:01:22+00:00, this run) is healthy too, so it has now held for
+2 consecutive cycles (4 hours). Final length of the fifth episode: cycles
+116-119, 4 cycles (8 hours) - longer than the fourth episode (1 cycle) and
+now the joint-longest on record with the first.
+
+**Live recheck:** not repeated this run; the cycle's own health check
+already shows `list_dataflows` succeeding, and the cycle 118 entry already
+confirmed the underlying direct-fetch transfer time (28s) is unchanged, so
+there is nothing new to verify live for a recovery.
+
+**Classification:** `gateway_issue` while it lasted (ours, unchanged
+diagnosis from every prior episode); now resolved.
+
+**History:** sixth data point on the same recurring pattern; still no fix
+has been applied (this run remains docs-only scope). The next session with
+broader mandate should still apply one of raise the deadline, stream the
+listing, or cache the parsed result - deferring again only grows the count
+of episodes logged without a fix.
+
+**Recommended action:** none for this run beyond recording the recovery.
+Carry the standing recommendation (deadline/streaming/caching fix) forward
+again.
+
+**Could not determine:** whether the two healthy cycles reflect a genuine
+change in ESTAT's or the gateway's behavior or are within the same range of
+variance as the healthy gaps between the first four episodes.
+
 ## 2026-08-04T00:43Z - cycle 118
 
 **Changed:** ESTAT `healthy` -> `gateway_issue`, ongoing since cycle 116.

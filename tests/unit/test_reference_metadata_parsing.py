@@ -345,3 +345,63 @@ def test_classify_value_kind_no_longer_accepts_has_codelist():
     assert "has_codelist" not in inspect.signature(classify_value_kind).parameters
     with pytest.raises(TypeError):
         classify_value_kind("I15", has_codelist=True)
+
+
+def test_localised_value_with_space_after_colon():
+    """Some dataflows emit a space between the language tag and the opening
+    quote: en: "value" instead of en:"value". The parser must handle both."""
+    text, lang = parse_localised_value('en: "https://www.statsfiji.gov.fj/index.php/census-2017"')
+    assert lang == "en"
+    assert text == "https://www.statsfiji.gov.fj/index.php/census-2017"
+
+
+def test_localised_value_without_space_still_works():
+    """Regression test: the original no-space form must still work after
+    adding support for spaces."""
+    text, lang = parse_localised_value('en:"https://example.org"')
+    assert lang == "en"
+    assert text == "https://example.org"
+
+
+def test_localised_value_with_tab_after_colon():
+    """A tab is also horizontal whitespace and must be handled like a space."""
+    text, lang = parse_localised_value('en:\t"value"')
+    assert lang == "en"
+    assert text == "value"
+
+
+def test_localised_value_multiple_languages_with_spaces():
+    """Two languages where both have spaces after the colon; English preference
+    must still win."""
+    text, lang = parse_localised_value('en: "Hello",fr: "Bonjour"')
+    assert lang == "en"
+    assert text == "Hello"
+
+
+def test_localised_value_does_not_cross_newlines():
+    """A newline must NOT allow the regex to match across lines. If en: sits
+    at the end of one line and "unrelated" starts on the next line, they must
+    not be paired together. This test pins the choice of [ \\t]* over \\s*.
+
+    With [ \\t]*, the pattern does not match (no newline in the whitespace
+    set), so it falls through to strip_markup which collapses the newline to
+    a space. If someone later changes [ \\t]* to \\s*, the regex WOULD match
+    and incorrectly parse this as language='en', value='unrelated'. This test
+    documents that is wrong and must never happen."""
+    text, lang = parse_localised_value('en:\n"unrelated"')
+    # The regex does not match because [ \t]* does not match \n, so this
+    # falls through to strip_markup(raw), which collapses whitespace and
+    # returns it with language=None (not as a matched localised value).
+    # The critical assertion: language is None, NOT 'en'.
+    assert lang is None
+    # And the value is NOT the string from inside the quotes.
+    assert text != "unrelated"
+
+
+def test_real_spc_hhcounts_data_source_link():
+    """Regression test using the actual reported value from SPC DF_HHCOUNTS
+    attribute DATA_SOURCE_LINK with space after colon."""
+    raw = 'en: "https://www.statsfiji.gov.fj/index.php/census-2017"'
+    text, lang = parse_localised_value(raw)
+    assert lang == "en"
+    assert text == "https://www.statsfiji.gov.fj/index.php/census-2017"

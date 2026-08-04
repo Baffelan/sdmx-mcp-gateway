@@ -29,8 +29,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# `en:"<p>text</p>",fr:""`: a language tag, a colon, then a quoted value.
-_LOCALISED = re.compile(r'([A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?):"((?:[^"\\]|\\.)*)"')
+# `en:"<p>text</p>",fr:""` or `en: "<p>text</p>"`: a language tag, a colon,
+# optional horizontal whitespace, then a quoted value. Use [ \t]* not \s*
+# because newlines must not allow the pattern to match across line boundaries
+# (e.g. `en:\n"unrelated"` must not pair the tag with the quotes).
+_LOCALISED = re.compile(r'([A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?):[ \t]*"((?:[^"\\]|\\.)*)"')
 _TAG = re.compile(r"<[^>]+>")
 _HREF = re.compile(r'<a\s[^>]*href=\\?"([^"\\]+)\\?"[^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?)?$")

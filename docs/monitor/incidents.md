@@ -4,6 +4,37 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-04T18:43Z - cycle 127
+
+**Changed:** UNICEF `healthy` -> `degraded` -> `healthy`, flapped between runs.
+
+**Cycle saw:** cycle 126 (started 16:01:22Z) recorded UNICEF `degraded`, with
+`direct data: HTTP 429` and `direct json: HTTP 429`. Cycle 125 (14:01:22Z) and
+cycle 127 (18:01:22Z, the newest at this run) both show clean `healthy` with no
+failing checks. Only the direct path failed; gateway checks are not listed in
+`failing` for cycle 126, so the gateway path itself was not affected.
+
+**Live recheck:** `GET https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/dataflow/UNICEF`
+returned HTTP 200 in 0.84s at 2026-08-04T18:43Z, agreeing with the monitor's
+own cycle 127 recovery.
+
+**Classification:** provider-side, resolved. Direct path only failed with
+HTTP 429 (rate limiting), gateway path unaffected, so this is not a
+`gateway_issue`; nothing in our code needs attention.
+
+**History:** single-cycle event at 126, the only non-healthy UNICEF cycle in
+the last 48 hours (24 cycles checked). This is a new occurrence, distinct
+from the cycle-2 HTTP 503 flap already on record for UNICEF; that one is old
+and this one is a different failure mode (429 vs 503).
+
+**Recommended action:** none for now. One clean cycle since the recovery.
+Watch for recurrence; a second 429 episode within a short window would
+suggest the monitor's own check cadence is triggering UNICEF's rate limit
+rather than a one-off provider event.
+
+**Could not determine:** whether the 429 was UNICEF-side capacity limiting or
+a shared-IP rate limit that also affects other consumers from this network.
+
 ## 2026-08-04T12:44Z - cycle 124
 
 **Changed:** ECB `degraded` -> `healthy`, resolved.

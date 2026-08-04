@@ -4,6 +4,64 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-04T00:43Z - cycle 118
+
+**Changed:** ESTAT `healthy` -> `gateway_issue`, ongoing since cycle 116.
+
+**Cycle saw:** cycle 115 was healthy (recorded in the last entry). Cycle 116
+(2026-08-03T20:01:22+00:00) flipped to `gateway_issue` on the same failing
+check as every prior episode: `gateway metadata: tool call list_dataflows
+timed out after 60.0s`. It stayed failing at cycle 117
+(2026-08-03T22:01:22+00:00) and is still failing at cycle 118
+(2026-08-04T00:01:22+00:00, this run) - 3 consecutive cycles (6 hours) so
+far, with no recovery yet. Cycle 118's own check detail shows 60,000ms
+latency on 2 attempts, same shape as every prior timeout. The direct path
+(metadata, data) and gateway data check stayed healthy throughout; only
+`list_dataflows` fails. This is the fifth distinct `gateway_issue` episode
+tracked in this log (first: ~7 cycles, second: 3 cycles, third: 3 cycles,
+fourth: 1 cycle at cycle 113). No other endpoint changed status across
+cycles 115-118; all eleven others stayed healthy throughout. `/api/contracts`
+`changes` is empty at cycle 118 and no assertion is `broken` or newly
+`capability_appeared`. The only non-`ok` verdict present is the same
+already-known `STATSNZ auth:listing capability_appeared` (open since cycle
+60, unchanged, not re-reported).
+
+**Live recheck:** fetched the direct ESTAT full dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`)
+live during this run: HTTP 200, 37MB in 28.0s, matching every prior recheck
+of the same payload (27.9-29.0s in the cycle 106, 109, and 112 entries). The
+raw transfer time has still not changed; the bottleneck remains
+parse/processing time on the gateway side stacked on top of that transfer.
+
+**Classification:** `gateway_issue` (ours), consistent with every prior
+episode. Likely code site unchanged: `monitor/checks_gateway.py`
+(`READ_TIMEOUT_FLOOR_S = 60.0`) wrapping `list_dataflows` in
+`tools/sdmx_tools.py` against the ESTAT metadata endpoint.
+
+**History:** fifth episode, cycles 116-118 and still ongoing at the time of
+this run (not yet resolved), already as long as the third episode (3
+cycles) and longer than the fourth (1 cycle at cycle 113). The cycle 112
+entry named the next occurrence after the fourth as the trigger to apply a
+fix; that occurrence (the fourth, cycle 113) came and went without a fix
+under docs-only scope, and this fifth episode is now running past it without
+one either.
+
+**Recommended action:** this run is scoped to `docs/monitor/` only and does
+not carry authorization to change gateway or monitor code, so no fix is
+applied here. The recommendation from the cycle 112 and 115 entries stands
+and is now overdue by one more episode: the next session with a broader
+mandate should apply one of raise the deadline, stream the listing, or cache
+the parsed result, rather than let a sixth episode accumulate under
+docs-only watching.
+
+**Could not determine:** whether this episode has already recovered by the
+time this entry is read, since it was still failing as of cycle 118 and the
+next cycle is not due until roughly 02:01 UTC. Also could not determine
+per-cycle latency for cycles 116 and 117 specifically (only the current
+cycle's check detail is exposed by `/api/status`; `/api/history` gives
+status and the failure message but not latency), so the closeness of each
+of those two cycles to the 60s deadline is not observable after the fact.
+
 ## 2026-08-03T18:43Z - cycle 115
 
 **Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy`, flapped between

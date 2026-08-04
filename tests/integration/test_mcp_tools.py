@@ -124,6 +124,43 @@ class TestListDataflows:
         assert result["dataflows"] == []
         assert "Network error" in result["error"]
 
+    @pytest.mark.asyncio
+    async def test_next_step_reports_fresh_fetch_by_default(self, mock_client):
+        """A client that reports no cache hit should read as freshly fetched."""
+        mock_client.last_dataflow_cache_hit = False
+        mock_client.last_dataflow_cache_age_s = None
+
+        result = await list_dataflows(client=mock_client)
+
+        assert "fresh" in result["next_step"].lower()
+
+    @pytest.mark.asyncio
+    async def test_next_step_reports_cache_status_when_served_from_cache(self, mock_client):
+        """A client that reports a cache hit should surface age, so a caller
+        does not have to guess whether the listing is current."""
+        mock_client.last_dataflow_cache_hit = True
+        mock_client.last_dataflow_cache_age_s = 42.0
+
+        result = await list_dataflows(client=mock_client)
+
+        assert "cache" in result["next_step"].lower()
+        assert "42" in result["next_step"]
+
+    @pytest.mark.asyncio
+    async def test_fresh_param_is_passed_through_to_discover_dataflows(self, mock_client):
+        """fresh=True on the tool must reach the client so it bypasses cache."""
+        await list_dataflows(client=mock_client, fresh=True)
+
+        _, kwargs = mock_client.discover_dataflows.call_args
+        assert kwargs.get("fresh") is True
+
+    @pytest.mark.asyncio
+    async def test_fresh_defaults_to_false(self, mock_client):
+        await list_dataflows(client=mock_client)
+
+        _, kwargs = mock_client.discover_dataflows.call_args
+        assert kwargs.get("fresh") is False
+
 
 class TestGetDataflowStructure:
     """Test get_dataflow_structure tool."""

@@ -7,9 +7,12 @@ This client provides a layered approach to SDMX metadata discovery:
 3. Detailed drill-down (specific codelists, constraints)
 """
 
+import asyncio
 import logging
 import os
+import time
 import xml.etree.ElementTree as ET
+from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -25,6 +28,86 @@ from models.sdmx_types import (
 from utils import SDMX_NAMESPACES
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Dataflow listing cache
+# =============================================================================
+#
+# SDMX 2.1 has no server-side pagination, so a full dataflow listing can be
+# tens of megabytes and take tens of seconds (ESTAT: ~37 MB, 46-50s in
+# production). This cache is module-level -- shared by every session's
+# client, not owned by any one instance -- because each MCP session builds
+# its own SDMXProgressiveClient, so a per-instance cache would never help a
+# second session or a dashboard making its own independent calls.
+
+DATAFLOW_CACHE_MAX_ENTRIES = 32
+DATAFLOW_CACHE_TTL_S = float(os.getenv("DATAFLOW_CACHE_TTL_S", "900"))
+
+_DataflowCacheKey = tuple[str, str, str, str, str, str]
+
+# key -> (fetched_at monotonic timestamp, parsed dataflow list)
+_dataflow_cache: "OrderedDict[_DataflowCacheKey, tuple[float, list[dict[str, Any]]]]" = (
+    OrderedDict()
+)
+# key -> lock guarding that key's fetch, so concurrent callers for the same
+# key don't all hit the provider at once. Created lazily; removed only by
+# clear_dataflow_cache().
+_dataflow_cache_locks: dict[_DataflowCacheKey, asyncio.Lock] = {}
+
+
+def clear_dataflow_cache() -> None:
+    """Clear the module-level dataflow listing cache and its locks.
+
+    The cache is process-wide, so state left behind by one test decides
+    whether the next test's call reaches the network or not. Call this from
+    an autouse fixture between tests (see tests/conftest.py).
+    """
+    _dataflow_cache.clear()
+    _dataflow_cache_locks.clear()
+
+
+def _dataflow_cache_key(
+    base_url: str, agency: str, resource_id: str, version: str, references: str, detail: str
+) -> _DataflowCacheKey:
+    return (base_url, agency, resource_id, version, references, detail)
+
+
+def _dataflow_cache_lookup(
+    key: _DataflowCacheKey,
+) -> tuple[float, list[dict[str, Any]]] | None:
+    """Return (age_s, dataflows) for a live cache entry, or None on a miss
+    or an expired entry."""
+    entry = _dataflow_cache.get(key)
+    if entry is None:
+        return None
+    fetched_at, dataflows = entry
+    age_s = time.monotonic() - fetched_at
+    if age_s >= DATAFLOW_CACHE_TTL_S:
+        return None
+    return age_s, dataflows
+
+
+def _dataflow_cache_store(key: _DataflowCacheKey, dataflows: list[dict[str, Any]]) -> None:
+    is_new_key = key not in _dataflow_cache
+    _dataflow_cache[key] = (time.monotonic(), dataflows)
+    if is_new_key:
+        while len(_dataflow_cache) > DATAFLOW_CACHE_MAX_ENTRIES:
+            _dataflow_cache.popitem(last=False)  # evict oldest
+
+
+def _dataflow_cache_lock(key: _DataflowCacheKey) -> asyncio.Lock:
+    """Get or create the per-key lock.
+
+    Safe under cooperative concurrency: there is no `await` between the
+    membership check and the insert, so two callers can never race into
+    creating two different locks for the same key.
+    """
+    lock = _dataflow_cache_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _dataflow_cache_locks[key] = lock
+    return lock
 
 
 class DetailLevel(Enum):
@@ -115,6 +198,8 @@ class SDMXProgressiveClient:
     session: httpx.AsyncClient | None
     _cache: dict[str, Any]
     version_cache: dict[tuple[str, str], str]
+    last_dataflow_cache_hit: bool
+    last_dataflow_cache_age_s: float | None
 
     def __init__(
         self,
@@ -144,6 +229,11 @@ class SDMXProgressiveClient:
         # Cache for dataflow versions to avoid repeated lookups
         # Format: {(agency_id, dataflow_id): version}
         self.version_cache = {}
+        # Cache status of the most recent discover_dataflows() call on this
+        # client, so tools.sdmx_tools.list_dataflows can report it. The
+        # cache backing this is module-level (see above), not per-instance.
+        self.last_dataflow_cache_hit = False
+        self.last_dataflow_cache_age_s = None
 
     async def _get_session(self) -> httpx.AsyncClient:
         """Get or create HTTP session with proper SSL certificate verification."""
@@ -699,106 +789,146 @@ class SDMXProgressiveClient:
         references: str = "none",
         detail: str = "full",
         ctx: Context[Any, Any, Any] | None = None,
+        fresh: bool = False,
     ) -> list[dict[str, Any]]:
         """
         Discover available dataflows using SDMX 2.1 REST API.
 
         Endpoint: GET /dataflow/{agencyID}/{resourceID}/{version}
+
+        Results are cached at module level (see "Dataflow listing cache"
+        above), keyed on everything that changes the answer: base URL,
+        agency, resource_id, version, references, and detail. Pass
+        fresh=True to bypass the cache lookup and force a live re-fetch; the
+        result is still written back to the cache afterwards, so a forced
+        call also warms it for every other caller.
+
+        After the call, `self.last_dataflow_cache_hit` and
+        `self.last_dataflow_cache_age_s` describe how *this* call was
+        served, so tools.sdmx_tools.list_dataflows can report cache status.
         """
-        if ctx:
-            await ctx.info("Starting dataflow discovery...")
-            await ctx.report_progress(0, 100)
-
         agency = agency_id or self.agency_id
-        url = f"{self.base_url}/dataflow/{agency}/{resource_id}/{version}"
+        key = _dataflow_cache_key(self.base_url, agency, resource_id, version, references, detail)
 
-        headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
+        if not fresh:
+            hit = _dataflow_cache_lookup(key)
+            if hit is not None:
+                age_s, dataflows = hit
+                self.last_dataflow_cache_hit = True
+                self.last_dataflow_cache_age_s = age_s
+                if ctx:
+                    await ctx.info(f"Using cached dataflow listing ({age_s:.0f}s old)")
+                return dataflows
 
-        params: list[str] = []
-        if references != "none":
-            params.append(f"references={references}")
-        if detail != "full":
-            params.append(f"detail={detail}")
+        async with _dataflow_cache_lock(key):
+            # Re-check inside the lock: another caller may have populated
+            # this key while we were waiting for it. fresh=True always
+            # re-fetches, but still serializes on the lock so it can't
+            # interleave with another writer for the same key.
+            if not fresh:
+                hit = _dataflow_cache_lookup(key)
+                if hit is not None:
+                    age_s, dataflows = hit
+                    self.last_dataflow_cache_hit = True
+                    self.last_dataflow_cache_age_s = age_s
+                    return dataflows
 
-        if params:
-            url += "?" + "&".join(params)
-
-        try:
             if ctx:
-                await ctx.info(f"Fetching dataflows from: {url}")
-                await ctx.report_progress(25, 100)
+                await ctx.info("Starting dataflow discovery...")
+                await ctx.report_progress(0, 100)
 
-            session = await self._get_session()
-            response = await session.get(url, headers=headers)
-            response.raise_for_status()
+            url = f"{self.base_url}/dataflow/{agency}/{resource_id}/{version}"
 
-            if ctx:
-                await ctx.info("Parsing SDMX-ML response...")
-                await ctx.report_progress(50, 100)
+            headers = {"Accept": "application/vnd.sdmx.structure+xml;version=2.1"}
 
-            # Parse SDMX-ML response
-            root = ET.fromstring(response.content)
+            params: list[str] = []
+            if references != "none":
+                params.append(f"references={references}")
+            if detail != "full":
+                params.append(f"detail={detail}")
 
-            dataflows: list[dict[str, Any]] = []
-            df_elements = root.findall(".//str:Dataflow", SDMX_NAMESPACES)
+            if params:
+                url += "?" + "&".join(params)
 
-            if ctx and df_elements:
-                await ctx.info(f"Processing {len(df_elements)} dataflows...")
+            try:
+                if ctx:
+                    await ctx.info(f"Fetching dataflows from: {url}")
+                    await ctx.report_progress(25, 100)
 
-            for i, df in enumerate(df_elements):
-                df_id = df.get("id")
-                df_agency = df.get("agencyID", agency)
-                df_version = df.get("version", "latest")
-                is_final = df.get("isFinal", "false").lower() == "true"
-
-                # Extract name and description
-                name_elem = df.find("./com:Name", SDMX_NAMESPACES)
-                desc_elem = df.find("./com:Description", SDMX_NAMESPACES)
-
-                name = name_elem.text if name_elem is not None else df_id
-                description = desc_elem.text if desc_elem is not None else ""
-
-                # Extract structure reference if available
-                structure_ref = None
-                struct_elem = df.find("./str:Structure", SDMX_NAMESPACES)
-                if struct_elem is not None:
-                    struct_ref = struct_elem.find("./com:Ref", SDMX_NAMESPACES)
-                    if struct_ref is not None:
-                        structure_ref = {
-                            "id": struct_ref.get("id"),
-                            "agency": struct_ref.get("agencyID", df_agency),
-                            "version": struct_ref.get("version", df_version),
-                        }
-
-                dataflow_info = {
-                    "id": df_id,
-                    "agency": df_agency,
-                    "version": df_version,
-                    "name": name,
-                    "description": description,
-                    "is_final": is_final,
-                    "structure_reference": structure_ref,
-                    "data_url_template": f"{self.base_url}/data/{df_agency},{df_id},{df_version}/{{key}}/{{provider}}",
-                    "metadata_url": f"{self.base_url}/dataflow/{df_agency}/{df_id}/{df_version}",
-                }
-
-                dataflows.append(dataflow_info)
+                session = await self._get_session()
+                response = await session.get(url, headers=headers)
+                response.raise_for_status()
 
                 if ctx:
-                    progress = 50 + ((i + 1) * 40 // len(df_elements))
-                    await ctx.report_progress(progress, 100)
+                    await ctx.info("Parsing SDMX-ML response...")
+                    await ctx.report_progress(50, 100)
 
-            if ctx:
-                await ctx.info(f"Successfully discovered {len(dataflows)} dataflows")
-                await ctx.report_progress(100, 100)
+                # Parse SDMX-ML response
+                root = ET.fromstring(response.content)
 
-            return dataflows
+                dataflows: list[dict[str, Any]] = []
+                df_elements = root.findall(".//str:Dataflow", SDMX_NAMESPACES)
 
-        except Exception as e:
-            if ctx:
-                await ctx.info(f"Error discovering dataflows: {str(e)}")
-            logger.exception("Failed to discover dataflows")
-            raise
+                if ctx and df_elements:
+                    await ctx.info(f"Processing {len(df_elements)} dataflows...")
+
+                for i, df in enumerate(df_elements):
+                    df_id = df.get("id")
+                    df_agency = df.get("agencyID", agency)
+                    df_version = df.get("version", "latest")
+                    is_final = df.get("isFinal", "false").lower() == "true"
+
+                    # Extract name and description
+                    name_elem = df.find("./com:Name", SDMX_NAMESPACES)
+                    desc_elem = df.find("./com:Description", SDMX_NAMESPACES)
+
+                    name = name_elem.text if name_elem is not None else df_id
+                    description = desc_elem.text if desc_elem is not None else ""
+
+                    # Extract structure reference if available
+                    structure_ref = None
+                    struct_elem = df.find("./str:Structure", SDMX_NAMESPACES)
+                    if struct_elem is not None:
+                        struct_ref = struct_elem.find("./com:Ref", SDMX_NAMESPACES)
+                        if struct_ref is not None:
+                            structure_ref = {
+                                "id": struct_ref.get("id"),
+                                "agency": struct_ref.get("agencyID", df_agency),
+                                "version": struct_ref.get("version", df_version),
+                            }
+
+                    dataflow_info = {
+                        "id": df_id,
+                        "agency": df_agency,
+                        "version": df_version,
+                        "name": name,
+                        "description": description,
+                        "is_final": is_final,
+                        "structure_reference": structure_ref,
+                        "data_url_template": f"{self.base_url}/data/{df_agency},{df_id},{df_version}/{{key}}/{{provider}}",
+                        "metadata_url": f"{self.base_url}/dataflow/{df_agency}/{df_id}/{df_version}",
+                    }
+
+                    dataflows.append(dataflow_info)
+
+                    if ctx:
+                        progress = 50 + ((i + 1) * 40 // len(df_elements))
+                        await ctx.report_progress(progress, 100)
+
+                if ctx:
+                    await ctx.info(f"Successfully discovered {len(dataflows)} dataflows")
+                    await ctx.report_progress(100, 100)
+
+                _dataflow_cache_store(key, dataflows)
+                self.last_dataflow_cache_hit = False
+                self.last_dataflow_cache_age_s = None
+                return dataflows
+
+            except Exception as e:
+                if ctx:
+                    await ctx.info(f"Error discovering dataflows: {str(e)}")
+                logger.exception("Failed to discover dataflows")
+                raise
 
     def _get_fallback_agencies(self, primary_agency: str) -> list[str]:
         """Fallback agencies for codelist lookup when primary agency returns 404/204."""

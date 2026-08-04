@@ -21,7 +21,7 @@ from urllib.parse import quote, urlencode
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sdmx_progressive_client import SDMXProgressiveClient
+from sdmx_progressive_client import DATAFLOW_CACHE_TTL_S, SDMXProgressiveClient
 from utils import (
     SDMX_NAMESPACES,
     filter_dataflows_by_keywords,
@@ -36,6 +36,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _dataflow_cache_status_note(client: SDMXProgressiveClient) -> str:
+    """Describe how the client's last discover_dataflows() call was served.
+
+    Reads getattr() with defaults rather than the attributes directly: a
+    mock client, or a client whose discover_dataflows() was replaced
+    wholesale in a test, never sets them, and the sensible default for that
+    case is "freshly fetched" rather than raising.
+    """
+    from_cache = getattr(client, "last_dataflow_cache_hit", False)
+    if not from_cache:
+        return "Freshly fetched from the provider."
+    age_s = getattr(client, "last_dataflow_cache_age_s", None)
+    if age_s is None:
+        return "Served from cache."
+    return f"Served from cache (age: {int(age_s)}s, TTL {DATAFLOW_CACHE_TTL_S:.0f}s)."
+
+
 async def list_dataflows(
     client: SDMXProgressiveClient,
     keywords: list[str] | None = None,
@@ -43,6 +60,7 @@ async def list_dataflows(
     limit: int = 10,
     offset: int = 0,
     ctx: Context[Any, Any, Any] | None = None,
+    fresh: bool = False,
 ) -> dict[str, Any]:
     """
     Step 1: Discover available dataflows with minimal metadata.
@@ -57,6 +75,10 @@ async def list_dataflows(
         limit: Number of results to return (default: 10)
         offset: Number of results to skip for pagination (default: 0)
         ctx: MCP context for progress reporting
+        fresh: Bypass the module-level dataflow listing cache and force a
+            live re-fetch. The fetched result still refreshes the cache for
+            other callers. Use this for liveness checks, where a cached
+            answer would hide a provider that is actually unreachable.
     """
     try:
         agency_id = agency_id or client.agency_id
@@ -68,6 +90,7 @@ async def list_dataflows(
             agency_id=agency_id,
             references="none",
             ctx=ctx,
+            fresh=fresh,
         )
 
         # Filter by keywords if provided
@@ -146,6 +169,10 @@ async def list_dataflows(
                 "To discover all dataflows for a country or code, use "
                 "find_code_usage_across_dataflows(code, dimension_id)."
             )
+
+        # Cache status goes first so a caller can't miss it: a consumer must
+        # be able to tell a fresh listing from a cached one without guessing.
+        result["next_step"] = _dataflow_cache_status_note(client) + " " + result["next_step"]
 
         return result
 

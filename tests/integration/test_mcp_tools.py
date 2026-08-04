@@ -124,6 +124,43 @@ class TestListDataflows:
         assert result["dataflows"] == []
         assert "Network error" in result["error"]
 
+    @pytest.mark.asyncio
+    async def test_next_step_reports_fresh_fetch_by_default(self, mock_client):
+        """A client that reports no cache hit should read as freshly fetched."""
+        mock_client.last_dataflow_cache_hit = False
+        mock_client.last_dataflow_cache_age_s = None
+
+        result = await list_dataflows(client=mock_client)
+
+        assert "fresh" in result["next_step"].lower()
+
+    @pytest.mark.asyncio
+    async def test_next_step_reports_cache_status_when_served_from_cache(self, mock_client):
+        """A client that reports a cache hit should surface age, so a caller
+        does not have to guess whether the listing is current."""
+        mock_client.last_dataflow_cache_hit = True
+        mock_client.last_dataflow_cache_age_s = 42.0
+
+        result = await list_dataflows(client=mock_client)
+
+        assert "cache" in result["next_step"].lower()
+        assert "42" in result["next_step"]
+
+    @pytest.mark.asyncio
+    async def test_fresh_param_is_passed_through_to_discover_dataflows(self, mock_client):
+        """fresh=True on the tool must reach the client so it bypasses cache."""
+        await list_dataflows(client=mock_client, fresh=True)
+
+        _, kwargs = mock_client.discover_dataflows.call_args
+        assert kwargs.get("fresh") is True
+
+    @pytest.mark.asyncio
+    async def test_fresh_defaults_to_false(self, mock_client):
+        await list_dataflows(client=mock_client)
+
+        _, kwargs = mock_client.discover_dataflows.call_args
+        assert kwargs.get("fresh") is False
+
 
 class TestGetDataflowStructure:
     """Test get_dataflow_structure tool."""
@@ -788,6 +825,38 @@ class TestMainServerListDataflows:
         assert result.total_found == 1
         assert result.keywords == ["commodity", "prices"]
         assert result.dataflows[0].id == "DF_COMMODITY_PRICES"
+
+    @pytest.mark.asyncio
+    async def test_handler_defaults_fresh_to_false(self):
+        from main_server import list_dataflows as handler
+
+        mock_client = MagicMock(spec=SDMXProgressiveClient)
+        mock_client.agency_id = "SPC"
+        mock_client.endpoint_key = "SPC"
+        mock_client.discover_dataflows = AsyncMock(return_value=[])
+
+        with patch("main_server.get_session_client", return_value=mock_client):
+            await handler()
+
+        _, kwargs = mock_client.discover_dataflows.call_args
+        assert kwargs.get("fresh") is False
+
+    @pytest.mark.asyncio
+    async def test_handler_threads_fresh_through_to_discover_dataflows(self):
+        """fresh=True on the tool must reach discover_dataflows(), so a
+        liveness check bypassing the tool-level cache actually skips it."""
+        from main_server import list_dataflows as handler
+
+        mock_client = MagicMock(spec=SDMXProgressiveClient)
+        mock_client.agency_id = "SPC"
+        mock_client.endpoint_key = "SPC"
+        mock_client.discover_dataflows = AsyncMock(return_value=[])
+
+        with patch("main_server.get_session_client", return_value=mock_client):
+            await handler(fresh=True)
+
+        _, kwargs = mock_client.discover_dataflows.call_args
+        assert kwargs.get("fresh") is True
 
 
 class TestCompareDataflowDimensions:

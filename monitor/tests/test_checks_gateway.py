@@ -35,7 +35,19 @@ async def test_metadata_ok_when_dataflows_found():
     result = await gateway_metadata_check(gw, _ep("SPC"))
     assert result.ok is True
     assert (result.path, result.kind) == ("gateway", "metadata")
-    assert gw.calls == [("list_dataflows", {"limit": 1, "endpoint": "SPC"})]
+    assert gw.calls == [("list_dataflows", {"limit": 1, "endpoint": "SPC", "fresh": True})]
+
+
+async def test_metadata_check_bypasses_the_dataflow_cache():
+    """This call is a liveness check: it must prove the gateway can reach
+    the provider right now. Served from cache it would report a provider
+    healthy while that provider is unreachable, for as long as the cache
+    TTL lasts."""
+    gw = FakeGateway({"list_dataflows": {"total_found": 1, "dataflows": [{"id": "X"}]}})
+    await gateway_metadata_check(gw, _ep("SPC"))
+    name, args = gw.calls[0]
+    assert name == "list_dataflows"
+    assert args["fresh"] is True
 
 
 async def test_metadata_fails_on_zero_dataflows_with_tool_error_text():
@@ -158,7 +170,9 @@ async def test_call_tool_gives_up_rather_than_hanging(monkeypatch):
         async def call_tool(self, name, args):
             await asyncio.sleep(3600)
 
-    gw = checks_gateway.GatewaySession("http://gw.example/mcp", timeout_s=0.01)
+    gw = checks_gateway.GatewaySession(
+        "http://gw.example/mcp", timeout_s=0.01, call_timeout_s=0.01
+    )
     gw._session = HangingSession()
     with pytest.raises(checks_gateway.GatewayError) as excinfo:
         await gw.call_tool("list_dataflows", {})
@@ -175,11 +189,88 @@ async def test_tool_count_gives_up_rather_than_hanging():
         async def list_tools(self):
             await asyncio.sleep(3600)
 
-    gw = checks_gateway.GatewaySession("http://gw.example/mcp", timeout_s=0.01)
+    gw = checks_gateway.GatewaySession(
+        "http://gw.example/mcp", timeout_s=0.01, call_timeout_s=0.01
+    )
     gw._session = HangingSession()
     with pytest.raises(checks_gateway.GatewayError) as excinfo:
         await gw.tool_count()
     assert "timed out" in str(excinfo.value).lower()
+
+
+def test_call_timeout_s_defaults_to_120():
+    """The per-call budget used to be a hidden timeout_s * 2; it is now an
+    explicit, separately configurable value."""
+    import checks_gateway
+
+    gw = checks_gateway.GatewaySession("http://gw.example/mcp")
+    assert gw._call_timeout_s == 120.0
+
+
+class _StubToolResult:
+    structuredContent = {"ok": True}
+    content: list = []
+    isError = False
+
+
+class _StubToolsList:
+    tools = [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_call_tool_uses_call_timeout_s_as_the_budget(monkeypatch):
+    """The budget must come from call_timeout_s, not a derived timeout_s * 2:
+    with timeout_s=30 the old formula would give 60, which would not match
+    the call_timeout_s=77 configured here."""
+    import checks_gateway
+
+    captured = {}
+
+    async def fake_await_bounded(coro, budget, what):
+        coro.close()
+        captured["budget"] = budget
+        return _StubToolResult()
+
+    monkeypatch.setattr(checks_gateway, "_await_bounded", fake_await_bounded)
+
+    class FakeSession:
+        async def call_tool(self, name, args):
+            return None
+
+    gw = checks_gateway.GatewaySession(
+        "http://gw.example/mcp", timeout_s=30.0, call_timeout_s=77.0
+    )
+    gw._session = FakeSession()
+    await gw.call_tool("list_dataflows", {})
+
+    assert captured["budget"] == 77.0
+
+
+@pytest.mark.asyncio
+async def test_tool_count_uses_call_timeout_s_as_the_budget(monkeypatch):
+    import checks_gateway
+
+    captured = {}
+
+    async def fake_await_bounded(coro, budget, what):
+        coro.close()
+        captured["budget"] = budget
+        return _StubToolsList()
+
+    monkeypatch.setattr(checks_gateway, "_await_bounded", fake_await_bounded)
+
+    class FakeSession:
+        async def list_tools(self):
+            return None
+
+    gw = checks_gateway.GatewaySession(
+        "http://gw.example/mcp", timeout_s=30.0, call_timeout_s=77.0
+    )
+    gw._session = FakeSession()
+    count = await gw.tool_count()
+
+    assert captured["budget"] == 77.0
+    assert count == 3
 
 
 def test_read_timeout_scales_with_the_configured_timeout():
@@ -188,3 +279,23 @@ def test_read_timeout_scales_with_the_configured_timeout():
 
     assert checks_gateway._read_timeout(30.0) == 60.0    # floor applies
     assert checks_gateway._read_timeout(120.0) == 120.0  # scales above the floor
+
+
+def test_transport_timeout_read_tracks_the_call_budget():
+    """If the call budget (120s) is larger than the connect timeout (30s)
+    but the read timeout stayed tied to the connect timeout, a slow read on
+    a single tool call could fail before that call's own budget is spent,
+    making the larger budget partly ineffective. The read timeout must
+    track call_timeout_s instead."""
+    import checks_gateway
+
+    timeout = checks_gateway._transport_timeout(timeout_s=30.0, call_timeout_s=120.0)
+    assert timeout.read == 120.0
+    assert timeout.connect == 30.0
+
+
+def test_transport_timeout_read_still_has_a_floor():
+    import checks_gateway
+
+    timeout = checks_gateway._transport_timeout(timeout_s=10.0, call_timeout_s=10.0)
+    assert timeout.read == checks_gateway.READ_TIMEOUT_FLOOR_S

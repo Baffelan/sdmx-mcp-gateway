@@ -2,9 +2,12 @@
 Pytest configuration and shared fixtures.
 """
 
-import pytest
 import asyncio
 from unittest.mock import Mock
+
+import pytest
+
+from sdmx_progressive_client import clear_dataflow_cache
 
 
 @pytest.fixture(scope="session")
@@ -15,17 +18,29 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _clear_dataflow_cache():
+    """The dataflow-listing cache in sdmx_progressive_client is module-level,
+    shared across every client instance and every test in this run. Without
+    this, whichever test populates a given cache key first decides what
+    every later test with the same key sees, making results order-dependent.
+    """
+    clear_dataflow_cache()
+    yield
+    clear_dataflow_cache()
+
+
 @pytest.fixture
 def mock_context():
     """Create a mock Context object for testing."""
     context = Mock()
     context.info = Mock()
     context.report_progress = Mock()
-    
+
     # Make report_progress async
     async def async_report_progress(current, total):
         return None
-    
+
     context.report_progress = async_report_progress
     return context
 
@@ -36,13 +51,13 @@ def sample_dataflow():
     return {
         "id": "TEST_DF",
         "agency": "TEST",
-        "version": "1.0", 
+        "version": "1.0",
         "name": "Test Dataflow",
         "description": "A sample dataflow for testing",
         "is_final": True,
         "structure_reference": {
             "id": "TEST_DSD",
-            "agency": "TEST", 
+            "agency": "TEST",
             "version": "1.0"
         },
         "data_url_template": "https://test.api/data/TEST,TEST_DF,1.0/{key}/{provider}",

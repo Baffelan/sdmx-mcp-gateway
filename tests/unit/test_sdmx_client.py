@@ -2,13 +2,14 @@
 Unit tests for SDMXProgressiveClient.
 """
 
-import xml.etree.ElementTree as ET
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
 
-from sdmx_progressive_client import SDMXProgressiveClient
+import sdmx_progressive_client as sdmx_client_module
+from sdmx_progressive_client import SDMXProgressiveClient, clear_dataflow_cache
 
 
 class TestSDMXProgressiveClient:
@@ -584,3 +585,170 @@ class TestAuthHeaders:
             endpoint_key="STATSNZ",
         )
         assert client._build_default_query_params() == {"format": "xml"}
+
+
+class TestDataflowCache:
+    """Tests for the module-level dataflow listing cache on discover_dataflows().
+
+    The cache is shared process-wide (not per-client), so every test here
+    uses its own base_url and/or agency to get a private cache key -- on top
+    of the autouse tests/conftest.py fixture that clears the cache between
+    tests.
+    """
+
+    @staticmethod
+    def _xml_response(count: int = 2) -> str:
+        flows = "".join(
+            '<str:Dataflow id="DF_' + str(i) + '" agencyID="TEST" version="1.0" '
+            'isFinal="true"><com:Name>Dataflow ' + str(i) + "</com:Name>"
+            "<com:Description>Desc " + str(i) + "</com:Description></str:Dataflow>"
+            for i in range(count)
+        )
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<str:Structure xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure" '
+            'xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common">'
+            "<str:Structures><str:Dataflows>" + flows + "</str:Dataflows></str:Structures>"
+            "</str:Structure>"
+        )
+
+    def _patched_session(self, client: SDMXProgressiveClient, xml: str) -> AsyncMock:
+        """Replace client._get_session with a fake that answers with `xml`
+        every time; returns the fake HTTP client so tests can assert on
+        `.get.call_count`."""
+        mock_response = Mock()
+        mock_response.content = xml.encode("utf-8")
+        mock_response.raise_for_status = Mock()
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(return_value=mock_response)
+        client._get_session = AsyncMock(return_value=mock_http)
+        return mock_http
+
+    @pytest.mark.asyncio
+    async def test_second_call_within_ttl_serves_from_cache(self):
+        client = SDMXProgressiveClient(base_url="https://cache1.example/rest", agency_id="AG1")
+        mock_http = self._patched_session(client, self._xml_response(2))
+
+        first = await client.discover_dataflows()
+        assert len(first) == 2
+        assert client.last_dataflow_cache_hit is False
+        assert mock_http.get.call_count == 1
+
+        second = await client.discover_dataflows()
+        assert second == first
+        assert client.last_dataflow_cache_hit is True
+        assert client.last_dataflow_cache_age_s is not None
+        assert mock_http.get.call_count == 1  # not refetched
+
+    @pytest.mark.asyncio
+    async def test_call_after_ttl_refetches(self, monkeypatch):
+        monkeypatch.setattr(sdmx_client_module, "DATAFLOW_CACHE_TTL_S", 0.01)
+
+        client = SDMXProgressiveClient(base_url="https://cache2.example/rest", agency_id="AG1")
+        mock_http = self._patched_session(client, self._xml_response(1))
+
+        await client.discover_dataflows()
+        assert mock_http.get.call_count == 1
+
+        await asyncio.sleep(0.03)
+
+        await client.discover_dataflows()
+        assert mock_http.get.call_count == 2
+        assert client.last_dataflow_cache_hit is False
+
+    @pytest.mark.asyncio
+    async def test_fresh_forces_refetch_and_updates_cache(self):
+        client = SDMXProgressiveClient(base_url="https://cache3.example/rest", agency_id="AG1")
+        mock_http = self._patched_session(client, self._xml_response(1))
+
+        await client.discover_dataflows()
+        assert mock_http.get.call_count == 1
+
+        await client.discover_dataflows(fresh=True)
+        assert mock_http.get.call_count == 2
+        assert client.last_dataflow_cache_hit is False
+
+        # A normal call afterward reuses the entry fresh=True just warmed,
+        # rather than triggering a third fetch.
+        await client.discover_dataflows()
+        assert mock_http.get.call_count == 2
+        assert client.last_dataflow_cache_hit is True
+
+    @pytest.mark.asyncio
+    async def test_cache_key_distinguishes_agencies(self):
+        client = SDMXProgressiveClient(base_url="https://cache4.example/rest", agency_id="AG1")
+        mock_http = self._patched_session(client, self._xml_response(1))
+
+        await client.discover_dataflows(agency_id="AGENCY_A")
+        await client.discover_dataflows(agency_id="AGENCY_B")
+
+        assert mock_http.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_key_distinguishes_base_urls(self):
+        client_a = SDMXProgressiveClient(base_url="https://cache5a.example/rest", agency_id="AG1")
+        client_b = SDMXProgressiveClient(base_url="https://cache5b.example/rest", agency_id="AG1")
+        mock_http_a = self._patched_session(client_a, self._xml_response(1))
+        mock_http_b = self._patched_session(client_b, self._xml_response(1))
+
+        await client_a.discover_dataflows()
+        await client_b.discover_dataflows()
+
+        assert mock_http_a.get.call_count == 1
+        assert mock_http_b.get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_eviction_holds_the_bound(self):
+        client = SDMXProgressiveClient(base_url="https://cache6.example/rest", agency_id="AG1")
+        self._patched_session(client, self._xml_response(1))
+
+        for i in range(sdmx_client_module.DATAFLOW_CACHE_MAX_ENTRIES + 5):
+            await client.discover_dataflows(agency_id="AGENCY_" + str(i))
+
+        assert (
+            len(sdmx_client_module._dataflow_cache)
+            == sdmx_client_module.DATAFLOW_CACHE_MAX_ENTRIES
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_calls_for_same_key_fetch_once(self):
+        client = SDMXProgressiveClient(base_url="https://cache7.example/rest", agency_id="AG1")
+
+        mock_response = Mock()
+        mock_response.content = self._xml_response(1).encode("utf-8")
+        mock_response.raise_for_status = Mock()
+
+        async def slow_get(*args, **kwargs):
+            await asyncio.sleep(0.02)
+            return mock_response
+
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(side_effect=slow_get)
+        client._get_session = AsyncMock(return_value=mock_http)
+
+        results = await asyncio.gather(
+            client.discover_dataflows(), client.discover_dataflows()
+        )
+        assert mock_http.get.call_count == 1
+        assert results[0] == results[1]
+
+    @pytest.mark.asyncio
+    async def test_a_failed_fetch_is_not_cached(self):
+        client = SDMXProgressiveClient(base_url="https://cache8.example/rest", agency_id="AG1")
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(side_effect=RuntimeError("boom"))
+        client._get_session = AsyncMock(return_value=mock_http)
+
+        with pytest.raises(RuntimeError):
+            await client.discover_dataflows()
+
+        self._patched_session(client, self._xml_response(1))
+        result = await client.discover_dataflows()
+        assert len(result) == 1
+
+    def test_clear_dataflow_cache_empties_state(self):
+        sdmx_client_module._dataflow_cache[("x",)] = (0.0, [])
+        sdmx_client_module._dataflow_cache_locks[("x",)] = asyncio.Lock()
+        clear_dataflow_cache()
+        assert sdmx_client_module._dataflow_cache == {}
+        assert sdmx_client_module._dataflow_cache_locks == {}

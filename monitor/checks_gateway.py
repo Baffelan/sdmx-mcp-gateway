@@ -37,6 +37,19 @@ def _read_timeout(timeout_s: float) -> float:
     return max(float(timeout_s), READ_TIMEOUT_FLOOR_S)
 
 
+def _transport_timeout(timeout_s: float, call_timeout_s: float) -> httpx.Timeout:
+    """httpx timeout config for the MCP transport.
+
+    The read timeout tracks the per-call budget (call_timeout_s), not the
+    connect timeout: if it stayed tied to the shorter connect timeout, a
+    slow read on a single tool call could fail before that call's own
+    budget was spent, leaving the larger budget partly ineffective.
+    connect/write/pool stay tied to timeout_s, since establishing the
+    connection itself does not need the full per-call budget.
+    """
+    return httpx.Timeout(timeout_s, read=_read_timeout(call_timeout_s))
+
+
 async def _await_bounded(coro, budget: float, what: str):
     """Await `coro`, converting a timeout into a `GatewayError`.
 
@@ -52,9 +65,12 @@ async def _await_bounded(coro, budget: float, what: str):
 
 
 class GatewaySession:
-    def __init__(self, url: str, timeout_s: float = 30.0) -> None:
+    def __init__(
+        self, url: str, timeout_s: float = 30.0, call_timeout_s: float = 120.0
+    ) -> None:
         self._url = url
         self._timeout_s = timeout_s
+        self._call_timeout_s = call_timeout_s
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
 
@@ -63,7 +79,7 @@ class GatewaySession:
         try:
             http_client = await self._stack.enter_async_context(
                 httpx.AsyncClient(
-                    timeout=httpx.Timeout(self._timeout_s, read=_read_timeout(self._timeout_s)),
+                    timeout=_transport_timeout(self._timeout_s, self._call_timeout_s),
                     follow_redirects=True,
                 )
             )
@@ -87,15 +103,15 @@ class GatewaySession:
 
     async def tool_count(self) -> int:
         assert self._session is not None
-        budget = self._timeout_s * 2
-        result = await _await_bounded(self._session.list_tools(), budget, "list_tools")
+        result = await _await_bounded(
+            self._session.list_tools(), self._call_timeout_s, "list_tools"
+        )
         return len(result.tools)
 
     async def call_tool(self, name: str, args: dict) -> dict:
         assert self._session is not None
-        budget = self._timeout_s * 2
         result = await _await_bounded(
-            self._session.call_tool(name, args), budget, "tool call " + name
+            self._session.call_tool(name, args), self._call_timeout_s, "tool call " + name
         )
         payload = result.structuredContent
         if payload is None:
@@ -120,7 +136,15 @@ def _ms(start: float) -> int:
 async def gateway_metadata_check(gw, ep: Endpoint) -> CheckResult:
     start = time.monotonic()
     try:
-        payload = await gw.call_tool("list_dataflows", {"limit": 1, "endpoint": ep.key})
+        # fresh=True bypasses the gateway's dataflow listing cache. This
+        # call is a liveness check: its whole purpose is to prove the
+        # gateway can reach the provider right now. Served from cache it
+        # would report a provider healthy while that provider is completely
+        # unreachable, for as long as the cache TTL lasts. The bypass is
+        # what keeps the check meaning what it says.
+        payload = await gw.call_tool(
+            "list_dataflows", {"limit": 1, "endpoint": ep.key, "fresh": True}
+        )
     except Exception as exc:
         return CheckResult(ep.key, "gateway", "metadata", ok=False,
                            latency_ms=_ms(start), error=str(exc)[:300])

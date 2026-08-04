@@ -4,6 +4,38 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-04T12:44Z - cycle 124
+
+**Changed:** ECB `degraded` -> `healthy`, resolved.
+
+**Cycle saw:** cycle 121's entry recorded ECB as `degraded` because four
+contract assertions (`errors:missing_artefact`, `references:all`,
+`references:descendants`, `references:parents`) had flipped to HTTP 504,
+with a live recheck the same run already showing full recovery. That entry
+flagged a watch: a second occurrence of any of those four going `broken`
+would be grounds to escalate past docs-only tracking.
+
+**Live recheck:** not needed this run; checked the monitor's own record
+instead via `/api/cycle/122` and `/api/cycle/123` (the two cycles between
+the last run and this one), both showing ECB `status: healthy`,
+`contracts.broken: []`. Cycle 124, read directly via `/api/status`, is the
+same: `healthy`, no broken contracts, plain health checks all passing.
+
+**Classification:** provider-side, resolved. Three consecutive clean cycles
+(122, 123, 124) since the cycle-121 blip, no recurrence of the four broken
+assertions.
+
+**History:** single-cycle event at 121, fully resolved by 122 onward. This
+closes the watch opened in the cycle-121 entry.
+
+**Recommended action:** none. Drop the "watch for a second occurrence" item
+from state; treat a future ECB contract break as a fresh event, not a
+continuation of this one.
+
+**Could not determine:** nothing outstanding; the monitor's own historical
+record for cycles 122-123 confirms the recovery independently of the
+live-recheck already reported last run.
+
 ## 2026-08-04T06:43Z - cycle 121
 
 **Changed (1 of 2):** ECB `healthy` -> `degraded`, new. This is news: ECB has

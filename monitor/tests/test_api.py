@@ -86,7 +86,7 @@ def test_refresh_runs_cycle_and_cooldown(store: Store, client: TestClient, monke
     calls = []
 
     async def fake_run_cycle(store_arg, endpoints, url, *, timeout_s=30.0,
-                             cycle_timeout_s=900.0):
+                             call_timeout_s=120.0, cycle_timeout_s=900.0):
         calls.append(url)
         return 41
 
@@ -97,6 +97,26 @@ def test_refresh_runs_cycle_and_cooldown(store: Store, client: TestClient, monke
     second = client.post("/api/refresh")
     assert second.status_code == 429
     assert len(calls) == 1
+
+
+def test_refresh_threads_call_timeout_s_to_run_cycle(
+    store: Store, client: TestClient, monkeypatch
+):
+    """CALL_TIMEOUT_S must actually reach run_cycle, not stop at main.py."""
+    captured = {}
+
+    async def fake_run_cycle(store_arg, endpoints, url, *, timeout_s=30.0,
+                             call_timeout_s=120.0, cycle_timeout_s=900.0):
+        captured["call_timeout_s"] = call_timeout_s
+        return 41
+
+    monkeypatch.setattr(main, "run_cycle", fake_run_cycle)
+    client.post("/api/refresh")
+    assert captured["call_timeout_s"] == main.CALL_TIMEOUT_S
+
+
+def test_call_timeout_s_defaults_to_120():
+    assert main.CALL_TIMEOUT_S == 120.0
 
 
 def test_status_splits_nonempty_drift(store: Store, client: TestClient):
@@ -127,7 +147,7 @@ def test_scheduler_catchup_runs_on_stale_store(store: Store, monkeypatch):
     ran = threading.Event()
 
     async def fake_run_cycle(store_arg, endpoints, url, *, timeout_s=30.0,
-                             cycle_timeout_s=900.0):
+                             call_timeout_s=120.0, cycle_timeout_s=900.0):
         ran.set()
         return 1
 

@@ -64,6 +64,7 @@ async def run_cycle(
     gateway_url: str,
     *,
     timeout_s: float = 30.0,
+    call_timeout_s: float = 120.0,
     cycle_timeout_s: float = 900.0,
 ) -> int:
     started_at = utcnow_iso()
@@ -78,7 +79,7 @@ async def run_cycle(
     try:
         async def _liveness() -> int:
             nonlocal gw, gw_cm, entered
-            gw_cm = GatewaySession(gateway_url, timeout_s)
+            gw_cm = GatewaySession(gateway_url, timeout_s, call_timeout_s=call_timeout_s)
             gw = await gw_cm.__aenter__()
             entered = True
             return await gw.tool_count()

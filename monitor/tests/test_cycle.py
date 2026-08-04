@@ -20,7 +20,7 @@ class FakeGatewaySession:
 
     fail_connect = False
 
-    def __init__(self, url: str, timeout_s: float = 30.0):
+    def __init__(self, url: str, timeout_s: float = 30.0, call_timeout_s: float = 120.0):
         self.url = url
 
     async def __aenter__(self):
@@ -191,12 +191,45 @@ async def test_a_normal_cycle_is_unaffected_by_the_deadline(store: Store):
     assert latest["results"]
 
 
+async def test_call_timeout_s_is_threaded_to_the_gateway_session(store: Store, monkeypatch):
+    """The per-call budget must reach GatewaySession, not stop at run_cycle's
+    own signature."""
+    captured = {}
+
+    class SpyGatewaySession(FakeGatewaySession):
+        def __init__(self, url, timeout_s=30.0, call_timeout_s=120.0):
+            super().__init__(url, timeout_s, call_timeout_s)
+            captured["call_timeout_s"] = call_timeout_s
+
+    monkeypatch.setattr(cycle, "GatewaySession", SpyGatewaySession)
+    await cycle.run_cycle(
+        store, ENDPOINTS[:1], "http://gw.example/mcp", call_timeout_s=55.0
+    )
+    assert captured["call_timeout_s"] == 55.0
+
+
+async def test_call_timeout_s_defaults_to_120(store: Store, monkeypatch):
+    """run_cycle must pass its own 120.0 default explicitly, not just leave
+    the argument unset and rely on GatewaySession's default (a spy default
+    of 999.0 here would otherwise mask that)."""
+    captured = {}
+
+    class SpyGatewaySession(FakeGatewaySession):
+        def __init__(self, url, timeout_s=30.0, call_timeout_s=999.0):
+            super().__init__(url, timeout_s, call_timeout_s)
+            captured["call_timeout_s"] = call_timeout_s
+
+    monkeypatch.setattr(cycle, "GatewaySession", SpyGatewaySession)
+    await cycle.run_cycle(store, ENDPOINTS[:1], "http://gw.example/mcp")
+    assert captured["call_timeout_s"] == 120.0
+
+
 async def test_a_hanging_liveness_check_does_not_stall_the_cycle(store: Store, monkeypatch):
     """The liveness probe runs before the deadline-protected block, so it needs
     its own bound or a hang there stops all monitoring."""
 
     class HangingSession:
-        def __init__(self, url, timeout_s=30.0):
+        def __init__(self, url, timeout_s=30.0, call_timeout_s=120.0):
             pass
 
         async def __aenter__(self):

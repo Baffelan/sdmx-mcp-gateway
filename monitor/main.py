@@ -27,6 +27,7 @@ GATEWAY_URL = os.getenv(
 CHECK_INTERVAL_MIN = int(os.getenv("CHECK_INTERVAL_MIN", "120"))
 DB_PATH = os.getenv("DB_PATH", "./data/monitor.db")
 CHECK_TIMEOUT_S = float(os.getenv("CHECK_TIMEOUT_S", "30"))
+CALL_TIMEOUT_S = float(os.getenv("CALL_TIMEOUT_S", "120"))
 CYCLE_TIMEOUT_S = float(os.getenv("CYCLE_TIMEOUT_S", "900"))
 REFRESH_COOLDOWN_S = 300
 STATIC_DIR = Path(__file__).parent / "static"
@@ -81,7 +82,8 @@ async def _locked_cycle(app: FastAPI) -> int:
     async with app.state.cycle_lock:
         return await run_cycle(
             app.state.store, ENDPOINTS, GATEWAY_URL,
-            timeout_s=CHECK_TIMEOUT_S, cycle_timeout_s=CYCLE_TIMEOUT_S,
+            timeout_s=CHECK_TIMEOUT_S, call_timeout_s=CALL_TIMEOUT_S,
+            cycle_timeout_s=CYCLE_TIMEOUT_S,
         )
 
 

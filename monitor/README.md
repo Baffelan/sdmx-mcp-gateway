@@ -112,13 +112,14 @@ now re-checked every cycle and any drift shows up automatically.
 | `GATEWAY_URL` | production Railway URL | MCP gateway to monitor |
 | `CHECK_INTERVAL_MIN` | `120` | minutes between scheduled cycles (default 2 hours) |
 | `DB_PATH` | `./data/monitor.db` | SQLite location (put on a volume) |
-| `CHECK_TIMEOUT_S` | `30` | per-request timeout |
+| `CHECK_TIMEOUT_S` | `30` | direct (non-gateway) per-request timeout, and the gateway connect timeout |
+| `CALL_TIMEOUT_S` | `120` | per-call budget for a single gateway MCP round trip (`call_tool`/`tool_count`) |
 | `CYCLE_TIMEOUT_S` | `900` | seconds before a cycle gives up and closes with a note |
 | `SDMX_STATSNZ_KEY` | unset | Stats NZ subscription key; without it the STATSNZ direct checks are recorded as skipped |
 
 ## Cycle timeout
 
-When a cycle exceeds its `CYCLE_TIMEOUT_S` deadline, it closes with a drift note rather than holding its lock. This exists because a hung cycle previously stopped all monitoring for over ten hours until the service was restarted. Gateway calls are individually bounded by `CHECK_TIMEOUT_S` as well, so a provider holding a connection open cannot stall a cycle.
+When a cycle exceeds its `CYCLE_TIMEOUT_S` deadline, it closes with a drift note rather than holding its lock. This exists because a hung cycle previously stopped all monitoring for over ten hours until the service was restarted. Gateway calls are individually bounded by `CALL_TIMEOUT_S`, so a provider holding a connection open cannot stall a cycle. `CALL_TIMEOUT_S` defaults to 120s because ESTAT's dataflow listing alone takes 46-50s in production; a smaller budget timed out repeatedly. Endpoints run in parallel (`asyncio.gather` in `cycle.py`), so the larger per-call budget does not threaten `CYCLE_TIMEOUT_S`: the worst case is bounded by the slowest single endpoint's sequential work (metadata check plus data check, each retried once at up to `CALL_TIMEOUT_S` per attempt), around 500s, comfortably under the 900s cycle deadline.
 
 ## Deploy on Railway
 

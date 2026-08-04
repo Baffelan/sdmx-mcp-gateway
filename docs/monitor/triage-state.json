@@ -1,12 +1,12 @@
 {
-  "last_cycle_id": 121,
-  "last_cycle_started_at": "2026-08-04T06:01:22Z",
-  "last_run": "2026-08-04T06:43Z",
+  "last_cycle_id": 124,
+  "last_cycle_started_at": "2026-08-04T12:01:22Z",
+  "last_run": "2026-08-04T12:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
-    "ECB": "degraded",
+    "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
     "ILO": "healthy",
@@ -18,9 +18,8 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ECB degraded at cycle 121: errors:missing_artefact, references:all, references:descendants, references:parents all flipped to HTTP 504 (~10.2s) plus references:contentconstraint skipped on a dropped connection. Live recheck at 06:43Z showed full recovery (all four back to 200/404, sub-1.2s). First occurrence since ECB's HTTP 406 issue closed at cycle 43. Watch next cycle: a second occurrence of any of these four assertions going broken is grounds to escalate past docs-only tracking.",
-    "ESTAT list_dataflows timeout: fifth gateway_issue episode (cycles 116-119, 4 cycles / 8 hours) recovered as of cycle 120, now healthy for cycles 120-121. Longest episode on record tied with the first. Still no fix applied under docs-only scope, standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward again for the next session with code-change scope.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 121: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout: fifth gateway_issue episode (cycles 116-119) closed as of cycle 120; healthy through cycle 124 (5 more cycles clean). Still no fix applied under docs-only scope, standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for the next session with code-change scope.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 124: listing served without credentials. Still open, not re-reported since no new change.",
     "ABS/OECD Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence."
   ],

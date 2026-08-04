@@ -120,7 +120,15 @@ def _ms(start: float) -> int:
 async def gateway_metadata_check(gw, ep: Endpoint) -> CheckResult:
     start = time.monotonic()
     try:
-        payload = await gw.call_tool("list_dataflows", {"limit": 1, "endpoint": ep.key})
+        # fresh=True bypasses the gateway's dataflow listing cache. This
+        # call is a liveness check: its whole purpose is to prove the
+        # gateway can reach the provider right now. Served from cache it
+        # would report a provider healthy while that provider is completely
+        # unreachable, for as long as the cache TTL lasts. The bypass is
+        # what keeps the check meaning what it says.
+        payload = await gw.call_tool(
+            "list_dataflows", {"limit": 1, "endpoint": ep.key, "fresh": True}
+        )
     except Exception as exc:
         return CheckResult(ep.key, "gateway", "metadata", ok=False,
                            latency_ms=_ms(start), error=str(exc)[:300])

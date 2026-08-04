@@ -35,7 +35,19 @@ async def test_metadata_ok_when_dataflows_found():
     result = await gateway_metadata_check(gw, _ep("SPC"))
     assert result.ok is True
     assert (result.path, result.kind) == ("gateway", "metadata")
-    assert gw.calls == [("list_dataflows", {"limit": 1, "endpoint": "SPC"})]
+    assert gw.calls == [("list_dataflows", {"limit": 1, "endpoint": "SPC", "fresh": True})]
+
+
+async def test_metadata_check_bypasses_the_dataflow_cache():
+    """This call is a liveness check: it must prove the gateway can reach
+    the provider right now. Served from cache it would report a provider
+    healthy while that provider is unreachable, for as long as the cache
+    TTL lasts."""
+    gw = FakeGateway({"list_dataflows": {"total_found": 1, "dataflows": [{"id": "X"}]}})
+    await gateway_metadata_check(gw, _ep("SPC"))
+    name, args = gw.calls[0]
+    assert name == "list_dataflows"
+    assert args["fresh"] is True
 
 
 async def test_metadata_fails_on_zero_dataflows_with_tool_error_text():

@@ -412,6 +412,7 @@ async def list_dataflows(
     limit: int = 10,
     offset: int = 0,
     endpoint: str | None = None,
+    fresh: bool = False,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> DataflowListResult:
     """
@@ -432,6 +433,11 @@ async def list_dataflows(
         endpoint: Optional endpoint key (e.g. "FBOS", "ECB") to target a
             specific provider for this call only. Defaults to the session's
             current endpoint.
+        fresh: Bypass the module-level dataflow listing cache and force a
+            live re-fetch from the provider. The fetch still refreshes the
+            cache for other callers. Defaults to False; use True only when
+            the point of the call is to prove the provider is reachable
+            right now (a cached answer would say nothing about that).
 
     Returns:
         Structured result with dataflows, pagination info, and navigation hints
@@ -450,7 +456,7 @@ async def list_dataflows(
             agency_id = df_agency
 
     result = await list_dataflows_impl(
-        client, normalized_keywords, agency_id, limit, offset, ctx
+        client, normalized_keywords, agency_id, limit, offset, ctx, fresh=fresh
     )
 
     # Convert to structured output

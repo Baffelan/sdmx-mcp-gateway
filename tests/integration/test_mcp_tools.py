@@ -826,6 +826,38 @@ class TestMainServerListDataflows:
         assert result.keywords == ["commodity", "prices"]
         assert result.dataflows[0].id == "DF_COMMODITY_PRICES"
 
+    @pytest.mark.asyncio
+    async def test_handler_defaults_fresh_to_false(self):
+        from main_server import list_dataflows as handler
+
+        mock_client = MagicMock(spec=SDMXProgressiveClient)
+        mock_client.agency_id = "SPC"
+        mock_client.endpoint_key = "SPC"
+        mock_client.discover_dataflows = AsyncMock(return_value=[])
+
+        with patch("main_server.get_session_client", return_value=mock_client):
+            await handler()
+
+        _, kwargs = mock_client.discover_dataflows.call_args
+        assert kwargs.get("fresh") is False
+
+    @pytest.mark.asyncio
+    async def test_handler_threads_fresh_through_to_discover_dataflows(self):
+        """fresh=True on the tool must reach discover_dataflows(), so a
+        liveness check bypassing the tool-level cache actually skips it."""
+        from main_server import list_dataflows as handler
+
+        mock_client = MagicMock(spec=SDMXProgressiveClient)
+        mock_client.agency_id = "SPC"
+        mock_client.endpoint_key = "SPC"
+        mock_client.discover_dataflows = AsyncMock(return_value=[])
+
+        with patch("main_server.get_session_client", return_value=mock_client):
+            await handler(fresh=True)
+
+        _, kwargs = mock_client.discover_dataflows.call_args
+        assert kwargs.get("fresh") is True
+
 
 class TestCompareDataflowDimensions:
     """Test compare_dataflow_dimensions tool."""

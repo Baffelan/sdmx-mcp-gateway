@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 130,
-  "last_cycle_started_at": "2026-08-05T00:01:22Z",
-  "last_run": "2026-08-05T00:42Z",
+  "last_cycle_id": 133,
+  "last_cycle_started_at": "2026-08-05T06:01:22Z",
+  "last_run": "2026-08-05T06:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,11 +18,11 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT list_dataflows timeout: fifth gateway_issue episode (cycles 116-119) closed as of cycle 120; healthy through cycle 130 (11 more cycles clean). Still no fix applied under docs-only scope, standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for the next session with code-change scope.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 130: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout: fifth gateway_issue episode (cycles 116-119) closed as of cycle 120; healthy through cycle 133 (14 more cycles clean). Still no fix applied under docs-only scope, standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for the next session with code-change scope.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 133: listing served without credentials. Still open, not re-reported since no new change.",
     "ABS/OECD Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence.",
-    "UNICEF direct-path HTTP 429 flap at cycle 126 (direct data + direct json), resolved by cycle 127, still resolved through cycle 130 (4 more cycles clean). Watch for recurrence; a second episode soon would suggest rate-limit triggering rather than a one-off."
+    "UNICEF direct-path HTTP 429 flap at cycle 126 (direct data + direct json), resolved by cycle 127, still resolved through cycle 133 (7 more cycles clean). Watch for recurrence; a second episode soon would suggest rate-limit triggering rather than a one-off."
   ],
   "alerted": false
 }

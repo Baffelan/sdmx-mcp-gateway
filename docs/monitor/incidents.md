@@ -4,6 +4,100 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-05T12:47Z - cycle 136
+
+**Changed (1 of 2):** ESTAT `healthy` -> `gateway_issue` -> `healthy` ->
+`gateway_issue`, sixth and seventh episodes.
+
+**Cycle saw:** cycle 133 (06:01:22Z, last run) was healthy. Cycle 134
+(08:01:22Z) flipped to `gateway_issue` on the same failing check as every
+prior episode: `gateway metadata: tool call list_dataflows timed out after
+60.0s`. Cycle 135 (10:01:22Z) recovered fully (healthy, no failing checks).
+Cycle 136 (12:01:22Z, this run, the newest) is `gateway_issue` again, same
+failing check, latency 60,000ms, 2 attempts. Direct path (metadata, data)
+and gateway data checks stayed healthy throughout all three cycles; only
+`list_dataflows` fails. Counting the fifth episode (cycles 116-119, closed
+at cycle 120 per the cycle-121 entry) as the last one logged, this is a
+sixth episode (cycle 134 only, 1 cycle) that fully resolved, followed by a
+seventh episode (cycle 136, ongoing as of this run). No other endpoint was
+non-healthy at cycle 136. `/api/contracts` `changes` shows only a cosmetic
+`encoding:structure_xml` Content-Type parameter-order flip on ILO (`charset`
+vs `version` ordering, verdict stays `ok`) - the same flapping category
+already on record for ABS/OECD, now also seen on ILO; not re-reported per
+standing guidance. The only non-`ok` contract verdict is the already-known
+`STATSNZ auth:listing capability_appeared` (open since cycle 60, unchanged).
+
+**Live recheck:** fetched the direct ESTAT full dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?references=none`)
+live during this run: HTTP 200, 37MB in 30.2s, matching every prior recheck
+of the same payload (27.9-30.2s across the cycle 106, 109, 112, and 118
+entries). Raw transfer time is unchanged; the bottleneck remains
+parse/processing time on the gateway side stacked on top of that transfer,
+occasionally pushing the combined time past the 60s deadline. (A first
+attempt at this recheck hit a 65s client-side cutoff before completing;
+discarded as a one-off network hiccup rather than new evidence, since the
+repeat came back consistent with history.)
+
+**Classification:** `gateway_issue` (ours), consistent with every prior
+episode. Likely code site unchanged: `monitor/checks_gateway.py`
+(`READ_TIMEOUT_FLOOR_S = 60.0`) wrapping `list_dataflows` in
+`tools/sdmx_tools.py` against the ESTAT metadata endpoint.
+
+**History:** seventh data point on the same recurring pattern, with a sixth
+episode in between that resolved within one cycle. Still no fix has been
+applied (this run remains docs-only scope).
+
+**Recommended action:** none for this run beyond recording the pattern.
+Carry the standing recommendation forward again: the next session with
+broader mandate should apply one of raise the deadline, stream the listing,
+or cache the parsed result.
+
+**Could not determine:** whether the seventh episode (cycle 136) will
+resolve within one cycle like the sixth, or run longer; not yet known at
+the time of this run since the next cycle is not due until roughly 14:01
+UTC.
+
+---
+
+**Changed (2 of 2):** ABS `healthy` -> `gateway_issue` -> `healthy`, second
+occurrence of the empty-error-body flap.
+
+**Cycle saw:** cycle 134 (08:01:22Z) recorded ABS `gateway_issue` with
+failing check `gateway metadata: Error:` - an empty error message after the
+`Error:` prefix, same shape as the sole prior occurrence at cycle 26. Cycle
+135 (10:01:22Z) and cycle 136 (12:01:22Z, this run) are both healthy with no
+failing checks. Direct path and gateway data check were unaffected.
+
+**Live recheck:** not attempted; the failure was already resolved by the
+time this run started (two clean cycles since), and the failing check is
+against the gateway's own tool call rather than the ABS provider directly,
+so there is nothing live to re-verify for a closed episode.
+
+**Classification:** `gateway_issue` (ours) while it lasted; the error
+content itself, not just the failure, is the finding. `monitor/checks_gateway.py`
+raises `GatewayError(str(payload)[:500])` when the MCP tool call returns
+`result.isError`, and here that payload stringified to an empty body. That
+the gateway (or the underlying MCP error payload) produced no message text
+on this failure path is a real gap independent of whatever transient
+condition triggered the error.
+
+**History:** second occurrence of this exact empty-error-body shape. The
+skill's standing note said explicitly: if this recurs, the empty message is
+itself the bug to report. It has now recurred (cycle 26, then cycle 134,
+108 cycles apart at 2h per cycle, roughly 9 days). The prior occurrence is
+outside this run's 48-hour `/api/history` window, so that gap is derived
+from the cycle numbers alone, not re-verified against the history series.
+
+**Recommended action:** worth a small fix under a session with code-change
+scope: ensure the ABS metadata tool call path always includes a non-empty
+error message when `result.isError` is set, so a future occurrence is
+diagnosable from the monitor alone rather than requiring log access.
+
+**Could not determine:** the underlying transient cause of the cycle-134
+ABS metadata failure itself (only that whatever it was produced no error
+text); whether this is a periodic condition worth watching for a third
+occurrence, or coincidence.
+
 ## 2026-08-04T18:43Z - cycle 127
 
 **Changed:** UNICEF `healthy` -> `degraded` -> `healthy`, flapped between runs.

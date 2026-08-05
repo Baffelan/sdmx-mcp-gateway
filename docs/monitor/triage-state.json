@@ -1,13 +1,13 @@
 {
-  "last_cycle_id": 136,
-  "last_cycle_started_at": "2026-08-05T12:01:22Z",
-  "last_run": "2026-08-05T12:47Z",
+  "last_cycle_id": 139,
+  "last_cycle_started_at": "2026-08-05T18:01:22Z",
+  "last_run": "2026-08-05T18:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "gateway_issue",
+    "ESTAT": "healthy",
     "FBOS": "healthy",
     "ILO": "healthy",
     "IMF": "healthy",
@@ -18,12 +18,12 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT list_dataflows timeout: sixth episode (cycle 134 only) resolved within one cycle; seventh episode began at cycle 136 and is ongoing as of this run. Still no fix applied under docs-only scope, standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for the next session with code-change scope.",
-    "ABS gateway metadata empty-error-body flap: second occurrence at cycle 134 (first was cycle 26), resolved by cycle 135. The empty error message itself is a small gap worth fixing under code-change scope (GatewayError in monitor/checks_gateway.py stringifying an empty isError payload). Watch for a third occurrence.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 136: listing served without credentials. Still open, not re-reported since no new change.",
-    "Content-Type parameter order (charset vs version) on structure responses varies between requests, seen on ABS, OECD, and now ILO (cycle 136). Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
+    "ESTAT list_dataflows timeout pattern: seventh episode (began cycle 136) resolved by cycle 137, three clean cycles through 139. Still no fix applied under docs-only scope; standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for a session with code-change scope. Watch for an eighth episode.",
+    "ABS gateway metadata empty-error-body flap: two occurrences so far (cycle 26, cycle 134), both resolved within one cycle, clean through cycle 139. The empty error message itself is a small gap worth fixing under code-change scope (GatewayError in monitor/checks_gateway.py stringifying an empty isError payload). Watch for a third occurrence.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 139: listing served without credentials. Still open, not re-reported since no new change.",
+    "Content-Type parameter order (charset vs version) on structure responses varies between requests, seen on ABS, OECD, and ILO. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence.",
-    "UNICEF direct-path HTTP 429 flap at cycle 126 (direct data + direct json), resolved by cycle 127, still resolved through cycle 136 (10 more cycles clean). Watch for recurrence; a second episode soon would suggest rate-limit triggering rather than a one-off."
+    "UNICEF direct-path HTTP 429 flap at cycle 126 (direct data + direct json), resolved by cycle 127, still resolved through cycle 139 (12 more cycles clean). Watch for recurrence; a second episode soon would suggest rate-limit triggering rather than a one-off."
   ],
   "alerted": true
 }

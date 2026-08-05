@@ -4,6 +4,50 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-05T18:43Z - cycle 139
+
+**Changed:** ESTAT `gateway_issue` -> `healthy`, seventh episode resolved.
+
+**Cycle saw:** at cycle 136 (12:01:22Z, previous run) ESTAT was `gateway_issue`
+on `gateway metadata: list_dataflows` (seventh episode, ongoing at that run).
+History shows it recovered at cycle 137 (14:01:22Z) and has stayed healthy
+through cycle 138 (16:01:22Z) and cycle 139 (18:01:22Z, this run's newest,
+finished 18:02:15Z) - three clean cycles. All 12 endpoints are `healthy` at
+cycle 139; `/api/contracts` `changes` is empty; the only non-`ok` contract
+verdicts are the already-known `STATSNZ auth:listing capability_appeared`
+(open since cycle 60) and `ignored` on `references:contentconstraint` for
+BIS/ILO/IMF (architectural, documented in the skill). None of these are new.
+
+**Live recheck:** cycle 139's own `gateway metadata` check for ESTAT
+(`list_dataflows`) took 48,437ms and passed, under the 60s deadline that has
+been tripping this pattern. Independently fetched the direct ESTAT full
+dataflow listing (`.../dataflow/ESTAT/all/latest`) live during this run:
+HTTP 200, 37MB in 27.8s, consistent with prior reckecks of the same payload.
+Recovery looks genuine, not a monitor artifact.
+
+**Classification:** resolved. Same known pattern as episodes one through
+six: the gateway's own call deadline occasionally fires against Eurostat's
+slow, unpaginated dataflow listing, working as designed rather than a bug -
+but the deadline keeps getting close enough to trip that a structural fix
+(raise the deadline, stream the listing, or cache the parsed result) remains
+worth doing under code-change scope, which this docs-only routine cannot do.
+
+**History:** eighth data point on the ESTAT `list_dataflows` timeout pattern
+(episodes now: cycles ~54-55 note in the skill, then five more before this
+run's predecessor logged episodes six and seven at cycles 134 and 136).
+Every episode so far has resolved within one to a few cycles. No other
+endpoint changed status between cycle 136 and cycle 139.
+
+**Recommended action:** none needed this run; all endpoints healthy. Carry
+forward the standing recommendation (raise the gateway's per-call deadline
+for `list_dataflows`, stream the listing, or cache the parsed result) for a
+future session with code-change scope.
+
+**Could not determine:** whether Eurostat's listing endpoint has gotten
+structurally faster or this is normal variance within the known
+slow/timeout pattern; only three clean cycles have been observed since the
+seventh episode.
+
 ## 2026-08-05T12:47Z - cycle 136
 
 **Changed (1 of 2):** ESTAT `healthy` -> `gateway_issue` -> `healthy` ->

@@ -4,6 +4,83 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-06T06:43Z - cycle 145
+
+**Changed (1 of 2):** ESTAT `healthy` -> `gateway_issue`, ongoing for two
+consecutive cycles.
+
+**Cycle saw:** cycle 143 (02:01:22Z, previous run's newest) was healthy.
+Cycle 144 (04:01:22Z) flipped to `gateway_issue` on the usual failing check:
+`gateway metadata: tool call list_dataflows timed out after 60.0s`. Cycle 145
+(06:01:22Z, this run's newest, finished 06:03:32Z) is still `gateway_issue`,
+same failing check, `attempts: 2`. Direct path stayed fine both cycles
+(metadata 200, data 200 with a sample observation). All other 11 endpoints
+are `healthy` at cycle 145; `/api/contracts` `changes` is empty; no
+`broken` or `capability_appeared` verdicts anywhere.
+
+**Live recheck:** fetched the direct ESTAT full dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all`)
+live during this run: HTTP 200, 37,156,652 bytes, 27.8s. Consistent with
+every prior recheck of this same payload; the listing itself has not grown
+pathologically or gone fully unresponsive.
+
+**Classification:** `gateway_issue` (ours) - direct path healthy, gateway
+path failing. Same root cause as all eight prior episodes: the gateway's
+own ~60s call deadline for `list_dataflows` occasionally fires against
+Eurostat's large, unpaginated, slow listing. Not a provider outage.
+
+**History:** ninth data point on the ESTAT `list_dataflows` timeout
+pattern (prior episodes at cycles ~54-55, then six more through episode
+eight at cycles 134/136, resolved by cycle 137 and confirmed clean through
+143). Every prior episode resolved within one to a few cycles; this is the
+first time the pattern has held for two consecutive cycles rather than
+recovering after one. Worth watching whether cycle 146 recovers or this
+has become a longer-lived episode.
+
+**Recommended action:** watch cycle 146. If still `gateway_issue` there,
+treat it as an escalation of the known pattern (episode lasting 3+ cycles
+for the first time) rather than routine flapping. Standing recommendation
+unchanged: raise the gateway's per-call deadline for `list_dataflows`,
+stream the listing, or cache the parsed result, under a future session
+with code-change scope.
+
+**Could not determine:** whether the two-cycle persistence reflects a
+slower listing right now (this run's live fetch, 27.8s, is well within
+prior norms and doesn't show that) or purely gateway-side load/timing
+variance.
+
+**Changed (2 of 2):** ABS `healthy` -> `gateway_issue` -> `healthy`, third
+occurrence of the empty-error-body flap, already resolved.
+
+**Cycle saw:** cycle 142 (00:01:22Z, previous run) was healthy. Cycle 143
+(02:01:22Z) flipped to `gateway_issue` on `gateway metadata: Error:` (empty
+error body, same shape as the two prior occurrences at cycles 26 and 134).
+Cycle 144 (04:01:22Z) recovered fully and stayed healthy through cycle 145.
+
+**Live recheck:** not applicable; the flap was already resolved two cycles
+before this run started, and ABS is healthy now (all checks passing,
+contracts all `ok`/`ignored` as expected).
+
+**Classification:** `gateway_issue` while it lasted - an empty error
+message on the gateway metadata path, not a provider-side failure signal
+by itself.
+
+**History:** third occurrence of this exact flap (cycle 26, cycle 134, now
+cycle 143). All three resolved within one cycle. The open item from the
+last run said a third occurrence would make the empty error message itself
+worth fixing.
+
+**Recommended action:** the empty-body error message
+(`GatewayError` stringifying an empty `isError` payload in
+`monitor/checks_gateway.py`, per the standing note) has now recurred three
+times at roughly the same shape and severity. Worth fixing under
+code-change scope so future occurrences carry an actual message; this
+docs-only run cannot make that change.
+
+**Could not determine:** the underlying cause of the empty-body error
+itself (gateway-side exception, transient network blip, or something else)
+since no code-change-scope session has inspected it yet.
+
 ## 2026-08-05T18:43Z - cycle 139
 
 **Changed:** ESTAT `gateway_issue` -> `healthy`, seventh episode resolved.

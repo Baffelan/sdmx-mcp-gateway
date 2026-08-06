@@ -4,6 +4,70 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-06T18:45Z - cycle 151
+
+**Changed:** ABS `healthy` -> `gateway_issue`, ongoing for two consecutive cycles.
+
+**Cycle saw:** cycle 148 (this run's previous state) was healthy. Cycle 150
+(16:01:22Z) flipped to `gateway_issue` on `gateway metadata: Error:` (empty
+error body after the colon), `attempts: 2`, `latency_ms: 32197`. Cycle 151
+(18:01:22Z, this run's newest) is still `gateway_issue`, same failing check,
+same empty error text. Direct path stayed fine both cycles (metadata 200 in
+246ms, data 200 with a sample observation). All other 11 endpoints are
+`healthy` at cycle 151. `/api/contracts` `changes` shows one entry: FBOS
+`encoding:structure_xml` Content-Type parameter order flipped (charset before
+version, now version before charset), verdict stays `ok` - this is the known
+cosmetic flap already covered by the standing note (previously seen on ABS,
+OECD, ILO; FBOS is a new endpoint added to that list, not a new kind of
+change). No `broken` verdicts on any endpoint. STATSNZ `auth:listing` is
+still `capability_appeared`, unchanged since cycle 60, not re-reported.
+
+**Live recheck:** fetched the direct ABS dataflow listing
+(`https://data.api.abs.gov.au/rest/dataflow?references=none`) live during
+this run. First two attempts (15s and 20s caps) timed out with no response;
+a third attempt with a 40s cap succeeded, HTTP 200, 3,218,152 bytes, 12.9s.
+Ruled out a network-wide problem first: ECB and OECD direct endpoints, plus
+the monitor's own `/healthz`, all answered normally in the same window, so
+the timeouts were specific to ABS, not this routine's network path.
+
+**Classification:** `gateway_issue` (ours) per the monitor - direct path OK,
+gateway path failing. `gateway_metadata_check` in `monitor/checks_gateway.py`
+takes the `next_step` field from a `total_found < 1` response when it starts
+with `"Error"`; an empty string after the colon means the gateway's own
+`list_dataflows` call returned that literal placeholder with no underlying
+message, not that ABS returned nothing. The live recheck suggests why: ABS's
+`references=none` dataflow listing is large (3.2MB) and was slow and variable
+tonight (over 20s on two attempts, 12.9s on the third), which plausibly pushes
+the gateway's own internal timeout for this call past its budget on some
+attempts. This is consistent with, not a repeat of, the pattern already open
+for ABS (see standing item below) - same empty-error-body shape, but every
+prior occurrence resolved within a single cycle, and this one has now held for
+two.
+
+**History:** fourth occurrence of the ABS empty-error-body pattern (prior:
+cycle 26, cycle 134, cycle 143), and the first that has not self-resolved
+within one cycle - it has now spanned cycles 150 and 151 (4 hours). The
+standing recommendation already called the empty message itself worth fixing
+after the third occurrence; a fourth occurrence that also broke the
+one-cycle-recovery habit raises that from "worth fixing eventually" to "worth
+fixing soon," for a session with code-change scope. No fix applied here
+(docs-only scope).
+
+**Recommended action:** watch cycle 152. If it recovers, note the total
+duration and close as a longer but still self-resolving episode. If it is
+still `gateway_issue` at cycle 152, treat this as a genuine escalation of the
+known pattern and raise priority on fixing the empty-error-body message and
+reviewing whether the gateway's internal timeout for `list_dataflows` needs to
+account for large provider listings like ABS's, not just ESTAT's (see the
+ESTAT `list_dataflows` timeout item below - the two may share a root cause:
+a call-time budget that does not scale with listing size).
+
+**Could not determine:** whether tonight's ABS slowness is itself a new,
+separate condition on ABS's side (their listing endpoint under load) or pure
+coincidence with the gateway's known empty-error-body bug; the live recheck
+shows ABS actually is slow right now, but cannot show what the gateway's
+internal call experienced on cycles 150-151 specifically.
+
 ## 2026-08-06T12:45Z - cycle 148
 
 **Changed:** ESTAT `gateway_issue` -> `healthy`, resolved.

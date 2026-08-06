@@ -872,7 +872,7 @@ class SDMXProgressiveClient:
                 if ctx and df_elements:
                     await ctx.info(f"Processing {len(df_elements)} dataflows...")
 
-                for i, df in enumerate(df_elements):
+                for df in df_elements:
                     df_id = df.get("id")
                     df_agency = df.get("agencyID", agency)
                     df_version = df.get("version", "latest")
@@ -911,11 +911,9 @@ class SDMXProgressiveClient:
 
                     dataflows.append(dataflow_info)
 
-                    if ctx:
-                        progress = 50 + ((i + 1) * 40 // len(df_elements))
-                        await ctx.report_progress(progress, 100)
 
                 if ctx:
+                    await ctx.report_progress(90, 100)
                     await ctx.info(f"Successfully discovered {len(dataflows)} dataflows")
                     await ctx.report_progress(100, 100)
 

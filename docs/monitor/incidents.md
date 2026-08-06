@@ -4,6 +4,45 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-06T12:45Z - cycle 148
+
+**Changed:** ESTAT `gateway_issue` -> `healthy`, resolved.
+
+**Cycle saw:** cycle 145 (this run's previous state) was still `gateway_issue`
+on `list_dataflows` timeout, second consecutive cycle. Cycle 146 (08:01:22Z)
+recovered to `healthy`, and stayed `healthy` through cycles 147 and 148
+(this run's newest, 12:01:22Z). All 12 endpoints are `healthy` at cycle 148.
+`/api/contracts` `changes` shows one entry: OECD `encoding:structure_xml`
+Content-Type parameter order flipped (charset before version, now version
+before charset), verdict stays `ok` - this is the known cosmetic flap already
+covered by the standing note, not re-reported as new. No `broken` verdicts on
+any endpoint. STATSNZ `auth:listing` is still `capability_appeared` (listing
+served without credentials), unchanged since first seen at cycle 60, not
+re-reported per the standing open item.
+
+**Live recheck:** not performed; the cycle 148 data already shows three
+consecutive healthy cycles (146, 147, 148) after the failure, which is
+sufficient confirmation of recovery without a live fetch.
+
+**Classification:** `gateway_issue` (ours) resolved on its own, consistent
+with all eight prior episodes of this pattern - the gateway's own ~60s call
+deadline for `list_dataflows` firing against Eurostat's large listing, then
+succeeding on a later attempt. Not a provider outage.
+
+**History:** ninth episode on the ESTAT `list_dataflows` timeout pattern
+closes out: began cycle 144, held through cycle 145 (the first time it lasted
+two consecutive cycles instead of one), recovered by cycle 146. No fix
+applied; this remains a docs-only-scope routine. Standing recommendation
+carried forward: raise the deadline, stream the listing, or cache the parsed
+result, for a session with code-change scope.
+
+**Recommended action:** no action this run. Continue watching for a tenth
+episode or one that fails to resolve within a cycle or two, which would raise
+priority on the standing recommendation.
+
+**Could not determine:** nothing outstanding; the recovery is confirmed by
+three consecutive healthy cycles from the monitor's own record.
+
 ## 2026-08-06T06:43Z - cycle 145
 
 **Changed (1 of 2):** ESTAT `healthy` -> `gateway_issue`, ongoing for two

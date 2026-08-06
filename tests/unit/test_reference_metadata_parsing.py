@@ -118,7 +118,7 @@ def test_every_endpoint_is_classified_exactly_once():
 
     supported = {"SPC", "OECD", "FBOS", "SBS"}
     routed_but_failing = {"ABS", "ILO"}
-    no_v2 = {"ECB", "UNICEF", "IMF", "ESTAT", "BIS", "STATSNZ"}
+    no_v2 = {"ECB", "UNICEF", "IMF", "ESTAT", "BIS", "STATSNZ","TNSO"}
 
     assert supported | routed_but_failing | no_v2 == set(SDMX_ENDPOINTS)
     assert not (supported & routed_but_failing)

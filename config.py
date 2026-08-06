@@ -227,6 +227,17 @@ SDMX_ENDPOINTS: dict[str, dict[str, Any]] = {
             "format": "xml",
         },
     },
+    "TNSO": {
+        "name": "Thailand NSO StatHub",
+        "base_url": "https://ns2-stathub.nso.go.th/rest",
+        "agency_id": "TNSO",
+        "description": "Thailand official statistics from NSO StatHub",
+        "constraints": {
+            "single_flow": None,
+            "bulk": None,
+        },
+        "references_support": ["none", "children", "parents", "all"],
+    },
 }
 
 

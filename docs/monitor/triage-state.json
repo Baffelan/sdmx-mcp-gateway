@@ -1,13 +1,13 @@
 {
-  "last_cycle_id": 142,
-  "last_cycle_started_at": "2026-08-06T00:01:22Z",
-  "last_run": "2026-08-06T00:42Z",
+  "last_cycle_id": 145,
+  "last_cycle_started_at": "2026-08-06T06:01:22Z",
+  "last_run": "2026-08-06T06:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
-    "ESTAT": "healthy",
+    "ESTAT": "gateway_issue",
     "FBOS": "healthy",
     "ILO": "healthy",
     "IMF": "healthy",
@@ -18,12 +18,12 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT list_dataflows timeout pattern: seventh episode (began cycle 136) resolved by cycle 137, six clean cycles through 142. Still no fix applied under docs-only scope; standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for a session with code-change scope. Watch for an eighth episode.",
-    "ABS gateway metadata empty-error-body flap: two occurrences so far (cycle 26, cycle 134), both resolved within one cycle, clean through cycle 142. The empty error message itself is a small gap worth fixing under code-change scope (GatewayError in monitor/checks_gateway.py stringifying an empty isError payload). Watch for a third occurrence.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 142: listing served without credentials. Still open, not re-reported since no new change.",
+    "ESTAT list_dataflows timeout pattern: ninth episode began cycle 144, still gateway_issue at cycle 145 (this run's newest) - first time the pattern has held for two consecutive cycles instead of resolving after one. Watch cycle 146 for recovery or further escalation. Still no fix applied under docs-only scope; standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for a session with code-change scope.",
+    "ABS gateway metadata empty-error-body flap: third occurrence at cycle 143 (prior: cycle 26, cycle 134), resolved by cycle 144, clean through cycle 145. Per the prior run's note, a third occurrence makes the empty error message itself worth fixing under code-change scope (GatewayError in monitor/checks_gateway.py stringifying an empty isError payload).",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 145: listing served without credentials. Still open, not re-reported since no new change.",
     "Content-Type parameter order (charset vs version) on structure responses varies between requests, seen on ABS, OECD, and ILO. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence.",
-    "UNICEF direct-path HTTP 429 flap at cycle 126 (direct data + direct json), resolved by cycle 127, still resolved through cycle 142 (15 more cycles clean). Watch for recurrence; a second episode soon would suggest rate-limit triggering rather than a one-off."
+    "UNICEF direct-path HTTP 429 flap at cycle 126 (direct data + direct json), resolved by cycle 127, still resolved through cycle 145 (18 more cycles clean). Watch for recurrence; a second episode soon would suggest rate-limit triggering rather than a one-off."
   ],
-  "alerted": false
+  "alerted": true
 }

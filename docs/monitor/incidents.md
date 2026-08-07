@@ -4,6 +4,63 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-07T12:49Z - cycle 160
+
+**Changed:** ILO `healthy` -> `degraded` (contracts broken) -> `healthy`, already resolved before this run started.
+
+**Cycle saw:** last run's newest cycle was 157 (06:01:22Z), `healthy`. `/api/status`
+at cycle 160 (12:01:22Z, this run's newest) shows all 12 endpoints `healthy`,
+`gateway_up: true`, `stale: false`, `drift: []`. But `/api/contracts` `changes`
+listed 12 ILO entries with `was: 403` across `auth:listing`,
+`constraint:availableconstraint`, `dialect:sdmx3`, `encoding:structure_xml`,
+`errors:missing_artefact`, and all seven `references:*` assertions. Pulling
+`/api/cycle/159` (10:01:22Z, the cycle between 157 and 160) directly confirmed
+it: ILO status was `degraded` that cycle, reason `"API contract broken:
+auth:listing, constraint:availableconstraint, errors:missing_artefact,
+references:all, references:children, references:contentconstraint,
+references:descendants, references:none, references:parents,
+references:parentsandsiblings"`. 10 of 12 contract assertions returned HTTP 403
+that cycle (`dialect:sdmx3` still read `ok` since its expectation is `n/a`, and
+`encoding:structure_xml` was `skipped` because the 403 pre-empted it). Cycle 158
+(08:01:22Z) was clean, and cycle 160 is clean again - the episode is exactly
+one cycle wide. Note: `/api/history?hours=48`'s per-endpoint `status`/`failing`
+series shows `healthy`/`[]` for ILO at cycle 159 - that series tracks only the
+five basic gateway/direct checks, not contract assertions, so it would have
+missed this entirely. `/api/cycle/{id}` and `/api/contracts` are the only
+views that caught it. All 11 other endpoints stayed `healthy` across cycles
+158-160, and no other endpoint appears in the `changes` array.
+
+**Live recheck:** performed now, cycle 160 already 48 minutes old. Direct,
+unauthenticated requests to ILO's listing, `references=all`, and
+missing-artefact URLs all returned normally (`200`, `200`, `404` respectively)
+- confirms the monitor's own cycle-160 recovery, no disagreement.
+
+**Classification:** provider-side. The basic gateway and direct data/metadata
+checks (the ones the gateway's actual tool calls exercise) stayed `ok` through
+cycle 159 - only the contract probes, which hit ILO's listing/structure
+endpoints directly and more frequently than normal traffic, drew a blanket 403
+for that one cycle. Reads like a transient rate-limit or WAF trip on ILO's
+side against the probe traffic pattern, not a gateway bug and not a change in
+what the gateway itself can reach.
+
+**History:** this is the third occurrence of the ILO direct-path 403 flap
+tracked in `open_items`, and clearly the broadest yet - 10 contract assertions
+broken this time, versus 4 at cycle 94 and data+json only at cycle 32. All
+three have now resolved within a single cycle. The escalating breadth (4 of 12
+-> 10 of 12) is worth continuing to watch; a fourth occurrence, or one that
+fails to clear within a cycle, would upgrade this from "known flap" to "new
+problem."
+
+**Recommended action:** no code change - watch for a fourth occurrence.
+Because `/api/history` doesn't surface contract-driven degradation, future
+runs need to keep checking `/api/contracts` `changes` and individual
+`/api/cycle/{id}` calls for the cycles between runs, not just the history
+series, or a repeat of this could be missed.
+
+**Could not determine:** whether ILO's 403 was a deliberate rate-limit
+response to the contract probe's request volume/pattern, or an unrelated
+provider-side blip that happened to hit during that cycle's probe window.
+
 ## 2026-08-07T00:42Z - cycle 154
 
 **Changed:** ABS `gateway_issue` -> `healthy`, already resolved before this run started.

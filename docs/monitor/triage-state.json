@@ -1,10 +1,10 @@
 {
-  "last_cycle_id": 151,
-  "last_cycle_started_at": "2026-08-06T18:01:22Z",
-  "last_run": "2026-08-06T18:45Z",
+  "last_cycle_id": 154,
+  "last_cycle_started_at": "2026-08-07T00:01:22Z",
+  "last_run": "2026-08-07T00:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
-    "ABS": "gateway_issue",
+    "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
     "ESTAT": "healthy",
@@ -18,12 +18,12 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ABS gateway metadata empty-error-body flap: fourth occurrence, cycles 150-151, still open at cycle 151 (2 consecutive cycles, first time this pattern has not resolved within one cycle; prior occurrences: cycle 26, cycle 134, cycle 143, all resolved within one cycle). Live recheck at cycle 151 found ABS's own references=none dataflow listing slow and variable (timed out at 15s and 20s, succeeded at 12.9s on a 40s-capped third attempt), which plausibly explains the gateway's internal call exceeding its timeout budget. Empty error message itself still worth fixing under code-change scope (GatewayError/next_step in monitor/checks_gateway.py). Watch cycle 152: if still gateway_issue, treat as a genuine escalation and consider whether the same call-budget issue affects both ABS and ESTAT.",
-    "ESTAT list_dataflows timeout pattern: ninth episode (cycles 144-145) resolved by cycle 146, clean through cycle 151 (6 consecutive healthy cycles). No fix applied under docs-only scope; standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for a session with code-change scope. Watch for a tenth episode, especially one that fails to resolve within a cycle or two.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 151: listing served without credentials. Still open, not re-reported since no new change.",
-    "Content-Type parameter order (charset vs version) on structure responses varies between requests, seen on ABS, OECD, ILO, and now FBOS (cycle 151). Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
+    "ABS gateway metadata empty-error-body flap: fifth occurrence, cycles 150-152 (3 consecutive cycles, 4 hours), resolved by cycle 153, healthy through cycle 154. Longest occurrence yet (prior max was 2 consecutive cycles, cycles 150-151, reported last run; before that all resolved within one cycle: cycle 26, cycle 134, cycle 143). Empty error message itself still worth fixing under code-change scope (GatewayError/next_step in monitor/checks_gateway.py). No live recheck possible this run since the condition had already cleared. Watch for a sixth occurrence; if it spans 4+ cycles, treat as a genuine regression rather than the known cosmetic pattern.",
+    "ESTAT list_dataflows timeout pattern: ninth episode (cycles 144-145) resolved by cycle 146, clean through cycle 154 (9 consecutive healthy cycles). No fix applied under docs-only scope; standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for a session with code-change scope. Watch for a tenth episode, especially one that fails to resolve within a cycle or two.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 154: listing served without credentials. Still open, not re-reported since no new change.",
+    "Content-Type parameter order (charset vs version) on structure responses varies between requests, seen on ABS, OECD, ILO, and FBOS. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
     "ILO direct-path 403 flap: two occurrences so far (cycle 32: data+json only; cycle 94: metadata+data+json plus 4 contract assertions broken), both resolved within one cycle. Watch for a third, broader occurrence.",
-    "UNICEF direct-path HTTP 429 flap at cycle 126 (direct data + direct json), resolved by cycle 127, still resolved through cycle 151 (24 more cycles clean). Watch for recurrence; a second episode soon would suggest rate-limit triggering rather than a one-off."
+    "UNICEF direct-path HTTP 429 flap at cycle 126 (direct data + direct json), resolved by cycle 127, still resolved through cycle 154 (27 more cycles clean). Watch for recurrence; a second episode soon would suggest rate-limit triggering rather than a one-off."
   ],
   "alerted": true
 }

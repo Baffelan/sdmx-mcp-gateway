@@ -4,6 +4,56 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-07T00:42Z - cycle 154
+
+**Changed:** ABS `gateway_issue` -> `healthy`, already resolved before this run started.
+
+**Cycle saw:** last run's newest cycle (151, 18:01:22Z) was `gateway_issue`.
+The history series for cycles 148-154 shows the episode ran longer than
+recorded last time: `gateway_issue` at 150, 151, and 152 (16:01:22Z through
+20:01:22Z, three consecutive cycles, all on the same failing check `gateway
+metadata: Error:` with an empty body after the colon), then `healthy` again
+at 153 (22:01:22Z) and 154 (00:01:22Z, this run's newest). All other 11
+endpoints stayed `healthy` across the whole window. `/api/status` at cycle
+154: `gateway_up: true`, `stale: false`, `drift: []`. `/api/contracts`
+`changes` is empty - no contract assertion changed. STATSNZ `auth:listing`
+is still `capability_appeared`, same as every run since cycle 60, not a new
+change.
+
+**Live recheck:** not performed against the ABS failure itself - by the time
+this run started the condition had already cleared for two full cycles
+(153 and 154), so there was nothing live to catch. Cycle 154 (41 minutes old
+at run time) already shows ABS gateway metadata passing at 404ms.
+
+**Classification:** was `gateway_issue` (ours) while it lasted - direct path
+stayed fine throughout, only the gateway path failed. Same code site as the
+last two occurrences: `gateway_metadata_check` in `monitor/checks_gateway.py`
+surfaces the gateway's own `next_step` field verbatim when `total_found < 1`
+and the field starts with `"Error"`; here that field carried no message after
+the colon, so the underlying cause on the gateway side is still not visible
+from the monitor's output. The empty-message gap itself remains open and
+unfixed - this run is docs-only and out of scope for a code change.
+
+**History:** fifth occurrence of the ABS empty-error-body pattern overall
+(prior: cycle 26, cycle 134, cycle 143, and the 150-151 span reported last
+run), and now the longest one seen: three consecutive cycles (150-152, 4
+hours from first failure to last), one cycle longer than the 150-151 span
+already flagged as unusual last time. It resolved on its own by cycle 153
+without any intervention (this routine never calls `/api/refresh`).
+
+**Recommended action:** the escalating duration (1 cycle historically, then
+2, now 3) is worth watching as a trend rather than dismissing as the same
+old flap. If a sixth occurrence spans four or more cycles, treat it as a
+genuine regression rather than a known cosmetic pattern, and prioritize the
+empty-error-message fix in `checks_gateway.py` / the gateway's `next_step`
+construction so a real cause is visible next time instead of a blank string.
+
+**Could not determine:** what change on ABS's or the gateway's side made
+this episode last three cycles instead of one or two, and whether it is
+still the same root cause (ABS's own `references=none` listing being slow,
+as the live recheck during cycle 151 suggested) or something new, since no
+live recheck was possible this run once the condition had already cleared.
+
 ## 2026-08-06T18:45Z - cycle 151
 
 **Changed:** ABS `healthy` -> `gateway_issue`, ongoing for two consecutive cycles.

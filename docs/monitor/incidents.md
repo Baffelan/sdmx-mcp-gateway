@@ -4,6 +4,57 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-07T18:43Z - cycle 163
+
+**Changed:** IMF `healthy` -> `degraded` (contracts broken) -> `healthy`, already resolved before this run started.
+
+**Cycle saw:** last run's newest cycle was 160 (12:01:22Z), all 12 endpoints
+`healthy`. This run's newest cycle is 163 (18:01:22Z), also all `healthy`, and
+`/api/contracts` `changes` is empty (it only diffs the two most recent cycles).
+Pulling `/api/cycle/161` and `/api/cycle/162` directly (the two intermediate
+cycles) found it: at cycle 161 (14:01:22Z) IMF status was `degraded`, reason
+`"API contract broken: references:all, references:children,
+references:descendants, references:parentsandsiblings"`. All four assertions
+returned HTTP 401 where `200` was expected. Cycle 162 (16:01:22Z) and cycle
+163 are both clean - the episode is exactly one cycle wide. As with the ILO
+episode logged at cycle 160, `/api/history?hours=48`'s per-endpoint
+`status`/`failing` series shows `healthy`/`[]` for IMF at cycle 161 - it only
+tracks the five basic gateway/direct checks, not contract assertions, so it
+missed this too. `/api/cycle/{id}` is the only view that caught it. No other
+endpoint appears degraded across cycles 161-163, and STATSNZ's long-standing
+`auth:listing` `capability_appeared` (open since cycle 60) is the only other
+non-`ok` contract row present at any of these cycles - unchanged, not
+re-reported.
+
+**Live recheck:** performed now, cycle 161 nearly 5 hours old. Direct,
+unauthenticated requests to `api.imf.org` for `dataflow/IMF.STA/CPI` with
+`references=all`, `children`, `descendants`, and `parentsandsiblings` all
+returned `200` - confirms the monitor's own cycle-162 recovery, no
+disagreement.
+
+**Classification:** provider-side. Cycle 161's basic gateway and direct
+checks for IMF (metadata, data on both paths; direct json is permanently
+skipped since IMF ignores the JSON `Accept` header) all stayed `ok` - only
+the four `references:*` contract probes drew `401`. IMF has no separate
+listing/auth-probe endpoint the way ILO does, but the shape is the same as
+the ILO cycle-159 and cycle-32/94/159 flaps: probe-only traffic tripping
+something on the provider side (rate limit or transient auth check) while
+the checks the gateway's actual tool calls exercise stayed healthy
+throughout.
+
+**History:** new as of cycle 161; no prior IMF flap is recorded in this log
+or in the previous run's `open_items`. Not (yet) known to be chronic or
+flapping - this is the first occurrence.
+
+**Recommended action:** no code change; watch for a second IMF `references:*`
+401 occurrence. If it recurs, treat it the same as the ILO pattern (probe
+volume triggering provider-side throttling) rather than a gateway bug, since
+the basic health checks are unaffected both times.
+
+**Could not determine:** whether the 401 came from a real IMF auth/rate-limit
+system or a transient IMF-side fault unrelated to request volume; IMF does
+not expose enough detail in the response to distinguish the two.
+
 ## 2026-08-07T12:49Z - cycle 160
 
 **Changed:** ILO `healthy` -> `degraded` (contracts broken) -> `healthy`, already resolved before this run started.

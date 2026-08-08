@@ -4,6 +4,52 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-08T00:42Z - cycle 166
+
+**Changed:** ILO `healthy` -> `degraded` (contracts broken), already resolved
+before this run started.
+
+**Cycle saw:** last run's newest cycle was 163 (18:01:22Z), all 12 endpoints
+`healthy`. This run's newest cycle is 166 (2026-08-08T00:01:22Z). Pulling
+`/api/cycle/164` and `/api/cycle/165` directly found both clean; `/api/cycle/166`
+showed ILO `degraded`, reason `"API contract broken: references:all,
+references:children, references:descendants, references:parents,
+references:parentsandsiblings"`. All five assertions returned HTTP 403 where
+`200` was expected. `/api/contracts` `changes` confirms the same five
+was:200 -> now:403 entries and nothing else. Basic gateway/direct checks
+(metadata, data, json on both paths) for ILO stayed `ok` throughout cycle 166 -
+only the `references:*` contract probes drew the 403. No other endpoint
+appears degraded across cycles 164-166, and STATSNZ's long-standing
+`auth:listing` `capability_appeared` (open since cycle 60) is the only other
+non-`ok` contract row present - unchanged, not re-reported.
+
+**Live recheck:** performed now, cycle 166 about 40 minutes old. Direct,
+unauthenticated requests to `sdmx.ilo.org` for
+`dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` with `references=all`,
+`children`, `descendants`, `parents`, `parentsandsiblings`, and `none` all
+returned `200` now - confirms the episode has already cleared, no
+disagreement with what the pattern predicts.
+
+**Classification:** provider-side. Same shape as every prior ILO
+`references:*` 403 flap: probe-only traffic tripping something on ILO's side
+(rate limit or transient WAF rule) while the checks the gateway's actual tool
+calls exercise stayed healthy throughout.
+
+**History:** this is the fourth occurrence of the ILO direct-path 403 flap
+tracked in `open_items` (prior: cycle 32, cycle 94, cycle 159). Breadth this
+time (5 of 12 assertions - all the `references:*` checks except
+`contentconstraint` and `none`) is narrower than cycle 159's 10 of 12, closer
+to cycle 94's shape. All four occurrences have now resolved within a single
+cycle.
+
+**Recommended action:** no code change; keep watching for a fifth occurrence
+or one that fails to clear within a cycle, which would upgrade this from
+"known flap" to "new problem."
+
+**Could not determine:** whether ILO's 403 was a deliberate rate-limit
+response to the contract probe's request volume/pattern, or an unrelated
+provider-side blip that happened to coincide with the probe window.
+
 ## 2026-08-07T18:43Z - cycle 163
 
 **Changed:** IMF `healthy` -> `degraded` (contracts broken) -> `healthy`, already resolved before this run started.

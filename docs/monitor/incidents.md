@@ -4,6 +4,48 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-09T00:43Z - cycle 178
+
+**Changed:** UNICEF `healthy` -> `degraded`, already resolved before this run
+started.
+
+**Cycle saw:** last run's newest cycle was 175 (2026-08-08T18:01:22Z), all 12
+endpoints `healthy`. Checked the intermediate cycles individually via
+`/api/history`: 176 and 177 both clean. Cycle 178 (2026-08-09T00:01:22Z)
+showed UNICEF `degraded`, reason "failing: gateway data, direct data, direct
+json" - all three failing checks returned HTTP 429 from the provider. Direct
+metadata and gateway metadata both stayed `ok`. `/api/contracts` `changes`
+is empty and no contract row is `broken`; the only non-`ok` contract row
+anywhere is STATSNZ `auth:listing` `capability_appeared`, open since cycle
+60, unchanged, not re-reported. No other endpoint shows a status change
+across cycles 176-178.
+
+**Live recheck:** performed now, cycle 178 about 40 minutes old. Direct,
+unauthenticated request to `sdmx.data.unicef.org` for
+`data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1` returned
+`200` in 0.75s. The `dataflow/UNICEF/all/latest?detail=allstubs` metadata
+path also returned `200`. Confirms the episode has already cleared. Other
+providers (ECB, IMF) answered fine during the same check, ruling out a
+network problem on this session's side.
+
+**Classification:** provider-side rate limiting (`degraded`, HTTP 429 on
+data paths only, metadata unaffected on both gateway and direct). Nothing to
+fix in gateway code.
+
+**History:** second occurrence of the UNICEF direct-path 429 flap noted in
+`open_items` (first: cycle 126, direct data + direct json only, resolved by
+cycle 127). This time gateway data also drew a 429, since the gateway proxies
+the same provider call. Both occurrences resolved within one cycle.
+
+**Recommended action:** none needed; watch for a third occurrence. If a
+third episode arrives soon or fails to clear within a cycle, treat UNICEF
+429 as a recognized recurring pattern like the ILO 403 flap rather than a
+one-off.
+
+**Could not determine:** the exact provider-side trigger (rate limit window,
+request volume, or scheduled maintenance) for either 429 episode; UNICEF
+does not expose that in its response body.
+
 ## 2026-08-08T00:42Z - cycle 166
 
 **Changed:** ILO `healthy` -> `degraded` (contracts broken), already resolved

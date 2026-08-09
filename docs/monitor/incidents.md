@@ -4,6 +4,54 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-09T12:45Z - cycle 184
+
+**Changed:** ECB `healthy` -> `degraded` (contract-probe only), already
+resolved before this run started.
+
+**Cycle saw:** last run's newest cycle was 181 (2026-08-09T06:01:22Z), all 12
+endpoints `healthy`, ECB clean. `/api/history` for the intervening cycles
+shows ECB `healthy` at 182, 183, and 184 - but that series does not reflect
+contract-probe-only degradation, as noted in `open_items` for the ILO 403
+pattern, so per-cycle detail was pulled directly. `/api/cycle/182` showed ECB
+`degraded`, reason "API contract broken: references:descendants,
+references:none, references:parents" - all three returned HTTP 504 where
+`200` was expected, plus `encoding:structure_xml` `skipped` (also 504).
+`/api/cycle/183` showed ECB `degraded` again with a different pair broken:
+`references:children` and `references:contentconstraint`, again HTTP 504.
+`/api/cycle/184` shows ECB fully `healthy`, all contract rows `ok`.
+`/api/contracts` `changes` (which only diffs the two newest cycles) surfaced
+only the 183->184 half of this: `references:children` and
+`references:contentconstraint` `504` -> `200`, verdict `ok`. No other
+endpoint changed status across cycles 182-184.
+
+**Live recheck:** direct, unauthenticated requests to
+`data-api.ecb.europa.eu/service/dataflow/ECB/EXR` with `references=children`
+and `references=contentconstraint` both returned `200` in under 1.2s. IMF
+answered `200` on the same check during this recheck, ruling out a network
+problem on this session's side.
+
+**Classification:** provider-side timeout (`degraded`, HTTP 504 on
+`references=*` structure queries only; basic gateway/direct health checks -
+metadata, data, json - stayed `ok` throughout both cycles). Nothing to fix in
+gateway code.
+
+**History:** first observed occurrence of an ECB `references=*` 504 flap.
+Not the same failure mode as ECB's earlier 406 issue (resolved, no longer a
+known failure per `open_items`). Spans two consecutive cycles (182 and 183,
+4 hours), each affecting a different subset of the `references:*` contract
+assertions, then fully clean by 184.
+
+**Recommended action:** none needed; watch for a second occurrence. If
+`references=*` 504s recur soon, or affect the basic metadata/data checks
+rather than only contract probes, treat it as a recognized recurring pattern
+like the ILO 403 flap or IMF 401 flap rather than a one-off.
+
+**Could not determine:** whether the 504s came from ECB-side load, a CDN or
+proxy timeout in front of ECB, or throttling triggered by the monitor's own
+contract-probe volume (the same mechanism suspected for the ILO and IMF
+flaps).
+
 ## 2026-08-09T00:43Z - cycle 178
 
 **Changed:** UNICEF `healthy` -> `degraded`, already resolved before this run

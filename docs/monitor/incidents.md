@@ -4,6 +4,90 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-10T18:45Z - cycle 199
+
+**Changed:** ECB `healthy` -> `provider_down`, current as of this cycle
+(not yet resolved when this run started, recovered by the time of the live
+recheck ~44 minutes later).
+
+**Cycle saw:** last run's state was cycle 196 (2026-08-10T12:01:22Z), all 12
+endpoints `healthy`. `/api/history` shows ECB `healthy` through cycles 196,
+197, 198, then `provider_down` at 199 (2026-08-10T18:01:22Z), reason
+"metadata failing on both the gateway and the direct path". Both `gateway
+metadata` and `direct metadata` returned `Error: Server error '503 Service
+Temporarily Unavailable'` / `HTTP 503` for
+`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest`. `gateway
+data`, `direct data`, and `direct json` all stayed `ok` - only the metadata
+listing failed. `/api/contracts` `changes` confirms the same cycle: 8
+`references:*` and `errors:missing_artefact` assertions flipped `200` ->
+`503`, verdict `broken`; `encoding:structure_xml` flipped to `skipped`
+(also 503).
+
+**Live recheck:** an unauthenticated direct GET to
+`data-api.ecb.europa.eu/service/dataflow/ECB/all/latest` returned `200` with
+a normal structure payload. ILO answered `200` on the same check moments
+earlier, ruling out a network problem on this session's side. ECB has
+recovered.
+
+**Classification:** provider-side (`provider_down`, both gateway and direct
+paths failing identically with 503 - nothing gateway-specific, nothing to
+fix in our code).
+
+**History:** new failure mode. Not the same issue as the earlier, resolved
+ECB `406` problem (fixed by retrying `text/csv` on 406, healthy since,
+noted in this skill's known-flaps list). This is the first observed ECB
+`503` on the metadata endpoint.
+
+**Recommended action:** none needed now that it has recovered; watch for a
+second occurrence. If ECB `503`s recur, treat it as a recognized pattern
+the way the ILO 403 and IMF 401 contract-probe flaps are tracked.
+
+**Could not determine:** whether the 503 came from an ECB-side deploy,
+maintenance window, or transient overload; the outage window was too short
+to tell from outside.
+
+---
+
+**Also seen, both already resolved between the last run and this one (found
+by checking intermediate cycles individually, since `/api/history` and
+`/api/contracts` `changes` only cover the two newest cycles):**
+
+- **UNICEF** `healthy` -> `degraded` at cycle 197 (2026-08-10T14:01:22Z),
+  resolved by cycle 198. `gateway data`, `direct data`, and `direct json`
+  all returned `HTTP 404` ("no data found for this query"); metadata
+  unaffected. The `constraint:availableconstraint` contract assertion also
+  went `broken` (expected 200, observed 404) in the same cycle. This is a
+  different shape than the UNICEF `429` flap already tracked in
+  `open_items` (first at cycle 126, second at cycle 178) - first time a 404
+  "no data" shape has been seen here. Likely a transient empty result for
+  the probe's specific dataflow/period rather than an outage; resolved
+  within one cycle.
+
+- **ABS** `healthy` -> `gateway_issue` at cycle 198 (2026-08-10T16:01:22Z),
+  resolved by cycle 199. Only `gateway metadata` failed, with `Error:
+  Server error '502 Bad Gateway'` from `data.api.abs.gov.au`; `direct
+  metadata`, `direct data`, `direct json`, and `gateway data` all stayed
+  `ok` in the same cycle. This is a different shape than the tracked ABS
+  "empty error body" flap in `open_items` (which has no error message at
+  all) - here the 502 and message are both present, and it came from ABS's
+  own server rather than a gateway-side empty response. Classified
+  `gateway_issue` per the monitor's own rules (direct succeeded, gateway
+  path failed), but the underlying 502 originated at ABS, propagated
+  through the gateway's HTTP client. Resolved within one cycle.
+
+**Minor, not alerted:** ILO's `references:contentconstraint` contract
+verdict read `ok` at cycle 199 instead of the expected `ignored` (expected
+"200", observed "200" in both cases, so it did not show up in
+`/api/contracts` `changes`, which only diffs those fields). A live recheck
+against `sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+just now shows `references=none` and `references=contentconstraint`
+returning the same payload size (7699 bytes) with identical content once
+the per-request `message:ID`/`Prepared` header fields are excluded - i.e.
+the parameter is still silently dropped in substance. Reads as one-cycle
+noise in the monitor's own ignored-vs-ok comparison, not a real capability
+change. Not `broken` or `capability_appeared`, so not treated as
+notify-worthy on its own; noting here in case it recurs.
+
 ## 2026-08-09T12:45Z - cycle 184
 
 **Changed:** ECB `healthy` -> `degraded` (contract-probe only), already

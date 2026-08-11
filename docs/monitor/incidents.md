@@ -4,6 +4,54 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-11T18:43Z - cycle 211
+
+**Changed:** ESTAT `gateway_issue` -> `healthy`, resolved, but with a relapse
+in between (closes the open item from cycle 208).
+
+**Cycle saw:** last recorded state was cycle 208, ESTAT `gateway_issue` on the
+`list_dataflows` timeout. Checked cycles 209, 210, and 211 individually via
+`/api/history`: cycle 209 shows `healthy` (recovered after one cycle, same as
+prior episodes), but cycle 210 shows `gateway_issue` again with the identical
+failure (`gateway metadata: tool call list_dataflows timed out after 60.0s`),
+and cycle 211 (the newest) is `healthy` again. Gateway data, direct metadata,
+and direct data checks stayed `ok` throughout; direct json stayed `skipped`
+as designed. No contract assertion broken across any of these cycles; the
+only entry in the `changes` array is the known cosmetic ABS
+`charset`/`version` order flip on `encoding:structure_xml` (verdict stays
+`ok`, not re-reported per standing instruction).
+
+**Live recheck:** fetched ESTAT's full agency-wide dataflow listing
+(`/dataflow/ESTAT?references=none`) directly just now. It completed in
+28.0s at 37.2 MB, well under the gateway's 60s deadline this time. Confirms
+the listing's size is the root cause and its response time varies
+cycle-to-cycle under load, consistent with prior episodes and with cycle
+208's live recheck (65s+, 24.8 MB partial).
+
+**Classification:** provider-side load, not a gateway bug (matches the
+skill's documented flap pattern: "ESTAT: `list_dataflows` times out at 60s
+under load, then recovers. This is our own call deadline firing, working as
+designed.").
+
+**History:** tenth known episode, onset cycle 208. Unlike most prior
+episodes (which failed for one or two consecutive cycles then stayed clean),
+this one alternated: fail (208), recover (209), fail again (210), recover
+(211). That alternating shape is new for this pattern - the ninth episode
+(cycles 144-145) was two consecutive failing cycles with a clean recovery
+after, not a fail/recover/fail/recover sequence. Worth a closer look if a
+future episode repeats this shape, since it could mean load is now closer to
+the 60s boundary more persistently rather than a single spike.
+
+**Recommended action:** none beyond continuing to watch. Standing
+recommendation to raise the gateway's deadline, stream the listing, or cache
+the parsed result carries forward for a session with code-change scope; this
+is a docs-only run.
+
+**Could not determine:** whether the alternating shape (as opposed to
+consecutive-then-clean) reflects a genuine change in ESTAT's load pattern or
+is coincidental variance across two data points; only one episode has shown
+it so far.
+
 ## 2026-08-11T12:49Z - cycle 208
 
 **Changed:** ESTAT `healthy` -> `gateway_issue`, current as of this cycle (still

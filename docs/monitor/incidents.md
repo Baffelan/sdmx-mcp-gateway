@@ -4,6 +4,61 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-11T00:45Z - cycle 202
+
+**Changed:** ILO `healthy` -> `degraded`, current as of this cycle (still
+partly occurring at live recheck time, roughly 40 minutes after cycle start).
+
+**Cycle saw:** last run's state was cycle 199 (2026-08-10T18:01:22Z), ILO
+`healthy`. `/api/history` shows ILO `healthy` through cycles 199, 200, 201
+- but that series does not reflect contract-probe-only degradation (a known
+gap, already noted from prior ILO occurrences). `/api/status` for the
+current cycle 202 (started 2026-08-11T00:01:22Z) shows ILO `degraded`,
+reason "API contract broken", with 9 of 12 contract assertions returning
+`403` where `200`, `500`, or `404` was expected: `auth:listing`,
+`constraint:availableconstraint`, `errors:missing_artefact`,
+`references:all`, `references:children`, `references:contentconstraint`,
+`references:descendants`, `references:none`, `references:parentsandsiblings`.
+`references:parents` stayed `ok` (200). All five basic gateway/direct
+checks (metadata, data, json on both paths) stayed `ok` throughout - only
+contract-probe traffic drew the 403, matching the pattern already tracked
+as "ILO direct-path 403 flap" in the state file's open items.
+
+**Live recheck:** mixed and still flapping. Agency-wide listing
+(`/rest/dataflow/ILO/all/latest`) and its `references=none` returned `200`;
+`references=all` on the same agency-wide query timed out after 45s with no
+response. Against the contract probe's specific dataflow
+(`DF_GED_XLU1_SEX_HHT_CHL_RT`): `references=none` `403`, `references=children`
+`200`, `references=descendants` `403`, `references=parents` `403`,
+`references=parentsandsiblings` `403`, `references=all` `200`,
+`availableconstraint` `500` (back to the expected shape), missing-artefact
+probe `404` (also back to expected). ECB and OECD answered `200` on
+unrelated checks in the same window, ruling out a network problem on this
+session's side.
+
+**Classification:** provider-side (`degraded`, contract-probe traffic only;
+basic gateway and direct checks unaffected - nothing gateway-specific,
+nothing to fix in our code).
+
+**History:** fifth occurrence of the recurring ILO 403 flap. Prior
+occurrences: cycle 32, cycle 94, cycle 159 (10 of 12, broadest until now),
+cycle 166 (5 of 12). All four resolved within one cycle. This one hit 9 of
+12 - close to the broadest occurrence yet - and unlike the prior four, it
+had not fully cleared by the time of this run's live recheck (still mixed
+200/403 responses on the same probe set).
+
+**Recommended action:** none beyond watching. This is the same recognized
+pattern (provider-side throttling tripped by contract-probe volume, not a
+general ILO outage) as the four prior occurrences; the next run should
+confirm it has cleared. If it spans into a second full cycle, that would be
+new territory for this pattern and worth escalating.
+
+**Could not determine:** whether this occurrence has fully resolved as of
+this run, since the live recheck still showed intermittent `403`s roughly
+40 minutes after the cycle that first saw it.
+
+---
+
 ## 2026-08-10T18:45Z - cycle 199
 
 **Changed:** ECB `healthy` -> `provider_down`, current as of this cycle

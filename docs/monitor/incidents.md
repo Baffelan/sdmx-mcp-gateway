@@ -4,6 +4,84 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-11T12:49Z - cycle 208
+
+**Changed:** ESTAT `healthy` -> `gateway_issue`, current as of this cycle (still
+in that state as of this run, roughly 46 minutes after cycle start).
+
+**Cycle saw:** cycle 208 (started 2026-08-11T12:01:22Z) shows ESTAT gateway
+metadata check (`list_dataflows`) failing with `tool call list_dataflows
+timed out after 60.0s`, 2 attempts. Gateway data check, direct metadata,
+and direct data checks all `ok`; direct json is `skipped` as designed
+(Eurostat returns 406 for SDMx-JSON, expected). No contract assertion
+broken; `changes` array showed only the known cosmetic ABS
+`charset`/`version` order flip (verdict stays `ok`, not re-reported per
+standing instruction).
+
+**Live recheck:** fetched ESTAT's full agency-wide dataflow listing
+(`/dataflow/ESTAT`) directly just now. It did not finish within 65 seconds
+and had already downloaded 24.8 MB when the recheck's own timeout cut it
+off. This confirms the listing genuinely is large and slow right now, not
+a gateway-side bug: the gateway's `list_dataflows` call is timing out
+against a real large/slow response, exactly the shape of the
+already-known pattern.
+
+**Classification:** provider-side load, not a gateway bug (`gateway_issue`
+status label reflects which path failed, not fault - matches this
+endpoint's established pattern per the skill's flap list: "ESTAT:
+`list_dataflows` times out at 60s under load, then recovers. This is our
+own call deadline firing, working as designed.").
+
+**History:** ESTAT `list_dataflows` timeout pattern, now its tenth known
+episode (prior: onset then resolution across cycles up to the ninth
+episode at cycles 144-145, clean for 60 consecutive cycles through cycle
+205 per the last state file). Onset this time is cycle 208, the latest
+cycle available at the time of this run - not yet confirmed resolved
+since no cycle 209 exists yet.
+
+**Recommended action:** none beyond watching for cycle 209 to confirm
+recovery, consistent with every prior episode. Standing recommendation to
+raise the gateway's deadline, stream the listing, or cache the parsed
+result carries forward for a session with code-change scope; this is a
+docs-only run.
+
+**Could not determine:** whether cycle 209 will show recovery, since it
+has not started yet at the time of this run.
+
+## 2026-08-11T12:49Z - cycle 206 (resolved by 207)
+
+**Changed:** ABS `healthy` -> `gateway_issue` -> `healthy`, resolved before
+this run started (flap happened between the last two runs).
+
+**Cycle saw:** cycle 206 (started roughly two hours before cycle 208)
+shows ABS gateway metadata check failing with an empty error message
+(`"error": "Error: "`), 2 attempts, latency 31.9s. Gateway data check and
+all three direct-path checks (metadata, data, json) were `ok`. No contract
+assertion broken in cycle 206. By cycle 207, ABS gateway metadata is `ok`
+again and status reads `healthy` through cycle 208.
+
+**Live recheck:** not applicable - the failure had already self-resolved
+by the time this run started, one cycle after onset.
+
+**Classification:** provider-side (`gateway_issue` while it lasted, direct
+path never affected). Matches the pre-existing "ABS gateway metadata
+empty-error-body flap" pattern exactly, including the shape of the error
+(empty message after "Error: ").
+
+**History:** sixth occurrence of this recurring pattern. Fifth occurrence
+was cycles 150-152 (3 consecutive cycles, the longest yet); this one
+lasted a single cycle, clean again by cycle 207. 54 consecutive healthy
+cycles for this shape preceded this occurrence.
+
+**Recommended action:** none for this occurrence beyond logging it. The
+empty error message itself remains worth fixing under code-change scope
+(`GatewayError`/`next_step` in `monitor/checks_gateway.py`), carried
+forward from prior runs.
+
+**Could not determine:** nothing outstanding; the flap is fully bounded
+(one cycle, self-resolved, confirmed via `/api/cycle/206` and
+`/api/status` for 207/208).
+
 ## 2026-08-11T06:46Z - cycle 205
 
 **Changed:** ILO `degraded` -> `healthy`, resolved (closes the open item from

@@ -4,6 +4,47 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-11T06:46Z - cycle 205
+
+**Changed:** ILO `degraded` -> `healthy`, resolved (closes the open item from
+cycle 202).
+
+**Cycle saw:** last recorded state was cycle 202 (2026-08-11T00:01:22Z), ILO
+`degraded` with 9 of 12 contract assertions returning `403`, live recheck at
+that time still showing mixed 200/403 and marked "not confirmed clean yet."
+Checked cycles 203, 204, and 205 individually via `/api/cycle/{id}` and
+`/api/status` (not just `/api/history`, which does not reflect contract-probe
+degradation). ILO's `contracts.broken` list is empty in all three cycles; the
+only non-`ok` row is the expected `references:contentconstraint` -> `ignored`
+informational verdict. Endpoint status reads `healthy` in cycles 203, 204, and
+205. Resolution happened by cycle 203, one cycle after onset - same as all
+four prior occurrences (cycles 32, 94, 159, 166). This does not extend into a
+second full cycle, so it stays inside the known pattern rather than becoming
+new territory.
+
+**Live recheck:** against the contract probe's actual dataflow
+(`DF_GED_XLU1_SEX_HHT_CHL_RT`), `references=none/children/descendants/parents/all`
+all returned `200` just now. A separate probe against the full agency-wide
+listing with `references=all` (a much heavier, unrelated query) timed out
+after 45s; other providers (ECB, ILO root, ABS, BIS) answered normally in the
+same window, so this is that one heavy query being slow, not a provider or
+network outage - it is not part of the contract check the monitor runs and is
+not being carried forward as an issue.
+
+**Classification:** provider-side, resolved. No gateway code implicated (the
+prior classification for the degraded episode already ruled that out).
+
+**History:** fifth occurrence of this recurring pattern, onset cycle 202,
+resolved by cycle 203, clean through cycle 205 (3 consecutive healthy
+cycles including the contract-probe layer). Confirms the pattern still
+self-resolves within one cycle every time it has been observed.
+
+**Recommended action:** none. Keep watching for a sixth occurrence and for
+any future case where it does not clear within a cycle.
+
+**Could not determine:** nothing outstanding for this item; fully confirmed
+resolved by direct cycle-by-cycle inspection and a live recheck.
+
 ## 2026-08-11T00:45Z - cycle 202
 
 **Changed:** ILO `healthy` -> `degraded`, current as of this cycle (still

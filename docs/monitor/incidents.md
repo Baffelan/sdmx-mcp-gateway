@@ -4,6 +4,60 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-12T00:43Z - cycle 214
+
+**Changed:** ILO `healthy` -> `degraded`. Five contract assertions turned
+`broken` in the same cycle: `constraint:availableconstraint` (expected 500,
+observed 403), `references:all` (expected 200, observed 403),
+`references:contentconstraint` (expected 200, observed 403),
+`references:descendants` (expected 200, observed 403), and
+`references:parentsandsiblings` (expected 200, observed 403). All five
+`was` values in `/api/contracts`'s `changes` array match the long-standing
+architectural baseline (500 for availableconstraint, 200 for the four
+references checks), so this is a fresh, single-cycle deviation, not a
+config drift.
+
+**Cycle saw:** cycle 214 (started 2026-08-12T00:01:22Z). ILO's basic health
+checks (gateway metadata, gateway data, direct metadata, direct data, direct
+json) all stayed `ok`, including direct metadata and direct data returning
+HTTP 200 with real observation counts. Only the contract-probe layer's
+`references=*` and `/availableconstraint/` requests came back 403. This is a
+different shape than the previously logged "ILO direct-path 403 flap" (which
+hit the basic direct-path metadata/data/json checks); this one hit five
+contract assertions simultaneously while the basic checks stayed clean.
+
+**Live recheck:** ran the same requests directly against
+`https://sdmx.ilo.org/rest` just now: `/availableconstraint/DF_GED_XLU1_SEX_HHT_CHL_RT/all/all/all`
+returned 500 (matches the documented baseline), and
+`/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` with `references=all`,
+`references=contentconstraint`, and `references=none` all returned 200. All
+four recheck calls matched the pre-existing expected behavior, not the 403
+the monitor's cycle 214 saw. Disagreement between the cycle and the live
+recheck, resolved already less than an hour later.
+
+**Classification:** provider-side (`degraded`, contract-probe layer only;
+basic gateway and direct paths both `ok` throughout, so nothing indicates a
+gateway bug here).
+
+**History:** new shape as of cycle 214; no prior occurrence of all five
+`references:*`/`availableconstraint` assertions failing together. The
+open item log has five prior ILO direct-path 403 episodes (cycles 32, 94,
+159, 166, 202), each resolving within one cycle and each on the basic
+direct-path checks rather than the contract layer. Plausibly the same
+underlying cause (provider-side throttling under the contract probes' burst
+of near-simultaneous requests) manifesting on a different set of endpoints
+this time.
+
+**Recommended action:** watch the next cycle. If a second consecutive cycle
+shows the same five contracts broken, escalate; a single-cycle blip that
+already cleared on live recheck does not warrant a code change.
+
+**Could not determine:** whether this was caused by rate limiting specific
+to the contract probe's request burst (as suspected for the similar IMF
+references:* 401 flap and the ILO direct-path 403 flap) or something else
+transient on ILO's side; the live recheck a few minutes later cannot rule
+either out, only confirm the effect did not persist.
+
 ## 2026-08-11T18:43Z - cycle 211
 
 **Changed:** ESTAT `gateway_issue` -> `healthy`, resolved, but with a relapse

@@ -4,6 +4,74 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-12T06:43Z - cycle 217
+
+**Changed:** ESTAT `healthy` -> `gateway_issue`. Gateway metadata check
+(`list_dataflows`) timed out after 60.0s across 2 attempts. Direct metadata
+and direct data both stayed `ok` (716ms and 308ms). Gateway data also
+stayed `ok`.
+
+**Cycle saw:** cycle 217 (started 2026-08-12T06:01:22Z). Only the gateway
+`list_dataflows` metadata call failed, with `error: "tool call
+list_dataflows timed out after 60.0s"`. Direct path and all 12 contract
+assertions for ESTAT read `ok`.
+
+**Live recheck:** fetched `https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT`
+directly just now. It returned HTTP 200 after 29.0s, with a 37MB response
+body. Slow, but well under the gateway's 60s deadline taken alone - the
+gateway path is presumably losing the race when Eurostat's full dataflow
+list is slow to render on top of whatever the gateway's list_dataflows
+tool does with it.
+
+**Classification:** `gateway_issue` (ours), same recurring cause as prior
+episodes: the ESTAT dataflow list is very large and Eurostat's render time
+for it is inconsistent, so our fixed 60s deadline sometimes gets exceeded
+under load. Not a provider outage; direct path answers every time, just
+sometimes slowly.
+
+**History:** eleventh episode of this pattern (per `docs/monitor/triage-
+state.json` open items, most recently the tenth: onset cycle 208, resolved
+by cycle 211 with an alternating fail/recover shape in between). Clean for
+cycles 211-216 (6 consecutive healthy cycles). This episode's onset is
+cycle 217, single cycle so far.
+
+**Recommended action:** unchanged standing recommendation, carried forward
+again: raise the gateway's deadline for this specific call, switch to
+streaming the dataflow listing, or cache the parsed result. This is a
+code-change-scope fix, not something this triage run makes.
+
+**Could not determine:** whether cycle 217 alone is the whole episode or
+the start of a longer run like the tenth one; next run's history check
+will show whether it resolved within a cycle or persisted.
+
+## 2026-08-12T06:43Z - cycle 217 (ILO recovery)
+
+**Changed:** ILO `degraded` -> `healthy`. All 12 contract assertions read
+`ok` or the expected architectural `ignored` (for
+`references:contentconstraint`); none `broken`.
+
+**Cycle saw:** cycle 217, all ILO checks and contracts clean.
+
+**Live recheck:** not needed; this is a status recovery, not a new
+failure, and the prior run's own live recheck (cycle 214, minutes after
+the failing cycle) had already confirmed the provider was back to the
+documented baseline (500 for `/availableconstraint/`, 200 for the four
+`references=*` checks).
+
+**Classification:** resolved. The prior entry's contract-layer 403 episode
+did not recur in cycles 215, 216, or 217.
+
+**History:** the cycle 214 episode was the only occurrence; it did not
+span a second cycle, so per the prior entry's stated escalation threshold
+("escalate if a future episode spans a second full cycle without
+clearing") no escalation is warranted. Closing the open item.
+
+**Recommended action:** none. No code change indicated by a single-cycle
+blip that already cleared.
+
+**Could not determine:** nothing outstanding; this entry only records the
+recovery for the log.
+
 ## 2026-08-12T00:43Z - cycle 214
 
 **Changed:** ILO `healthy` -> `degraded`. Five contract assertions turned

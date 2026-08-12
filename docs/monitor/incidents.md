@@ -4,6 +4,39 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-12T12:49Z - cycle 220
+
+**Changed:** ESTAT `gateway_issue` -> `healthy`. All checks and all 12
+contract assertions read `ok` at cycle 220; no `broken` verdicts anywhere
+across all twelve endpoints.
+
+**Cycle saw:** cycles 218, 219, and 220 all show ESTAT fully healthy
+(`failing: []` in each). The gateway `list_dataflows` timeout that opened
+this episode at cycle 217 did not recur.
+
+**Live recheck:** not performed; this is a status recovery already
+confirmed clean for three consecutive cycles (218-220) by the monitor's
+own checks, not a new failure needing independent verification.
+
+**Classification:** resolved. Eleventh episode of the known
+`list_dataflows` timeout pattern closed after a single cycle (onset 217,
+resolved by 218), matching the typical shape of prior episodes rather than
+the alternating tenth episode.
+
+**History:** per the prior entry and the state file's open items, this was
+flagged to watch for whether it "resolved within a cycle like most prior
+ones, or persisted like the tenth." It resolved within a cycle. Standing
+recommendation (raise the gateway deadline for `list_dataflows`, stream
+the listing, or cache the parsed result) remains open as a code-change-
+scope fix; no new occurrence changes that recommendation.
+
+**Recommended action:** none from this run. Continue watching for a
+twelfth episode.
+
+**Could not determine:** nothing outstanding on ESTAT; this entry only
+records the recovery for the log. No other endpoint or contract changed
+between cycle 217 and cycle 220.
+
 ## 2026-08-12T06:43Z - cycle 217
 
 **Changed:** ESTAT `healthy` -> `gateway_issue`. Gateway metadata check

@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 211,
-  "last_cycle_started_at": "2026-08-11T18:01:22Z",
-  "last_run": "2026-08-11T18:43Z",
+  "last_cycle_id": 214,
+  "last_cycle_started_at": "2026-08-12T00:01:22Z",
+  "last_run": "2026-08-12T00:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "healthy",
+    "ILO": "degraded",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,18 +18,19 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT list_dataflows timeout pattern: tenth episode, onset cycle 208, resolved by cycle 211 but with a relapse in between - fail (208), recover (209), fail again (210), recover (211). That alternating shape is new for this pattern; prior episodes failed for one or two consecutive cycles then stayed clean. Live recheck at cycle 211 completed in 28.0s/37.2 MB, well under the 60s deadline, consistent with cycle-to-cycle load variance. No fix applied under docs-only scope; standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for a session with code-change scope. Watch for an eleventh episode, especially another alternating one.",
-    "ABS gateway metadata empty-error-body flap: sixth occurrence at cycle 206, resolved by cycle 207, clean through cycle 211. Fifth occurrence was cycles 150-152 (3 consecutive cycles, the longest yet); this one was a single cycle. Empty error message itself still worth fixing under code-change scope (GatewayError/next_step in monitor/checks_gateway.py). Watch for a seventh occurrence.",
-    "ILO direct-path 403 flap: fifth occurrence at cycle 202, resolved by cycle 203, clean through cycle 211 (9 consecutive healthy cycles including the contract-probe layer). Prior occurrences: cycle 32, cycle 94, cycle 159 (10 of 12), cycle 166 (5 of 12), cycle 202 (9 of 12) - all five have now resolved within one cycle. Watch for a sixth occurrence; escalate if a future episode spans a second full cycle without clearing.",
-    "ECB metadata 503 (provider_down): occurred cycle 199 only, resolved by cycle 200, clean through cycle 211 (12 consecutive healthy cycles). Different failure mode than the resolved ECB 406 issue and the ECB references:* 504 flap below. Watch for a second occurrence; escalate if a second episode does not resolve within a cycle or two.",
-    "ABS gateway metadata 502 Bad Gateway flap: occurred cycle 198 only, resolved by cycle 199, clean through cycle 211. Distinct from the ABS empty-error-body flap above (this one carried a real error message). Watch for recurrence.",
-    "UNICEF direct-path HTTP 404 'no data found' flap: occurred cycle 197 only, resolved by cycle 198, clean through cycle 211. Different shape than the UNICEF 429 flap below. Watch for a second occurrence.",
-    "ILO references:contentconstraint ignored-vs-ok blip: one-cycle noise at cycle 199 only (verdict read ok instead of ignored; live recheck confirmed the parameter is still silently dropped in substance). No recurrence through cycle 211. Watch for recurrence; if it persists, revisit as a possible real behavior change.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 211: listing served without credentials. Still open, not re-reported since no new change.",
+    "ILO contract-layer 403 episode: first occurrence, cycle 214. Five contract assertions (constraint:availableconstraint, references:all, references:contentconstraint, references:descendants, references:parentsandsiblings) all turned broken with HTTP 403, versus the documented baseline (500 for availableconstraint, 200 for the four references checks). Basic gateway/direct health checks (metadata, data, json) stayed ok throughout, so this is a contract-probe-layer issue, not a basic reachability issue. Live recheck minutes later against sdmx.ilo.org directly got the expected 500/200 values back, so it had already cleared. Different shape from the five prior ILO direct-path 403 flaps (which hit the basic checks, not the contract layer). Watch for a second occurrence; escalate if a future episode spans a second full cycle without clearing.",
+    "ESTAT list_dataflows timeout pattern: tenth episode, onset cycle 208, resolved by cycle 211 with an alternating fail/recover/fail/recover shape in between. Clean through cycle 214 (cycles 212-214 all healthy in /api/history). Standing recommendation (raise deadline, stream listing, or cache parsed result) carried forward for a session with code-change scope. Watch for an eleventh episode.",
+    "ABS gateway metadata empty-error-body flap: sixth occurrence at cycle 206, resolved by cycle 207, clean through cycle 214. Fifth occurrence was cycles 150-152 (3 consecutive cycles, the longest yet); this one was a single cycle. Empty error message itself still worth fixing under code-change scope (GatewayError/next_step in monitor/checks_gateway.py). Watch for a seventh occurrence.",
+    "ILO direct-path 403 flap (basic checks): fifth occurrence at cycle 202, resolved by cycle 203, clean through cycle 214 (12 consecutive healthy cycles on the basic direct-path checks). Prior occurrences: cycle 32, cycle 94, cycle 159 (10 of 12), cycle 166 (5 of 12), cycle 202 (9 of 12) - all five resolved within one cycle. Distinct from the new contract-layer 403 episode above. Watch for a sixth occurrence; escalate if a future episode spans a second full cycle without clearing.",
+    "ECB metadata 503 (provider_down): occurred cycle 199 only, resolved by cycle 200, clean through cycle 214. Different failure mode than the resolved ECB 406 issue and the ECB references:* 504 flap below. Watch for a second occurrence; escalate if a second episode does not resolve within a cycle or two.",
+    "ABS gateway metadata 502 Bad Gateway flap: occurred cycle 198 only, resolved by cycle 199, clean through cycle 214. Distinct from the ABS empty-error-body flap above (this one carried a real error message). Watch for recurrence.",
+    "UNICEF direct-path HTTP 404 'no data found' flap: occurred cycle 197 only, resolved by cycle 198, clean through cycle 214. Different shape than the UNICEF 429 flap below. Watch for a second occurrence.",
+    "ILO references:contentconstraint ignored-vs-ok blip: one-cycle noise at cycle 199 only (verdict read ok instead of ignored; live recheck confirmed the parameter is still silently dropped in substance). No recurrence through cycle 214. Watch for recurrence; if it persists, revisit as a possible real behavior change.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 214: listing served without credentials. Still open, not re-reported since no new change.",
     "Content-Type parameter order (charset vs version) on structure responses varies between requests, seen on ABS, OECD, ILO, and FBOS. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
-    "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162, clean through cycle 211. Same shape as the recurring ILO 403 flap (probe volume tripping provider-side throttling). Watch for a second occurrence.",
-    "UNICEF direct-path HTTP 429 flap: second occurrence at cycle 178, resolved by that run's live recheck. First occurrence cycle 126, resolved cycle 127. No recurrence through cycle 211. Watch for a third occurrence.",
-    "ECB references:* 504 flap: first occurrence, cycles 182-183, resolved by cycle 184, clean through cycle 211. Basic gateway/direct health checks stayed ok throughout - only contract-probe references=* queries timed out. Watch for a second occurrence."
+    "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162, clean through cycle 214. Same shape as the recurring ILO 403 flaps (probe volume tripping provider-side throttling). Watch for a second occurrence.",
+    "UNICEF direct-path HTTP 429 flap: second occurrence at cycle 178, resolved by that run's live recheck. First occurrence cycle 126, resolved cycle 127. No recurrence through cycle 214. Watch for a third occurrence.",
+    "ECB references:* 504 flap: first occurrence, cycles 182-183, resolved by cycle 184, clean through cycle 214. Basic gateway/direct health checks stayed ok throughout - only contract-probe references=* queries timed out. Watch for a second occurrence."
   ],
   "alerted": true
 }

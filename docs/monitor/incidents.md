@@ -4,6 +4,63 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-13T00:44Z - cycle 226
+
+**Changed:** ILO `healthy` -> `gateway_issue`. 24 consecutive healthy cycles
+(203-225) ended at cycle 226, the first cycle of this run's window.
+
+**Cycle saw:** gateway path failing on both basic checks - gateway metadata
+and gateway data both returned `403 Forbidden` for
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`. Direct path (metadata,
+data, json) stayed fully healthy (HTTP 200) in the same cycle. Eight contract
+assertions also flipped to `403` in the same cycle: `auth:listing`
+(200 -> 403, flagged `broken` as "provider now demands credentials"),
+`constraint:availableconstraint` (500 -> 403, `broken`),
+`dialect:sdmx3` (400 -> 403, stayed `ok`, uninformative fallthrough),
+`encoding:structure_xml` (skipped, judged unreadable under 403),
+`errors:missing_artefact` (404 -> 403, `broken`), `references:all`
+(200 -> 403, `broken`), `references:contentconstraint` (200 -> 403,
+`broken`), `references:parents` (200 -> 403, `broken`). Four other ILO
+contract checks in the same cycle (`references:children`,
+`references:descendants`, `references:none`,
+`references:parentsandsiblings`) stayed `200 ok`, so the block was not a
+blanket ban on the host.
+
+**Live recheck:** all of it is gone now. Direct curl against
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` with the gateway's actual
+Accept header (`application/vnd.sdmx.structure+xml;version=2.1`) returned
+`200` on four separate attempts. The `auth:listing`, `references:all`, and
+`references:parents` URLs all returned `200` unauthenticated. The
+`errors:missing_artefact` URL returned `404` (matches the pre-existing
+expectation, not 403). The `constraint:availableconstraint` URL returned
+`500` (matches the documented ILO architectural fact, not 403). Other
+providers (Pacific Data, ECB, several root checks) answered normally in the
+same window, so this was not a network problem on the runner's side.
+
+**Classification:** transient. The monitor called this `gateway_issue`
+("ours") because the gateway path 403'd while the direct path succeeded in
+the same cycle, but the live recheck shows the gateway's own request shape
+is not at fault - the identical request now succeeds cleanly. This reads as
+a short-lived block or rate limit on ILO's side that had already cleared by
+the time this run checked, well within the same two-hour window.
+
+**History:** new episode, distinct from the resolved "ILO contract-layer 403
+episode" noted at cycle 214 in the state file's open items (that one did not
+touch the basic gateway/direct path checks; this one did). First occurrence
+of this exact shape (gateway-path 403 alongside partial contract 403s) in
+the run's visibility.
+
+**Recommended action:** none from this run; treat as resolved given the
+clean live recheck. Watch for a second occurrence. If it recurs and this
+time overlaps a live recheck (i.e. still failing when checked), escalate:
+that would move it from "provider blip" to something worth a code-side
+retry/backoff change in the gateway's ILO handling.
+
+**Could not determine:** whether the block was IP-based rate limiting, a WAF
+rule, or a maintenance blip on ILO's side; the provider gives no diagnostic
+detail beyond a bare `403 Forbidden`. No other endpoint or contract changed
+between cycle 223 and cycle 226.
+
 ## 2026-08-12T12:49Z - cycle 220
 
 **Changed:** ESTAT `gateway_issue` -> `healthy`. All checks and all 12

@@ -4,6 +4,51 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-13T18:45Z - cycle 235
+
+**Changed:** ABS `healthy` -> `degraded` -> `healthy`, already resolved before
+this run started. Contract assertion `errors:missing_artefact` went `ok` ->
+`broken`.
+
+**Cycle saw:** at cycle 234 (2026-08-13T16:01:22Z), two ABS contract checks
+both returned HTTP 503 instead of their expected codes: `dialect:sdmx3`
+(expected 400, observed 503) and `errors:missing_artefact` (expected 404,
+observed 503, `error semantics changed from HTTP 404`). The endpoint-level
+status for that cycle was `degraded`, reason "API contract broken:
+errors:missing_artefact". Cycle 233 was clean (no broken contracts, status
+healthy) and cycle 235 (current) is back to matching expectations for both
+assertions (400 and 404 respectively), status `healthy`, all 12 endpoints
+healthy, `stale: false`, `gateway_up: true`.
+
+**Live recheck:** fetched both underlying ABS URLs directly just now -
+`https://data.api.abs.gov.au/rest/dataflow/ABS/NONEXISTENT_XYZ_2026/latest`
+returned 404, and `https://data.api.abs.gov.au/rest/structure/dataflow/ABS/CPI/latest`
+returned 400. Both match the expected codes, confirming recovery. Sanity
+check against ECB (`data-api.ecb.europa.eu`) returned 200, so this run's
+network path is not the explanation for the earlier 503s.
+
+**Classification:** provider-side. Both failing checks are direct requests
+against ABS's own structure/dataflow endpoints (not gateway-mediated), so
+this is ABS returning 503 for one cycle, not a gateway bug.
+
+**History:** single-cycle event, onset and resolution both at cycle 234; no
+prior occurrence found in this file of a 503 on `dialect:sdmx3` or
+`errors:missing_artefact` specifically (the existing tracked ABS pattern is a
+`gateway_issue` / empty-error-body flap on the gateway metadata check, a
+different check entirely). Treating this as a new, first-seen flap shape
+rather than a recurrence of the known one.
+
+**Recommended action:** none needed now; already resolved. Watch for a second
+occurrence of 503 on these two contract checks specifically - if it recurs or
+spans more than one cycle, it would suggest a genuine ABS-side issue rather
+than a one-off blip.
+
+**Could not determine:** whether the 503 was ABS-wide (e.g. a brief
+maintenance window or upstream hiccup affecting all of `data.api.abs.gov.au`)
+or scoped to just these two request shapes, since the other three ABS checks
+in the same cycle (gateway metadata, gateway data, direct metadata/data/json)
+all passed normally at cycle 234.
+
 ## 2026-08-13T00:44Z - cycle 226
 
 **Changed:** ILO `healthy` -> `gateway_issue`. 24 consecutive healthy cycles

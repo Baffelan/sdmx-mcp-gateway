@@ -4,6 +4,70 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-14T13:05Z - cycle 244
+
+**Changed:** ILO `healthy` -> `provider_down`. Three consecutive healthy
+cycles (239, 240, 241, the last one being the previous run's baseline) held
+through cycles 242 and 243, then broke at cycle 244, the current cycle at the
+time of this run.
+
+**Cycle saw:** all five basic checks failing with HTTP 403 - gateway metadata
+(`Error: Client error '403 Forbidden' for url
+'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`), gateway data
+(`probe status: error; HTTP 403 from provider.`), direct metadata (HTTP 403),
+direct data (HTTP 403), and direct json (HTTP 403). This is the first time
+metadata has failed alongside data on both paths; every prior ILO 403 episode
+on record left at least one metadata check passing. 10 of 12 contract
+assertions for ILO flipped to `broken` (all `references:*`,
+`constraint:availableconstraint`, `errors:missing_artefact`,
+`auth:listing`), one `skipped` (`encoding:structure_xml`, judged unreadable
+under a blanket 403), and one still read `ok` (`dialect:sdmx3`, which expects
+a 4xx and got one). `stale: false`, `gateway_up: true`, all other 11
+endpoints healthy in this cycle, no other endpoint changed status.
+
+**Live recheck:** fetched the same three URLs just now -
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` (the gateway's metadata
+URL), the configured direct metadata path
+(`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`),
+and the configured direct data path
+(`https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`).
+All three now return HTTP 200. This disagrees with the cycle's 403 across
+the board, so the failure was transient and had already cleared by the time
+of this recheck. Checked OECD and ECB directly at the same time to rule out
+a network-side problem on this session's end; both answered 200, so the
+403s were specific to ILO.
+
+**Classification:** provider-side (`provider_down`, metadata failing on both
+gateway and direct paths is the monitor's definition of provider-down; the
+gateway itself was reachable and correctly relayed ILO's 403, so this is not
+a gateway bug).
+
+**History:** related to, but broader than, the known recurring shape. ILO
+direct-path 403 on data-only checks has recurred six times before (cycles
+32, 94, 159, 166, 202, 238), and a combined gateway+direct 403 on data
+specifically occurred at cycles 226 and 238, each resolved within one cycle.
+This is the first occurrence where metadata was also blocked and the
+endpoint reached `provider_down` rather than `gateway_issue` or `degraded`.
+Treating this as a new, more severe variant of the same recurring pattern
+rather than folding it silently into the existing watch item.
+
+**Recommended action:** no code change; watch for a second occurrence of
+this specific "blanket 403 including metadata" shape. If it recurs or lasts
+more than one cycle, escalate - a metadata-inclusive block looks more like
+ILO rate-limiting or blocking this monitor's traffic outright than the
+narrower data-query rejection seen before.
+
+**Could not determine:** why this episode blocked metadata in addition to
+data when none of the prior six 403 episodes did; whether this reflects a
+change on ILO's side (broader WAF rule, IP-range block) or coincidental
+timing with unrelated ILO-side load.
+
+**Also seen (not alerting):** ESTAT `list_dataflows` timed out at 60s on the
+gateway metadata check at cycles 242 and 243 (`gateway_issue`), then
+recovered by cycle 244 (current status: healthy). This is the twelfth
+occurrence of the already-documented pattern (our own call deadline firing
+under load, working as designed); no new information here.
+
 ## 2026-08-14T00:51Z - cycle 238
 
 **Changed:** ILO `healthy` -> `degraded`. Twelve consecutive healthy cycles

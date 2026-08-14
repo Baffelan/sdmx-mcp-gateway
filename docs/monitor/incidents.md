@@ -4,6 +4,51 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-14T00:51Z - cycle 238
+
+**Changed:** ILO `healthy` -> `degraded`. Twelve consecutive healthy cycles
+(cycles for this endpoint through 237, since the last run at cycle 235) ended
+at cycle 238, the current cycle at the time of this run.
+
+**Cycle saw:** both data checks failing with HTTP 403 - `gateway data`
+("probe status: error; HTTP 403 from provider.") and `direct data` (HTTP 403
+on `https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`).
+Both metadata checks (gateway and direct) and the direct json check stayed
+healthy in the same cycle. All 12 contract assertions for ILO read `ok`
+(11) or `ignored` (1, `references:contentconstraint`, the known accepted-
+but-dropped pattern) - none `broken`. `stale: false`, `gateway_up: true`, all
+other 11 endpoints healthy, no contract `changes` reported.
+
+**Live recheck:** fetched the same direct data URL just now -
+`https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`
+returned HTTP 200 with a normal GenericData payload, and the direct metadata
+URL also returned 200. This disagrees with the cycle's 403, so the failure
+was transient. Could not independently recheck the gateway data path (the
+MCP gateway is not directly callable from this session); the monitor's own
+gateway-metadata check on the same cycle succeeded, so the gateway itself
+was reachable.
+
+**Classification:** provider-side (`degraded`, both gateway and direct data
+checks failed identically with 403 while both metadata checks passed on both
+paths - this looks like ILO transiently rejecting this specific data query
+rather than a gateway bug).
+
+**History:** matches a known recurring shape. Direct-path 403 on ILO basic
+checks has recurred five times before (cycles 32, 94, 159, 166, 202), each
+resolved within one cycle. A combined gateway+direct 403 on data specifically
+also occurred once before at cycle 226 (reported 2026-08-13T00:44Z), which
+resolved the same run. This is at minimum the sixth occurrence of the
+direct-path flavor and the second of the combined gateway+direct flavor.
+
+**Recommended action:** none needed now; live recheck confirms already
+resolved. Continue watching; escalate if a future episode is still failing
+at live-recheck time instead of having already cleared, or if it starts
+spanning more than one cycle.
+
+**Could not determine:** whether ILO's 403 on this cycle was scoped to the
+specific dataflow/key queried (`ITA.....`) or a broader transient block,
+since only this one data query is exercised per cycle.
+
 ## 2026-08-13T18:45Z - cycle 235
 
 **Changed:** ABS `healthy` -> `degraded` -> `healthy`, already resolved before

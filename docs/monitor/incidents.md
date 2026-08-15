@@ -4,6 +4,41 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-15T00:43Z - cycle 250
+
+**Changed:** ILO `healthy` -> `degraded` -> `healthy`, entirely between runs.
+Previous run's baseline was cycle 247 (healthy). History shows cycle 248
+healthy, cycle 249 `degraded`, cycle 250 (current) back to healthy. Reporting
+per the flap rule even though it already resolved.
+
+**Cycle saw (249):** one failing check, `direct metadata: HTTP 403`. All
+other basic checks passed that cycle; contracts data was not separately
+retained for cycle 249, and the current `/api/contracts` `changes` array
+(computed 249 -> 250) is empty, so no contract assertion is recorded as
+having flipped.
+
+**Live recheck:** fetched the configured ILO direct metadata URL just now,
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` ->
+HTTP 200. Also checked ECB's dataflow listing as a network sanity check ->
+HTTP 200, ruling out a problem on this session's network path.
+
+**Classification:** provider-side (`degraded`, single direct-path check
+failing, gateway path unaffected; not a gateway bug).
+
+**History:** this is the narrower, single-check ILO direct-path 403 flavor
+tracked separately from the cycle 244 blanket-403 episode. Prior occurrences
+of this specific shape: cycles 32, 94, 159, 166, 202, 238, 244. This is the
+eighth, and like all seven before it, resolved within one cycle.
+
+**Recommended action:** none. Consistent with the long-standing recurring
+pattern; continue watching for a ninth occurrence or for one that spans more
+than one cycle, which would be new.
+
+**Could not determine:** whether cycle 249's contract assertions for ILO
+were affected, since per-cycle contract history is not exposed by
+`/api/contracts` (it only carries the latest cycle's rows and its diff
+against the immediately preceding cycle).
+
 ## 2026-08-14T13:05Z - cycle 244
 
 **Changed:** ILO `healthy` -> `provider_down`. Three consecutive healthy

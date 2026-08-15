@@ -4,6 +4,39 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-15T06:43Z - cycle 253
+
+**Changed:** ILO `healthy` -> `provider_down` -> `healthy`, entirely between runs.
+Previous run's baseline was cycle 250 (healthy). History shows cycle 251
+`provider_down`, cycle 252 healthy, cycle 253 (current) still healthy.
+Reporting per the flap rule even though it already resolved.
+
+**Cycle saw (251):** all five basic checks failed with HTTP 403: gateway
+metadata, gateway data, direct metadata, direct data, direct json.
+**Live recheck:** direct metadata now returns HTTP 200. Other providers
+(OECD) answer normally, so this is not a network problem on this run's side.
+ILO is currently healthy.
+**Classification:** `provider_down` (both gateway and direct paths failed
+identically with 403, so this is theirs, not a gateway bug).
+**History:** second occurrence of the ILO blanket-403 `provider_down`
+pattern. First occurrence was cycle 244 (reported 2026-08-14T13:05Z),
+resolved within that cycle, clean for six cycles (245-250). This second
+episode also resolved within a single cycle (251 only, healthy again by
+252). Separately, ILO has flapped direct-metadata-only 403 eight times
+before (most recently cycle 249); this cycle 251 episode is the blanket
+kind (all five checks, not just direct metadata), matching the cycle 244
+shape.
+**Recommended action:** per the open item from cycle 244, escalate when
+"metadata failure recurs alongside data failure" - that condition is met
+here (both metadata and data failed together, on both paths). The episode
+still resolved within one cycle, same as last time, so this is not yet a
+standing outage. Continue watching; a third occurrence, or one that spans
+more than a single cycle, should be treated as a real provider-side
+incident worth raising with ILO or adding retry/backoff around.
+**Could not determine:** whether ILO is rate-limiting or blocking on some
+schedule (both occurrences so far happened at different times of day, cycle
+244 ~13:00Z and cycle 251 ~02:00Z, so no obvious pattern yet).
+
 ## 2026-08-15T00:43Z - cycle 250
 
 **Changed:** ILO `healthy` -> `degraded` -> `healthy`, entirely between runs.

@@ -4,6 +4,59 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-16T06:43Z - cycle 264 (surfaced at cycle 265)
+
+**Changed:** ILO `healthy` -> `provider_down` -> `healthy`, entirely between
+runs. Previous run's baseline was cycle 262 (healthy). History shows cycle
+263 healthy, cycle 264 `provider_down`, cycle 265 (current) healthy again.
+Reporting per the flap rule even though it already resolved.
+
+**Cycle saw (264, 2026-08-16T04:01:22Z):** all five basic checks failed with
+HTTP 403: gateway metadata, gateway data, direct metadata, direct data,
+direct json.
+**Live recheck (06:43Z):** direct dataflow listing returned HTTP 200. ECB
+and UNICEF direct paths also returned 200 in the same recheck, so this is
+not a network problem on this run's side.
+**Classification:** `provider_down` (both gateway and direct paths failed
+identically with 403, theirs not ours).
+**History:** fourth occurrence of the ILO blanket-403 `provider_down`
+pattern. First occurrence cycle 244, second cycle 251, third cycle 260, all
+three resolved within the same cycle. This fourth episode also resolved
+within a single cycle (264 only, healthy again by 265). Distinct from the
+separate direct-metadata-only 403 flap tracked since cycle 32 (eighth
+occurrence at cycle 249, clean since). Gap between occurrences is
+narrowing: cycle 244 to 251 is 7 cycles, 251 to 260 is 9 cycles, 260 to 264
+is only 4 cycles.
+**Recommended action:** per the standing note, escalate for real only if a
+future episode spans more than one cycle; that has not happened yet. Worth
+flagging on its own that the interval between occurrences is shrinking
+(14h, then 18h, now 8h) even though each individual episode still
+self-resolves. Continue watching; a fifth occurrence on a similarly short
+interval, or one that does not clear within a cycle, should be treated as
+a real incident.
+**Could not determine:** whether ILO is rate-limiting or blocking on a
+schedule; occurrence times so far (cycle 244 ~13:00Z, cycle 251 ~02:00Z,
+cycle 260 ~20:00Z, cycle 264 ~04:00Z) still show no obvious time-of-day
+pattern.
+
+## 2026-08-16T06:43Z - cycle 263 (confirmed clean through cycle 265)
+
+**Changed:** UNICEF `degraded` -> `healthy`. This confirms the recovery the
+previous run (cycle 262) was watching for.
+
+**Cycle saw (263, 2026-08-16T02:01:22Z):** all checks passing, no failing
+entries.
+**Live recheck (06:43Z):** UNICEF direct path returned HTTP 200.
+**Classification:** resolved; no gateway-side issue was ever indicated
+(metadata paths stayed healthy throughout the cycle 262 episode).
+**History:** third occurrence of the UNICEF 429 pattern (cycle 262) is now
+confirmed resolved by cycle 263, and has stayed clean through cycle 265.
+No fourth occurrence followed.
+**Recommended action:** none. Continue watching for a fourth occurrence of
+the same pattern.
+**Could not determine:** nothing outstanding; this closes the item opened
+at cycle 262.
+
 ## 2026-08-16T00:43Z - cycle 262
 
 **Changed:** UNICEF `healthy` -> `degraded`. Failing: gateway data, direct

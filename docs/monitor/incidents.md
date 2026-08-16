@@ -4,6 +4,53 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-16T12:44Z - cycle 268 (still open at report time)
+
+**Changed:** ILO `healthy` (cycle 265, baseline) -> `degraded` (cycle 267) ->
+`gateway_issue` (cycle 268, current). Not yet resolved as of this run.
+
+**Cycle saw (267, 2026-08-16T10:01:22Z):** all three direct-path checks
+failed with HTTP 403 (direct metadata, direct data, direct json). Gateway
+paths were fine that cycle.
+**Cycle saw (268, 2026-08-16T12:01:22Z):** direct paths recovered (all
+200), but gateway metadata now failed: `Server error '500 Internal Server
+Error' for url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`.
+Gateway data still succeeded. Monitor classifies the endpoint
+`gateway_issue` (direct path OK, gateway path failing).
+**Live recheck (12:44Z, about 40 minutes after cycle 268):** a direct GET
+to that same URL (`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`)
+also returned HTTP 500, but with a different body than the gateway's
+error: `Value cannot be null. (Parameter 'Indicator 'EIP_3EET_SEX_AGE_NB'
+is not found in the indicator codelist dictionary.')`. All other providers
+checked healthy in this same window, so this is not a network problem on
+this run's side.
+**Classification:** monitor says `gateway_issue` (ours) based on cycle
+268's snapshot. The live recheck disagrees: the *direct* path, hitting the
+identical URL, also failed just afterward, with a distinct server-side
+error mentioning a missing indicator codelist entry. That points at ILO's
+dataflow-listing endpoint being intermittently flaky server-side
+(different requests hit different internal errors) rather than a stable
+bug specific to our gateway's call shape. Adopting the monitor's
+`gateway_issue` label for the record, but flagging the disagreement since
+it changes where the likely fault lies.
+**History:** the cycle 267 direct-403 episode is broader than the
+previously catalogued "ILO direct-path 403 flap" pattern (open_items:
+eighth occurrence at cycle 249 hit only direct metadata; this one hit all
+three direct checks). The cycle 268 gateway_issue with a 500 (rather than
+403) has not been seen before in this endpoint's catalogued history.
+**Recommended action:** watch cycle 269/270 (14:01Z, 16:01Z) before
+escalating further. If gateway metadata keeps failing while direct
+succeeds across more than one cycle, that would confirm a real
+gateway-side bug worth investigating in `monitor/checks_gateway.py`'s
+`list_dataflows` call (likely a request-shape difference, e.g. `fresh=True`
+or params, that happens to hit ILO's flaky indicator lookup more often).
+If instead direct also keeps failing intermittently, that confirms
+provider-side flakiness and no code change is needed.
+**Could not determine:** whether the gateway's specific request
+parameters make it more likely to trigger ILO's indicator-codelist error
+than a plain direct GET, since only one gateway_issue cycle exists so far
+to compare against.
+
 ## 2026-08-16T06:43Z - cycle 264 (surfaced at cycle 265)
 
 **Changed:** ILO `healthy` -> `provider_down` -> `healthy`, entirely between

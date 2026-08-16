@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 268,
-  "last_cycle_started_at": "2026-08-16T12:01:22+00:00",
-  "last_run": "2026-08-16T12:44Z",
+  "last_cycle_id": 271,
+  "last_cycle_started_at": "2026-08-16T18:01:22+00:00",
+  "last_run": "2026-08-16T18:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "gateway_issue",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,21 +18,21 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO gateway_issue, cycle 268 (2026-08-16T12:01:22Z): gateway metadata failed HTTP 500 on list_dataflows while direct path was healthy. Still open at report time (12:44Z). Live recheck ~40min later showed the same direct URL also failing 500 with a different error body (missing indicator codelist entry), suggesting provider-side flakiness on ILO's dataflow-listing endpoint rather than a stable gateway-only bug, though the monitor's own classification is gateway_issue. First occurrence of this exact pattern (500 on gateway metadata specifically) in this endpoint's catalogued history. Preceded immediately by a broader-than-usual direct-403 episode at cycle 267 (all three direct checks failed, not just direct metadata as in prior occurrences). Watch cycles 269/270; escalate as a real gateway-side bug only if gateway metadata keeps failing while direct stays healthy across more than one cycle.",
-    "ILO direct-path 403 flap (basic checks): ninth occurrence, cycle 267 (2026-08-16T10:01:22Z), broader than prior occurrences: all three direct checks failed (metadata, data, json), not just direct metadata. Resolved by cycle 268. Prior occurrences (single-check) cycle 32, 94, 159, 166, 202, 238, 244, 249. Watch for a tenth occurrence; escalate if a future episode spans more than one cycle or recurs at this broader scope.",
-    "ILO blanket-403 provider_down episode: fourth occurrence was cycle 264, resolved within the cycle. Clean through cycle 268 (no fifth occurrence yet). Prior occurrences cycle 244, 251, 260. Watch for a fifth occurrence; escalate for real if metadata+data failure recurs again on a similarly short interval or an episode spans more than one cycle.",
-    "UNICEF HTTP 429 flap: third occurrence was cycle 262, resolved cycle 263, clean through cycle 268. First occurrence cycle 126, second cycle 178. Watch for a fourth occurrence.",
-    "ABS contract 503 flap: dialect:sdmx3 and errors:missing_artefact both returned 503 instead of expected 400/404 at cycle 234 only, resolved by cycle 235. Clean through cycle 268. Watch for a second occurrence; escalate if a future episode spans more than one cycle.",
-    "ESTAT list_dataflows timeout pattern: twelfth episode resolved by cycle 244, clean through cycle 268. Standing recommendation (raise deadline, stream listing, or cache parsed result) remains open as a code-change-scope fix. Watch for a thirteenth episode.",
-    "ABS gateway metadata empty-error-body flap: sixth occurrence at cycle 206, resolved by cycle 207, clean through cycle 268. Empty error message itself still worth fixing under code-change scope (GatewayError/next_step in monitor/checks_gateway.py). Watch for a seventh occurrence.",
-    "ECB metadata 503 (provider_down): occurred cycle 199 only, resolved by cycle 200, clean through cycle 268. Watch for a second occurrence; escalate if a second episode does not resolve within a cycle or two.",
-    "ABS gateway metadata 502 Bad Gateway flap: occurred cycle 198 only, resolved by cycle 199, clean through cycle 268. Watch for recurrence.",
-    "UNICEF direct-path HTTP 404 'no data found' flap: occurred cycle 197 only, resolved by cycle 198, clean through cycle 268. Watch for a second occurrence.",
-    "ILO references:contentconstraint ignored-vs-ok blip: one-cycle noise at cycle 199 only, no recurrence through cycle 268. Watch for recurrence; if it persists, revisit as a possible real behavior change.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 268: listing served without credentials. Still open, not re-reported since no new change.",
+    "ILO gateway_issue episode (cycles 268-269, gateway metadata HTTP 500 on list_dataflows, direct healthy throughout): resolved by cycle 270, healthy through cycle 271. Spanned two cycles, meeting the prior escalation threshold, but self-resolved before investigation. First occurrence of this exact pattern. Watch for a second occurrence; escalate for real if it recurs and again spans more than one cycle.",
+    "ILO direct-path 403 flap (basic checks): ninth occurrence cycle 267 (broader than prior: all three direct checks failed, not just direct metadata). Resolved by cycle 268, clean through cycle 271. Prior occurrences cycle 32, 94, 159, 166, 202, 238, 244, 249. Watch for a tenth occurrence; escalate if a future episode spans more than one cycle or recurs at this broader scope.",
+    "ILO blanket-403 provider_down episode: fourth occurrence cycle 264, resolved within the cycle. Clean through cycle 271 (no fifth occurrence yet). Prior occurrences cycle 244, 251, 260. Watch for a fifth occurrence.",
+    "UNICEF HTTP 429 flap: third occurrence cycle 262, resolved cycle 263, clean through cycle 271. First occurrence cycle 126, second cycle 178. Watch for a fourth occurrence.",
+    "ABS contract 503 flap: dialect:sdmx3 and errors:missing_artefact both returned 503 at cycle 234 only, resolved by cycle 235. Clean through cycle 271. Watch for a second occurrence.",
+    "ESTAT list_dataflows timeout pattern: twelfth episode resolved by cycle 244, clean through cycle 271. Standing recommendation (raise deadline, stream listing, or cache parsed result) remains open as a code-change-scope fix. Watch for a thirteenth episode.",
+    "ABS gateway metadata empty-error-body flap: sixth occurrence at cycle 206, resolved by cycle 207, clean through cycle 271. Empty error message itself still worth fixing under code-change scope (GatewayError/next_step in monitor/checks_gateway.py). Watch for a seventh occurrence.",
+    "ECB metadata 503 (provider_down): occurred cycle 199 only, resolved by cycle 200, clean through cycle 271. Watch for a second occurrence.",
+    "ABS gateway metadata 502 Bad Gateway flap: occurred cycle 198 only, resolved by cycle 199, clean through cycle 271. Watch for recurrence.",
+    "UNICEF direct-path HTTP 404 'no data found' flap: occurred cycle 197 only, resolved by cycle 198, clean through cycle 271. Watch for a second occurrence.",
+    "ILO references:contentconstraint ignored-vs-ok blip: one-cycle noise at cycle 199 only, no recurrence through cycle 271. Watch for recurrence; if it persists, revisit as a possible real behavior change.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 271: listing served without credentials. Still open, not re-reported since no new change.",
     "Content-Type parameter order (charset vs version) on structure responses varies between requests, seen on ABS, OECD, ILO, and FBOS. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
-    "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162, clean through cycle 268. Watch for a second occurrence.",
-    "ECB references:* 504 flap: first occurrence, cycles 182-183, resolved by cycle 184, clean through cycle 268. Watch for a second occurrence."
+    "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162, clean through cycle 271. Watch for a second occurrence.",
+    "ECB references:* 504 flap: first occurrence, cycles 182-183, resolved by cycle 184, clean through cycle 271. Watch for a second occurrence."
   ],
   "alerted": true
 }

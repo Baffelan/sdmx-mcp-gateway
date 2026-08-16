@@ -4,6 +4,40 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-16T18:42Z - cycle 271
+
+**Changed:** ILO `gateway_issue` (cycles 268-269) -> `healthy` (cycles 270-271).
+Recovered before this run started; nothing was open at check time.
+
+**Cycle saw (268, 12:01:22Z and 269, 14:01:22Z):** gateway metadata failing
+with `Error: Server error '500 Internal Server Error' for url
+'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`. Direct path stayed
+healthy across both cycles.
+**Cycle saw (270, 16:01:22Z and 271, 18:01:22Z):** all ILO checks passing,
+gateway metadata included.
+**Live recheck:** `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+returns HTTP 200 now, consistent with cycles 270-271.
+**Classification:** was `gateway_issue` per `monitor/derive.py` (ours, not
+provider's, since direct never broke). Fully recovered; no code fix pending.
+**History:** the episode spanned two consecutive cycles (268-269, about 4
+hours), which meets the escalation threshold the previous run set for this
+exact watch item ("escalate ... only if gateway metadata keeps failing while
+direct stays healthy across more than one cycle"). It self-resolved before
+any deeper investigation was needed. This was the first occurrence of this
+specific HTTP-500-on-gateway-metadata pattern in ILO's catalogued history.
+**Recommended action:** none required now, the episode is closed. If a
+similar >1-cycle gateway-only 500 recurs on ILO's dataflow listing, it is
+worth checking whether the gateway is retrying/caching a request shape that
+triggers this, since the direct path never showed the same 500 in the same
+window.
+**Could not determine:** why the gateway path returned 500 for two cycles
+while the direct path never did. The cause resolved on its own before it
+could be inspected further, so it remains unexplained.
+
+No other endpoint changed status across cycles 268-271, and no contract
+assertion changed (`changes` array empty; `STATSNZ auth:listing` remains the
+only `capability_appeared`, unchanged from prior runs).
+
 ## 2026-08-16T12:44Z - cycle 268 (still open at report time)
 
 **Changed:** ILO `healthy` (cycle 265, baseline) -> `degraded` (cycle 267) ->

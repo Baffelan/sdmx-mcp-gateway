@@ -4,6 +4,66 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-16T00:43Z - cycle 262
+
+**Changed:** UNICEF `healthy` -> `degraded`. Failing: gateway data, direct
+data, direct json. Metadata (both paths) still ok.
+
+**Cycle saw (262, 2026-08-16T00:01:22Z):** gateway data probe returned
+"HTTP 429 from provider" after 2 attempts; direct data returned HTTP 429;
+direct json returned HTTP 429.
+**Live recheck (00:42Z, ~40 min later):** direct metadata and direct data
+both returned HTTP 200 with real observations (sample "2.59"-style values
+came back fine on other endpoints too; UNICEF data body parsed normally).
+All 11 other endpoints were healthy in this same cycle, so this is not a
+network problem on this run's side.
+**Classification:** provider-side (`degraded`, data/json paths rate-limited
+by UNICEF, metadata unaffected, nothing pointing at the gateway).
+**History:** third occurrence of this exact UNICEF 429 pattern. First
+occurrence cycle 126, resolved cycle 127. Second occurrence cycle 178,
+resolved cycle 179. Clean through cycle 259. This occurrence differs
+slightly: previous two hit only the direct path; this one also hit
+gateway data, not just direct data/json.
+**Recommended action:** no code change; matches the known transient
+UNICEF rate-limit flap. The live recheck suggests it has already cleared,
+but the monitor has not yet completed a cycle confirming that. Watch the
+next cycle for confirmation and for a fourth occurrence.
+**Could not determine:** whether the next completed cycle (263) actually
+shows UNICEF healthy again, since this run's live recheck cannot substitute
+for the monitor's own gateway-path probe.
+
+## 2026-08-16T00:43Z - cycle 260 (surfaced at cycle 262)
+
+**Changed:** ILO `healthy` -> `provider_down` -> `healthy`, entirely
+between runs. Previous run's baseline was cycle 259 (healthy). History
+shows cycle 260 `provider_down`, cycle 261 healthy, cycle 262 (current)
+still healthy. Reporting per the flap rule even though it already
+resolved.
+
+**Cycle saw (260, 2026-08-15T20:01:22Z):** all five basic checks failed
+with HTTP 403: gateway metadata, gateway data, direct metadata, direct
+data, direct json.
+**Live recheck:** not applicable; already two cycles resolved (261, 262
+both healthy) by the time this run happened.
+**Classification:** `provider_down` (both gateway and direct paths failed
+identically with 403, theirs not ours).
+**History:** third occurrence of the ILO blanket-403 `provider_down`
+pattern. First occurrence cycle 244, second cycle 251, both resolved
+within the same cycle. This third episode also resolved within a single
+cycle (260 only, healthy again by 261). Distinct from the separate
+direct-metadata-only 403 flap tracked since cycle 32 (eighth occurrence at
+cycle 249, clean since); this cycle 260 episode is the blanket kind (all
+five checks, matching cycles 244 and 251).
+**Recommended action:** per the standing note from the first two
+occurrences, escalate for real only if metadata+data failure recurs again
+in a way that spans more than one cycle. That has not happened; this is
+still resolving within a single cycle each time. Continue watching; a
+fourth occurrence, or one that does not clear within a cycle, should be
+treated as a real incident.
+**Could not determine:** whether ILO is rate-limiting or blocking on a
+schedule; the three occurrences so far (cycle 244 ~13:00Z, cycle 251
+~02:00Z, cycle 260 ~20:00Z) still show no obvious time-of-day pattern.
+
 ## 2026-08-15T06:43Z - cycle 253
 
 **Changed:** ILO `healthy` -> `provider_down` -> `healthy`, entirely between runs.

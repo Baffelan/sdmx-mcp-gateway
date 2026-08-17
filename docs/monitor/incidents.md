@@ -4,6 +4,53 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-17T00:45Z - cycle 274
+
+**Changed:** ILO `healthy` -> `degraded` (contract `references:contentconstraint`
+`ok`/`ignored` -> `broken`). Also, between this run and the last: ILO
+blanket-403 `provider_down` at cycle 272, recovered by cycle 273.
+
+**Cycle saw (272, 2026-08-16T20:01:22Z):** all five ILO checks failing with
+HTTP 403 (`gateway metadata`, `gateway data`, `direct metadata`, `direct
+data`, `direct json`). Classified `provider_down`. Recovered by cycle 273
+(2026-08-16T22:01:22Z), all checks healthy.
+**Cycle saw (274, 2026-08-17T00:01:22Z):** all five basic checks passing.
+The `references:contentconstraint` contract assertion, which has read
+`ignored` (accepted 200, payload byte-identical to `references=none`) for
+every prior cycle, this time got `expected 200, observed 500` and was
+classified `broken`. This is the sole entry in `/api/contracts` `changes`
+for this cycle; nothing else in the matrix moved.
+**Live recheck (00:44Z, five requests to
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest?references=contentconstraint&detail=allstubs`):**
+4 of 5 returned HTTP 200 with a 1973-byte body byte-identical (apart from
+the message ID and Prepared timestamp) to a `references=none` fetch taken
+in the same window, i.e. `ignored`, matching the documented baseline. 1 of 5
+returned HTTP 403. None reproduced the 500 the monitor saw at cycle 274.
+**Classification:** `degraded` per `monitor/derive.py` (contract broken,
+basic checks all passing). The live recheck disagrees with the cycle-274
+observation, which points to transient flakiness on ILO's side rather than
+a durable behavior change, consistent with ILO's already-documented
+Cloudflare/WAF flakiness (blanket-403 episodes, direct-path 403 flap).
+**History:** this exact assertion flapped once before, cycle 199 only
+(`ignored-vs-ok blip`), with no recurrence through cycle 271. This is the
+second occurrence, and the first to be classified `broken` rather than a
+same-cycle blip that self-resolved before being observed live. The cycle-272
+blanket-403 episode is the fifth occurrence of that pattern (prior: 244,
+251, 260, 264), each one-cycle and self-resolved; this is unremarkable per
+prior runs' watch note.
+**Recommended action:** do not file a code fix. Watch cycle 275
+(due approximately 2026-08-17T02:01Z) to confirm the contract reading
+returns to `ok`/`ignored`. If `broken` persists for more than one cycle, or
+recurs a third time, treat it as a real change in ILO's handling of this
+parameter rather than WAF noise.
+**Could not determine:** whether the HTTP 500 the monitor captured at
+cycle 274 came from the same Cloudflare/WAF layer producing the blanket-403
+episodes, or a distinct backend fault. ILO gives no error body distinguishing
+the two failure modes.
+
+No other endpoint changed status across cycles 271-274, and no other
+contract assertion changed.
+
 ## 2026-08-16T18:42Z - cycle 271
 
 **Changed:** ILO `gateway_issue` (cycles 268-269) -> `healthy` (cycles 270-271).

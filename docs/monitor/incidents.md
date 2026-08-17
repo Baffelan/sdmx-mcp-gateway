@@ -4,6 +4,42 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-17T06:52Z - cycle 277
+
+**Changed:** ILO `degraded` -> `healthy`, `references:contentconstraint`
+`broken` -> `ignored`. This closes the watch item opened at cycle 274.
+
+**Cycle saw (277, 2026-08-17T06:01:22Z):** all five ILO basic checks
+passing. `references:contentconstraint` reads `ignored` (expected 200,
+observed 200, byte-identical to `references=none`), matching the
+pre-existing architectural baseline. `/api/contracts` `changes` for this
+cycle contains one entry, unrelated to ILO (`ABS encoding:structure_xml`
+content-type parameter order, `ok` both before and after, matching the
+already-documented cosmetic flap; not re-reported).
+**Live recheck (06:52Z, three requests to the same
+`DF_GED_XLU1_SEX_HHT_CHL_RT?references=contentconstraint&detail=allstubs`
+URL used at cycle 274):** 3 of 3 returned HTTP 200, consistent with the
+current `ignored` reading and with none of them reproducing the cycle-274
+500.
+**Classification:** `healthy` per `monitor/derive.py`. Fully recovered.
+**History:** `/api/history` reports basic-check status `healthy` for
+cycles 274 through 277 (the `degraded` classification at cycle 274 came
+from the contract layer, which `/api/history`'s per-cycle series does not
+carry). The `changes` array's silence about ILO between cycles 275-277
+indicates the assertion was already back to `ignored` well before this
+run, consistent with the cycle-274 report's read that this was transient
+WAF/Cloudflare-side flakiness rather than a durable change. Did not persist
+beyond one cycle and did not recur a third time, so per the cycle-274
+watch note this does not escalate.
+**Recommended action:** none. Close this watch item. Continue treating a
+third occurrence of this specific assertion flapping, or a `broken` reading
+that persists past one cycle, as the threshold for a real investigation.
+**Could not determine:** nothing outstanding on this item.
+
+No other endpoint changed status across cycles 275-277 (all eleven other
+endpoints stayed `healthy` throughout), and no other contract assertion
+changed.
+
 ## 2026-08-17T00:45Z - cycle 274
 
 **Changed:** ILO `healthy` -> `degraded` (contract `references:contentconstraint`

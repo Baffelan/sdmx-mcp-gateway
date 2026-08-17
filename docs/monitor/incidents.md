@@ -4,6 +4,41 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-17T18:43Z - cycle 283
+
+**Changed:** ILO `healthy` -> `provider_down` at cycle 281, recovered by
+cycle 282. Reported once, already resolved.
+
+**Cycle saw (281, 2026-08-17T14:01:22Z):** all five ILO basic checks failing
+with HTTP 403 (`gateway metadata`, `gateway data`, `direct metadata`,
+`direct data`, `direct json`). Classified `provider_down`. Recovered by
+cycle 282 (2026-08-17T16:01:22Z), all checks healthy, and still healthy at
+cycle 283 (2026-08-17T18:01:22Z).
+**Live recheck (18:43Z, direct metadata `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`):** HTTP 200. Confirms
+the cycle-282/283 recovery; the 403 is gone.
+**Classification:** `healthy` per `monitor/derive.py`, fully recovered
+after one cycle.
+**History:** this is the sixth occurrence of the ILO blanket-403
+`provider_down` pattern (all five checks failing with 403 simultaneously,
+both gateway and direct paths). Prior occurrences: cycle 244, 251, 260,
+264, 272, all resolved within one cycle. This one also resolved within one
+cycle, consistent with the established pattern of ILO periodically
+blocking all paths (likely WAF/Cloudflare-side) and self-clearing.
+`/api/contracts` `changes` for cycle 283 is empty; no contract assertion
+moved.
+**Recommended action:** none. Continue treating this as a chronic,
+self-resolving ILO pattern. Escalate only if a future occurrence spans
+more than one cycle, or if the occurrence rate visibly increases.
+**Could not determine:** nothing outstanding; the live recheck confirms
+the resolution the history series already showed.
+
+No other endpoint changed status across cycles 280-283 (all eleven other
+endpoints stayed `healthy` throughout). `STATSNZ auth:listing`
+`capability_appeared` is still present (open since cycle 60, listing
+served without credentials) but unchanged from the last run, so not
+re-reported here.
+
 ## 2026-08-17T06:52Z - cycle 277
 
 **Changed:** ILO `degraded` -> `healthy`, `references:contentconstraint`

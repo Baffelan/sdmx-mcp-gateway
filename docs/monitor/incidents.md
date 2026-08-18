@@ -4,6 +4,65 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-18T00:42Z - cycle 286
+
+**Changed:** ILO `healthy` -> `degraded` at cycle 286 (direct metadata,
+direct data both HTTP 403). ESTAT `healthy` -> `gateway_issue` at cycle
+285, recovered by cycle 286. Reported together, both matching known
+chronic patterns.
+
+**Cycle saw (286, 2026-08-18T00:01:22Z):** ILO direct metadata and direct
+data both HTTP 403 (2 attempts each). ILO direct json and both gateway
+checks (metadata, data) stayed healthy throughout. No ILO contract
+assertion broke; `references:contentconstraint` still reads `ignored` as
+expected.
+**Live recheck (00:42Z, ~40 min after the cycle):** direct metadata `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+-> HTTP 200. direct data `GET
+https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`
+-> HTTP 200. Both direct paths are back up; the 403 is already gone
+ahead of the monitor's next cycle (due 02:01:22Z).
+**Classification:** `degraded` per `monitor/derive.py` as recorded at
+cycle 286, only the direct path failing, gateway path unaffected
+throughout. Live recheck shows this has already self-resolved.
+**History:** this is (by count) the tenth occurrence of the ILO
+direct-path 403 flap. Prior occurrences: cycle 32, 94, 159, 166, 202, 238,
+244, 249, 267 (the ninth, broader, hit all three direct checks; this one
+hit two). Consistent with the established pattern of ILO periodically
+blocking its direct REST path (likely WAF/Cloudflare-side) and
+self-clearing within a cycle or two.
+**Recommended action:** none. Continue treating as chronic and
+self-resolving. Escalate only if a future occurrence spans more than one
+cycle when next checked, or broadens beyond the direct path to include
+the gateway path.
+**Could not determine:** whether this occurrence had already cleared
+before cycle 286 finished recording it, since the live recheck happened
+well after the cycle ran.
+
+**ESTAT, same window:** cycle 285 (2026-08-17T22:01:22Z) showed
+`gateway_issue`, `gateway metadata: tool call list_dataflows timed out
+after 60.0s`. Recovered by cycle 286, healthy. This is the thirteenth
+episode of the known `list_dataflows` timeout-under-load pattern (twelfth
+resolved by cycle 244). No live recheck needed; the monitor's own next
+cycle already shows recovery. Standing recommendation to raise the
+gateway call deadline, stream the listing, or cache the parsed result
+remains open as a code-change-scope fix, unchanged from prior runs.
+
+**Also observed, not alerted:** ECB `constraint:availableconstraint` and
+`references:none` contract assertions each show a `was`/`now` pair in
+`/api/contracts` `changes` (504 -> 404 and 504 -> 200 respectively).
+`verdict` stayed `ok` throughout for both -- this is a transient timeout
+on the assertion probe itself, not a change in what the gateway can rely
+on, and ECB's basic health checks stayed `healthy` across cycles 280-286
+with no failing checks recorded. Not reported as an incident; noted here
+only because it appeared in the same poll.
+
+No other endpoint changed status across cycles 283-286 (the remaining ten
+endpoints stayed `healthy` throughout). `STATSNZ auth:listing`
+`capability_appeared` is still present (open since cycle 60, listing
+served without credentials) but unchanged from the last run, so not
+re-reported here.
+
 ## 2026-08-17T18:43Z - cycle 283
 
 **Changed:** ILO `healthy` -> `provider_down` at cycle 281, recovered by

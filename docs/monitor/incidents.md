@@ -4,6 +4,78 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-18T12:45Z - cycle 292
+
+**Changed:** OECD `healthy` -> `gateway_issue` as of cycle 290, still
+`gateway_issue` at cycle 292 (three consecutive cycles, about 6 hours).
+ESTAT `healthy` -> `gateway_issue` at cycle 291, still `gateway_issue` at
+cycle 292 (two consecutive cycles). Reported together since both are the
+same shape (gateway path failing, direct path healthy), but they are two
+separate findings.
+
+**Cycle saw (292, 2026-08-18T12:01:22Z):**
+- OECD: gateway metadata `list_dataflows` -> `Error: Client error '403
+  Forbidden' for url 'https://sdmx.oecd.org/public/rest/dataflow/all/all/latest'`
+  (2 attempts). Gateway data probe also failed with the same HTTP 403.
+  Direct metadata, direct data, and direct json all HTTP 200. No OECD
+  contract assertion broke.
+- ESTAT: gateway metadata `list_dataflows` -> `tool call list_dataflows
+  timed out after 60.0s` (2 attempts). Gateway data, direct metadata,
+  direct data all healthy; direct json is permanently skipped by design
+  (Eurostat has no SDMx-JSON). No ESTAT contract assertion broke.
+
+**Live recheck (12:45Z):**
+- OECD: `GET https://sdmx.oecd.org/public/rest/dataflow/all/all/latest`
+  from this session -> HTTP 200, normal SDMx-ML structure response, no
+  challenge page. The exact URL the gateway's `list_dataflows` call
+  failed on answers fine from here.
+- ESTAT: `GET
+  https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`
+  -> HTTP 200 in ~29s, well under the 60s deadline the gateway hit.
+- Could not recheck the gateway path itself: the gateway's own host
+  (`sdmx-mcp-gateway-production.up.railway.app`, from `monitor/main.py`
+  `GATEWAY_URL`) is not on this environment's network allowlist and the
+  proxy returns `403` for it. Only the monitor and the provider hosts
+  listed in the skill are reachable from here.
+
+**Classification:** `gateway_issue` per `monitor/derive.py` for both:
+direct path healthy, gateway path failing, both are ours to explain, not
+the providers'.
+
+**History:**
+- OECD: not in the known chronic-flap list. First occurrence found in
+  `/api/history?hours=48`; no prior OECD gateway_issue in that window.
+  New as of cycle 290 and has not self-resolved across cycles 290, 291,
+  292 -- the known chronic gateway/direct flaps in this repo (ESTAT
+  timeout, ABS empty-error) have always cleared within one cycle. This
+  one has not, which is the reason to escalate rather than wait quietly.
+- ESTAT: this is the fourteenth occurrence of the known `list_dataflows`
+  60s-timeout pattern (prior episodes at cycles 285 and earlier per
+  `triage-state.json` open items, thirteen total). Every prior episode
+  resolved within one cycle. This one is still open at the next cycle
+  (291 -> 292), which is new for this pattern and matches the escalation
+  condition the prior run's state file called out ("escalate if a future
+  episode still shows degraded/failing when the next cycle completes").
+
+**Recommended action:** OECD -- since the direct path (same URL, from two
+different networks) answers 200 with no Cloudflare challenge, the most
+likely explanation is that OECD is blocking or rate-limiting the
+gateway's own outbound IP (Railway) specifically, not a bug in the
+request the gateway sends; worth checking the gateway's outbound
+IP/User-Agent against OECD's Cloudflare rules if this persists past the
+next cycle. ESTAT -- treat the same 60s-deadline fix already on record
+(raise deadline, stream the listing, or cache the parsed result) as more
+urgent than before, since this episode has now outlasted every prior one;
+otherwise watch the next cycle before concluding it is a new, distinct
+failure mode.
+
+**Could not determine:** whether OECD's 403 is IP-based blocking, a
+rate limit, or a header/User-Agent difference specific to the gateway's
+MCP-driven request, since the gateway host itself is not reachable from
+this session to test directly. Also could not determine whether either
+episode will still be open at the next cycle, since this recheck happened
+mid-episode.
+
 ## 2026-08-18T00:42Z - cycle 286
 
 **Changed:** ILO `healthy` -> `degraded` at cycle 286 (direct metadata,

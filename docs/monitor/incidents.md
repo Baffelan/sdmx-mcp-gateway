@@ -4,6 +4,80 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-18T18:44Z - cycle 295
+
+**Changed:** OECD `gateway_issue` -> `healthy`, resolved by cycle 293 (was
+open cycles 290-292, three cycles / ~6 hours). ESTAT `gateway_issue` ->
+`healthy`, resolved by cycle 293 (was open cycles 291-292, two cycles).
+ABS `healthy` -> `gateway_issue`, new as of cycle 295 (`gateway metadata:
+Error: `, empty error body, direct path healthy). Three separate
+findings, reported together since they all landed in the same poll.
+
+**Cycle saw:**
+- OECD (293-295, all healthy): no failing checks; the cycle 290-292 403
+  Forbidden on gateway `list_dataflows` and gateway data probe is gone.
+- ESTAT (293-295, all healthy): no failing checks; the cycle 291-292
+  `list_dataflows` 60s timeout is gone.
+- ABS (295, `gateway_issue`): gateway metadata check failed with
+  `error: "Error: "` (empty body), 2 attempts, latency 32.7s. Gateway
+  data, direct metadata, direct data, direct json all HTTP 200 /
+  succeeded normally in the same cycle. No ABS contract assertion broke.
+
+**Live recheck (18:44Z):** ABS direct metadata `GET
+https://data.api.abs.gov.au/rest/dataflow/ABS/all/latest?references=none`
+-> first two attempts from this session timed out at the TLS handshake
+(connection hung after `CONNECT` and `Client Hello`, no response) while
+ECB and BIS answered normally through the same proxy in ~1.2s each,
+ruling out a session-wide network problem; a third attempt succeeded,
+HTTP 200 in 1.5s with a normal SDMx-ML structure payload. Treat the
+timeouts as noise on this session's path to ABS specifically, not
+evidence about the provider or the gateway. Could not recheck the
+gateway path itself (`sdmx-mcp-gateway-production.up.railway.app` is
+outside this session's network allowlist, as in every prior run).
+
+**Classification:** OECD and ESTAT -- both resolved, no classification
+needed going forward; while open both were `gateway_issue` per
+`monitor/derive.py` (direct healthy, gateway failing, ours to explain).
+ABS -- `gateway_issue`, direct path healthy throughout, so this is ours,
+not ABS's.
+
+**History:**
+- OECD: this closes the first-ever multi-cycle occurrence of this
+  pattern for OECD (cycles 290-292, flagged in the prior run as unusual
+  because it didn't clear within one cycle like every other known
+  gateway/direct flap here). It did eventually self-resolve, just slower
+  than the norm. Watch for a second occurrence; if a future one also
+  spans more than one cycle this stops looking like a fluke.
+- ESTAT: the fourteenth episode of the known `list_dataflows` 60s-timeout
+  pattern (first to span two cycles, per the prior run) is now resolved.
+  Fifteenth-episode watch stands; the standing recommendation (raise the
+  deadline, stream the listing, or cache the parsed result) is still
+  open as a code-change-scope fix.
+- ABS: this is the seventh occurrence of the known gateway-metadata
+  empty-error-body flap (`Error: ` with no message), first seen cycle 26,
+  sixth occurrence at cycle 206 (per prior-run `open_items`), all six
+  resolved within one cycle. (Separate from the one-off 502 Bad Gateway
+  variant at cycle 198, a different error shape.) Cycle 296 (due
+  ~20:01Z) will show whether this seventh occurrence also clears within
+  one cycle.
+
+**Recommended action:** OECD and ESTAT -- none beyond continuing to
+watch; both resolved on their own as chronic patterns have before. ABS --
+none yet; this is a known chronic flap that has always cleared in one
+cycle. If ABS is still `gateway_issue` at cycle 296, that would be the
+first time this pattern spans more than one cycle, matching the
+escalation condition already used for OECD and ESTAT, and would be worth
+raising as a real incident (plus still worth fixing the empty error
+message itself under code-change scope, in `monitor/checks_gateway.py`).
+
+**Could not determine:** whether OECD's and ESTAT's resolutions happened
+gradually or all at once between cycles 292 and 293, since this run
+skipped straight from 292 to 295 (the routine runs every ~6 hours, cycles
+are 2 hours apart, so intermediate cycle 293-294 detail beyond `series`
+status is not available). Also could not determine the actual cause of
+ABS's empty gateway error, same as every prior occurrence of this
+pattern -- the gateway's own logs are not visible from here.
+
 ## 2026-08-18T12:45Z - cycle 292
 
 **Changed:** OECD `healthy` -> `gateway_issue` as of cycle 290, still

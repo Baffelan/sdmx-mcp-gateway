@@ -4,6 +4,40 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-19T18:42Z - cycle 307
+
+**Changed:** UNICEF `healthy` -> `degraded` -> `healthy`, flapped and recovered
+between runs. The last state file (written at cycle 304) recorded UNICEF as
+healthy; history shows it dropped at cycle 305 and was back to healthy by
+cycle 306, confirmed clean through the current cycle, 307.
+
+**Cycle saw:** cycle 305 failing array: `direct data: HTTP 429`, `direct
+json: HTTP 429`. Direct metadata and both gateway checks were not in the
+failing list, so only the two rate-limited paths tripped. Cycle 306 onward:
+`failing: []`.
+
+**Live recheck:** performed now, ~13.5 hours after the failing cycle. UNICEF
+metadata endpoint (`dataflow/UNICEF/all/latest`) returned `200`. A control
+request against a different provider (ECB) also returned `200`, ruling out
+a network-side cause for the recheck itself. Consistent with a transient
+provider-side rate limit that has since cleared.
+
+**Classification:** was `degraded` while open (mixed: only the direct
+data/json paths failing, HTTP 429). No longer applicable; resolved.
+
+**History:** fourth occurrence of this exact HTTP 429 pattern on UNICEF.
+Priors: cycle 126, cycle 178, cycle 262 (per `open_items` in the state
+file). All four resolved within one cycle of being observed, same as this
+one.
+
+**Recommended action:** none beyond continuing to watch. Four occurrences
+of a single-cycle 429 that clears on its own is not yet a pattern that
+needs a code change (e.g. backoff/retry on the direct data path); reconsider
+if a future occurrence spans more than one cycle.
+
+**Could not determine:** the exact request volume or timing that triggered
+UNICEF's rate limit, since the monitor does not log request counts.
+
 ## 2026-08-19T00:43Z - cycle 298
 
 **Changed:** ABS `gateway_issue` -> `healthy`, resolved by cycle 296. Recovered

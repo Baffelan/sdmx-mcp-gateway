@@ -4,6 +4,49 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-19T00:43Z - cycle 298
+
+**Changed:** ABS `gateway_issue` -> `healthy`, resolved by cycle 296. Recovered
+between runs: the last state file (written at cycle 295) recorded ABS as
+still open, but the routine that wrote it could not yet see cycle 296.
+
+**Cycle saw:** cycle 295 failed with `gateway metadata: Error: ` (empty error
+body), direct path healthy throughout, same shape as the six prior
+occurrences of this pattern (most recently cycle 206). Cycle 296 onward:
+`failing: []`, all checks passing. Clean through the current cycle, 298.
+
+**Live recheck:** not performed. The failing cycle is already ~30 hours old
+and three consecutive later cycles (296, 297, 298) confirm recovery, so a
+live recheck would not add information the monitor's own history doesn't
+already show.
+
+**Classification:** was `gateway_issue` per `monitor/derive.py` while open
+(direct path healthy, gateway path failing -- ours). No longer applicable;
+resolved.
+
+**History:** seventh occurrence of this exact empty-error-body pattern
+(priors: cycle 26 and five more through cycle 206). All seven, including
+this one, resolved by the cycle immediately following the one where they
+were first observed -- consistent with the established pattern, not an
+escalation. The previous run's note calling this "the first time it has not
+resolved within the same cycle it was observed" was a snapshot taken before
+cycle 296's data existed; with cycle 296 in hand, this occurrence behaved
+exactly like the prior six.
+
+**Recommended action:** none beyond the standing code-change-scope item
+already on file: the empty error message (`GatewayError`/`next_step` in
+`monitor/checks_gateway.py`) is itself worth fixing so a future empty-body
+failure is diagnosable without waiting a cycle.
+
+**Could not determine:** the underlying cause of the transient gateway
+metadata failure at cycle 295 (no error detail beyond the empty body).
+
+No other endpoint changed status (BIS, ECB, ESTAT, FBOS, ILO, IMF, OECD,
+SBS, SPC, STATSNZ, UNICEF all healthy at cycle 295 and remain healthy at
+298). No contract assertions changed (`/api/contracts` `changes: []`, no
+`broken` or `capability_appeared` verdicts). `stale: false`, `gateway_up:
+true` at cycle 298.
+
 ## 2026-08-18T18:44Z - cycle 295
 
 **Changed:** OECD `gateway_issue` -> `healthy`, resolved by cycle 293 (was

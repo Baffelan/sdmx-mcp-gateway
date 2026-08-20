@@ -4,6 +4,51 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-20T18:43Z - cycle 319
+
+**Changed:** ABS `healthy` -> `gateway_issue` and ESTAT `healthy` ->
+`gateway_issue`, both new as of this cycle. The prior state file (cycle 316,
+this same branch) recorded both as healthy; history shows both clean through
+cycle 318 and both failing starting at cycle 319, the current cycle. No
+intermediate cycles to check since the last run was the immediately
+preceding one.
+
+**Cycle saw (ABS):** `gateway metadata: Error: ` (empty error body), direct
+metadata/data/json and gateway data all passing.
+
+**Cycle saw (ESTAT):** `gateway metadata: tool call list_dataflows timed out
+after 60.0s`, direct metadata/data/json and gateway data all passing.
+
+**Live recheck:** direct `dataflow/ABS/all/latest` against
+`data.api.abs.gov.au` returned `HTTP 200` in 35.2s. Direct
+`dataflow/ESTAT/all/latest` against `ec.europa.eu` returned `HTTP 200` in
+28.7s. Both comfortably above their usual latency and close to or past the
+60s gateway call deadline, consistent with provider-side slowness rather
+than an outage. Checked ECB and BIS directly at the same time as a network
+sanity check; both answered quickly, so the slowness is specific to ABS and
+ESTAT, not this routine's network path.
+
+**Classification:** both `gateway_issue` per `monitor/derive.py` (direct
+path healthy, gateway path failing -- ours in the sense that gateway call
+deadlines are our own budget, tripped by provider-side slowness).
+
+**History:** ABS empty-error-body gateway metadata flap, eighth occurrence
+(prior seven: most recently cycle 295, resolved by 296; before that cycle
+206 and earlier). Always resolved within one cycle. ESTAT `list_dataflows`
+timeout, sixteenth episode (prior fifteenth: cycle 312, resolved by 313).
+Also always resolved within one cycle. Both endpoints failing in the same
+cycle is new -- no prior entry shows them coinciding -- but each pattern
+individually is well established and neither implicates the other.
+
+**Recommended action:** none beyond watching the next cycle for recovery,
+consistent with sixteen and eight priors respectively. Escalate for real if
+either fails to clear by cycle 320, or if this becomes a pattern of the two
+coinciding.
+
+**Could not determine:** whether the same-cycle coincidence reflects a
+shared upstream cause (e.g. broad EU/AU network congestion at this hour) or
+is pure chance given how frequently each pattern occurs independently.
+
 ## 2026-08-20T06:43Z - cycle 313
 
 **Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy`, flapped and

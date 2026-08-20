@@ -4,6 +4,48 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-20T06:43Z - cycle 313
+
+**Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy`, flapped and
+recovered between runs. The last state file (written at cycle 310) recorded
+ESTAT as healthy; history shows it dropped at cycle 312 and was back to
+healthy by cycle 313, the current cycle.
+
+**Cycle saw:** cycle 312 failing array: `gateway metadata: tool call
+list_dataflows timed out after 60.0s`. Direct metadata/data/json and gateway
+data were not in the failing list, so only the gateway `list_dataflows` call
+tripped the 60s deadline. Cycle 313: `failing: []`, all checks passing.
+
+**Live recheck:** performed now, direct against `ec.europa.eu`. Requested
+`dataflow/ESTAT/all/latest` and got `HTTP 200` in 31.1s, comfortably inside
+the 60s deadline but close enough to it to confirm the provider is still
+running slow under load rather than genuinely down.
+
+**Classification:** was `gateway_issue` per `monitor/derive.py` while open
+(direct path not in the failing list, gateway `list_dataflows` timed out --
+ours, in the sense that the 60s deadline is our own call budget firing under
+provider-side slowness). No longer applicable; resolved.
+
+**History:** fifteenth episode of this exact ESTAT `list_dataflows` timeout
+pattern (open_items on file: fourteenth episode was cycles 291-292, resolved
+by 293). Like all fourteen priors, this one resolved by the very next cycle.
+The standing recommendation (raise the deadline, stream the listing, or
+cache the parsed result) remains an open code-change-scope item, not
+actioned by this read-only routine.
+
+**Recommended action:** none beyond continuing to watch; still resolving
+within one cycle every time. Reconsider the code-change fix if a future
+episode spans more than one cycle, which none of the fifteen have yet.
+
+**Could not determine:** the exact load conditions on Eurostat's dissemination
+API that push `list_dataflows` past 60s on some cycles and not others.
+
+No other endpoint changed status (ABS, BIS, ECB, FBOS, ILO, IMF, OECD, SBS,
+SPC, STATSNZ, UNICEF all healthy at cycle 310 and remain healthy at 313). No
+contract assertions changed (`/api/contracts` `changes: []`, no `broken` or
+`capability_appeared` verdicts). `stale: false`, `gateway_up: true`,
+`drift: []` at cycle 313.
+
 ## 2026-08-19T18:42Z - cycle 307
 
 **Changed:** UNICEF `healthy` -> `degraded` -> `healthy`, flapped and recovered

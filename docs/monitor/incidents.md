@@ -4,6 +4,51 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-21T12:43Z - cycle 328
+
+**Changed:** ESTAT `healthy` (at cycle 325, matches last state file, same
+branch) -> `gateway_issue` at cycle 326 -> `healthy` at 327, and clean
+through 328 (current). Failed and recovered between runs; reporting once,
+already resolved.
+
+**Cycle saw (ESTAT, cycle 326):** `gateway metadata: tool call
+list_dataflows timed out after 60.0s`. No other checks failing.
+
+**Live recheck:** direct `dataflow/ESTAT/all/latest` against
+`ec.europa.eu` returned `HTTP 200` in 28.5s, comfortably under the 60s
+gateway deadline but well above ESTAT's usual response time. Control
+request to ECB's direct dataflow endpoint returned `HTTP 200` in 1.2s,
+ruling out a network-wide issue on this routine's side.
+
+**Classification:** `gateway_issue` per `monitor/derive.py` (direct path
+healthy, gateway path timed out) -- ours in the sense that the gateway call
+deadline is our own budget, tripped by provider-side slowness. Not a bug to
+fix; this is the known `list_dataflows` deadline pattern.
+
+**History:** seventeenth episode of the ESTAT `list_dataflows` timeout
+pattern (prior sixteen all resolved within one cycle; this one also
+resolved within one cycle, healthy again by 327). No other endpoint
+changed status in this window, and no `severe conditions` (`stale`,
+`gateway_up`) were present at any point.
+
+**Contract changes:** one `changes` entry this cycle (ABS,
+`encoding:structure_xml`, Content-Type parameter order flip between
+`version=2.1; charset=utf-8` and `charset=utf-8; version=2.1`), verdict
+`ok`. This is the known cosmetic flap already on file; not re-reported as
+its own item per the standing note. `STATSNZ auth:listing` still reads
+`capability_appeared` in the current matrix but is unchanged from the last
+run and does not appear in this cycle's `changes` list, so it is not new;
+already tracked as an open item.
+
+**Recommended action:** none. Standing recommendation to raise the
+`list_dataflows` deadline, stream the listing, or cache the parsed result
+remains open as a code-change-scope fix, not actioned by this read-only
+routine.
+
+**Could not determine:** nothing outstanding for this episode; the
+provider-side latency spike and gateway-side timeout are directly
+corroborated by the live recheck.
+
 ## 2026-08-21T06:43Z - cycle 325
 
 **Changed:** one endpoint, comparing the last state file (cycle 322, same

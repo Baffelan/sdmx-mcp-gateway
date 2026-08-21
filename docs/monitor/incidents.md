@@ -4,6 +4,76 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-21T00:43Z - cycle 322
+
+**Changed:** three endpoints, comparing the last state file (cycle 319, same
+branch) against the current cycle (322), with cycles 320-321 checked in
+between.
+
+- ABS: `gateway_issue` (at cycle 319, matches last state) -> `healthy` at 320
+  -> `gateway_issue` again at 321 -> `healthy` at 322 (current). Flapped
+  twice and is healthy now.
+- ESTAT: `gateway_issue` (at cycle 319, matches last state) -> `healthy` from
+  cycle 320 onward. Recovered and stayed healthy; this closes the "sixteenth
+  episode, open as of cycle 319" item carried in the last state file.
+- ILO: `healthy` through cycle 320 -> `provider_down` (blanket 403 on every
+  path) at cycle 321 -> `gateway_issue` at cycle 322 (current), with only
+  the gateway data probe still failing. This is new and still open as of
+  this run.
+
+**Cycle saw (ABS, cycle 321):** `gateway metadata: Error: ` (empty error
+body), same shape as the cycle 319 occurrence and all priors. Direct and
+gateway-data checks passing throughout.
+
+**Cycle saw (ILO, cycle 321):** all five checks failing --
+`gateway metadata: ... 403 Forbidden ...`, `gateway data: probe status:
+error; HTTP 403 from provider.`, `direct metadata: HTTP 403`, `direct data:
+HTTP 403`, `direct json: HTTP 403`. Cycle 322: only `gateway data: probe
+status: error; HTTP 403 from provider.` remains; gateway metadata and all
+three direct checks are back to passing.
+
+**Live recheck (ILO, now):** direct `dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+against `sdmx.ilo.org` returned `HTTP 200` in 0.8s. Direct
+`data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1` (the
+same URL the gateway's data probe uses) returned `HTTP 200` in 2.0s. The
+provider answers cleanly from this routine's network right now, disagreeing
+with the still-failing gateway data probe as of cycle 322 -- consistent with
+either a residual, gateway-IP-specific block left over from the cycle 321
+outage, or the gateway probe simply not having run again since cycle 322
+started.
+
+**Classification:** ABS `gateway_issue` (ours, in the empty-error-body sense
+already on file) both times. ILO `provider_down` at 321 (theirs; nothing to
+fix in our code), moving to `gateway_issue` at 322 (direct path recovered,
+gateway path still failing on the data check specifically -- notable
+because prior blanket-403 episodes always resolved cleanly to `healthy` in
+one jump, not a staggered recovery like this).
+
+**History:** ABS empty-error-body flap, ninth occurrence (eighth was cycle
+319, itself resolved by 320; this is a second flap four hours later, also
+resolved within one cycle). ESTAT timeout, confirms the sixteenth episode
+closed clean at cycle 320 as expected from all fifteen priors. ILO
+blanket-403 `provider_down`, seventh occurrence (priors: 244, 251, 260, 264,
+272, 281, all resolved within one cycle) -- but this is the first time the
+very next cycle did not come back fully healthy; instead the gateway data
+check alone is still open one cycle later. That partial-recovery shape has
+no precedent in this log.
+
+**Recommended action:** watch cycle 323 for the gateway data probe to clear.
+If it does, this reads as a slightly longer tail on an already-known
+pattern. If it is still failing at 323 while direct stays healthy, treat it
+as a second occurrence of a genuine `gateway_issue` (distinct from the
+cycles 268-269 metadata-500 pattern, since this one is the data check and a
+403, not a 500) and escalate per that pattern's standing "spans more than
+one cycle" trigger.
+
+**Could not determine:** whether the still-failing ILO gateway data probe
+reflects a block on the gateway's own outbound IP that this routine's
+network cannot reproduce (this routine's direct recheck succeeded, but it
+runs from a different network path than the gateway), or simply that the
+gateway has not re-probed since cycle 322 began and would already show
+healthy if polled again right now.
+
 ## 2026-08-20T18:43Z - cycle 319
 
 **Changed:** ABS `healthy` -> `gateway_issue` and ESTAT `healthy` ->

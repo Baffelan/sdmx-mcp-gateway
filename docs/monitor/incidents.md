@@ -4,6 +4,52 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-21T06:43Z - cycle 325
+
+**Changed:** one endpoint, comparing the last state file (cycle 322, same
+branch) against the current cycle (325), with cycles 323-324 checked in
+between.
+
+- ILO: `gateway_issue` (at cycle 322, matches last state, gateway data probe
+  still returning HTTP 403) -> `healthy` at cycle 323, and clean through 324
+  and 325 (current). This closes the open item carried in the last state
+  file, which asked to watch cycle 323 specifically.
+
+**Cycle saw (ILO, cycle 323):** all five checks passing, per `/api/history`.
+No `failing` entries logged for ILO at 323, 324, or 325.
+
+**Live recheck (ILO, now):** direct `dataflow/ILO/all/latest` against
+`sdmx.ilo.org` returned `HTTP 200`. A control request to ECB's direct
+dataflow endpoint also returned `HTTP 200`, ruling out a network-wide issue
+on this routine's side.
+
+**Classification:** provider-side transient block (`provider_down` at 321,
+theirs), fully resolved. The gateway-only tail at cycle 322 was `gateway_issue`
+in the narrow sense of "gateway path still blocked after direct recovered,"
+not a bug in our code -- it cleared on its own without a code change.
+
+**History:** this is the resolution of the seventh blanket-403
+`provider_down` occurrence (cycle 321, priors: 244, 251, 260, 264, 272,
+281). It took two cycles to fully clear (322 partial, 323 full) instead of
+the usual one -- the first time that has happened in this log, as flagged
+in the last run's open items. No recurrence since; treating the "does a
+staggered recovery repeat" question as answered no for now, but keeping the
+underlying blanket-403 pattern itself on watch for an eighth occurrence.
+
+**Contract changes:** two `changes` entries this cycle (ABS and ILO,
+`encoding:structure_xml`, Content-Type parameter order flip between
+`version=2.1; charset=utf-8` and `charset=utf-8; version=2.1`), verdict
+`ok` both times. This is the known cosmetic flap already on file; not
+re-reported as its own item per the standing note (verdict unchanged).
+
+**Recommended action:** none. Close the ILO watch item from last run.
+
+**Could not determine:** whether the two-cycle recovery shape reflects
+something specific about this occurrence (e.g. an IP-level block on the
+gateway's egress that needed a second retry cycle to clear) or is
+coincidental variance within the existing pattern. No corroborating
+evidence either way from this vantage point.
+
 ## 2026-08-21T00:43Z - cycle 322
 
 **Changed:** three endpoints, comparing the last state file (cycle 319, same

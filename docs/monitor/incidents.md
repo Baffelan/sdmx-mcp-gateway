@@ -4,6 +4,37 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-23T00:42Z - cycle 346
+
+**Changed:** UNICEF `healthy` (at cycle 343, matches last state file, same
+branch, clean through 345) -> `degraded` at cycle 346 (current). New this
+run, not seen flapping in the intervening cycles (344, 345 both healthy).
+
+**Cycle saw:** gateway data: `probe status: error; HTTP 429 from provider`;
+direct data: `HTTP 429`; direct json: `HTTP 429`. Metadata (both paths)
+still passing. All 14 contract assertions still read `ok`, no entries in
+`/api/contracts` `changes`.
+
+**Live recheck:** direct `data/UNICEF,CME,1.0/all` against
+`sdmx.data.unicef.org` returned `HTTP 200` on two successive tries, about
+41 minutes after the cycle ran. Control request to ECB's direct data
+endpoint also returned `HTTP 200`, ruling out a network-wide issue on this
+routine's side.
+
+**Classification:** `degraded` per `monitor/derive.py` (gateway and direct
+paths both hit the same HTTP 429, metadata unaffected) -- provider-side
+rate limiting, not a gateway bug. Already resolved by the time of the live
+recheck.
+
+**History:** fifth occurrence of the UNICEF HTTP 429 flap (priors: cycle
+126, 178, 262, 305), all four priors resolved within one cycle. This one
+also shows resolved already, ahead of the next scheduled cycle.
+
+**Recommended action:** none. Watch for a sixth occurrence.
+
+**Could not determine:** nothing outstanding; live recheck directly
+corroborates recovery.
+
 ## 2026-08-21T12:43Z - cycle 328
 
 **Changed:** ESTAT `healthy` (at cycle 325, matches last state file, same

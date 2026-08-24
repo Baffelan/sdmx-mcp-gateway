@@ -4,6 +4,76 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-24T18:46Z - cycle 367
+
+**Changed (1 of 3):** ESTAT `gateway_issue` (at cycle 364, matches last state
+file) -> `healthy` at cycle 365, clean through 366 and 367 (current).
+Resolved.
+
+**Cycle saw:** `gateway metadata: tool call list_dataflows timed out after
+60.0s` through cycle 364, then no failing checks from 365 onward.
+**Live recheck:** not needed; the monitor's own cycle 365-367 checks already
+show three consecutive clean cycles (6 hours), and this is a resolution, not
+an open failure.
+**Classification:** `gateway_issue` resolved back to `healthy`. Same known
+`list_dataflows` deadline pattern as the prior seventeen episodes.
+**History:** eighteenth episode of the ESTAT `list_dataflows` timeout
+pattern, previously flagged as notable for spanning cycles 362-364 (three
+cycles, ~6 hours) versus one cycle for all seventeen priors. Now resolved,
+having taken longer than any prior episode but recovering on its own
+without intervention. Standing recommendation (raise deadline, stream
+listing, or cache parsed result) remains open as a code-change-scope fix,
+not actioned by this read-only routine.
+**Could not determine:** whether the longer persistence this time reflects
+a genuinely slower ESTAT deploy during that window or is within normal
+variance for a provider whose `list_dataflows` response is already close
+to the 60s deadline.
+
+**Changed (2 of 3):** ABS `healthy` -> `gateway_issue` at cycle 365 ->
+`healthy` at cycle 366, clean through 367 (current). Flapped between runs,
+already resolved.
+**Cycle saw:** `gateway metadata: Error:` (empty error body), the same
+shape as all nine prior occurrences.
+**Live recheck:** not applicable; resolved one cycle later per the
+monitor's own data.
+**Classification:** `gateway_issue` per `monitor/derive.py` (direct path
+healthy throughout, gateway metadata failing). Matches the known ABS
+empty-error-body flap.
+**History:** tenth occurrence of this pattern (ninth was cycle 321,
+resolved by 322). All ten occurrences have now resolved within one cycle.
+The empty error message itself is still worth fixing under code-change
+scope (`GatewayError`/`next_step` in `monitor/checks_gateway.py`), not
+actioned here.
+
+**Changed (3 of 3):** SBS `healthy` -> `gateway_issue` at cycle 366 ->
+`healthy` at cycle 367 (current). Flapped between runs, already resolved.
+Isolated to SBS: all other eleven endpoints were healthy at cycle 366.
+**Cycle saw:** `gateway metadata: Error: [Errno -3] Temporary failure in
+name resolution` and `gateway data: tool call probe_data_url timed out
+after 60.0s`.
+**Live recheck:** a plain request to `data-sdmx-disseminate.sbs.gov.ws`
+from this session resolved and connected normally, consistent with the
+monitor's own recovery at cycle 367.
+**Classification:** `gateway_issue` per `monitor/derive.py`, but the
+failure text is a DNS resolution error on the gateway's outbound call, the
+same shape previously seen for FBOS at cycle 50 and treated there as
+infrastructure rather than the provider being down. Since only SBS failed
+this cycle while the other eleven endpoints resolved fine, this looks like
+a transient DNS blip local to that one lookup rather than a network-wide
+problem on the monitor's side.
+**History:** first occurrence of this specific pattern for SBS. Watch for
+recurrence; a second occurrence would be worth escalating as a possible
+DNS caching or retry gap in the gateway's outbound calls.
+
+**Contract changes:** one `changes` entry this cycle (ABS,
+`encoding:structure_xml`, Content-Type parameter order flip), verdict
+`ok`. Known cosmetic flap already on file, not re-reported as its own
+item. One `capability_appeared` row (STATSNZ `auth:listing`), matching the
+standing open item since cycle 60; not a new change.
+
+**Recommended action:** none from this read-only routine on any of the
+three. All three are resolved as of the current cycle.
+
 ## 2026-08-24T12:45Z - cycle 364
 
 **Changed:** ESTAT `healthy` (at cycle 361, matches last state file, same

@@ -4,6 +4,53 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-24T12:45Z - cycle 364
+
+**Changed:** ESTAT `healthy` (at cycle 361, matches last state file, same
+branch) -> `gateway_issue` at cycle 362, still `gateway_issue` at 363 and
+364 (current). Ongoing, not yet resolved.
+
+**Cycle saw (all of 362, 363, 364):** `gateway metadata: tool call
+list_dataflows timed out after 60.0s`. Gateway data, direct metadata, and
+direct data all passing throughout; direct json stays skipped as usual
+(ESTAT does not serve SDMx-JSON).
+
+**Live recheck:** direct `dataflow/ESTAT/all/latest` against
+`ec.europa.eu` returned `HTTP 200` in 30.9s (37 MB payload), comfortably
+under the 60s gateway deadline but well above ESTAT's usual response time.
+Control request to ECB's direct dataflow endpoint returned `HTTP 200` in
+1.0s, ruling out a network-wide issue on this routine's side.
+
+**Classification:** `gateway_issue` per `monitor/derive.py` (direct path
+healthy, gateway path timed out) -- ours in the sense that the gateway call
+deadline is our own budget, tripped by provider-side slowness. Same known
+`list_dataflows` deadline pattern as the prior seventeen episodes.
+
+**History:** eighteenth episode of the ESTAT `list_dataflows` timeout
+pattern. Notable departure from all seventeen priors: every previous
+episode resolved within one cycle (2 hours); this one has now held for
+three consecutive cycles (362, 363, 364), roughly 6 hours as of this run.
+Still active at time of writing.
+
+**Contract changes:** one `changes` entry this cycle (ABS,
+`encoding:structure_xml`, Content-Type parameter order flip), verdict
+`ok`. Known cosmetic flap already on file; not re-reported as its own
+item.
+
+**Recommended action:** none from this read-only routine. Standing
+recommendation to raise the `list_dataflows` deadline, stream the listing,
+or cache the parsed result remains open as a code-change-scope fix. Given
+this episode's unusual persistence, the next run should check whether it
+has resolved or is still ongoing; if still ongoing at the next scheduled
+run (6+ hours further, ~4 cycles total), that would be a further escalation
+worth calling out explicitly.
+
+**Could not determine:** whether this cycle's outcome will be recorded as
+resolved by the time this run's PR merges (the routine observed the state
+as of 12:01-12:03 UTC cycle 364 and the live recheck a few minutes after);
+whether the extended duration reflects a genuinely slower ESTAT deploy or
+is coincidental variance within the existing pattern.
+
 ## 2026-08-23T00:42Z - cycle 346
 
 **Changed:** UNICEF `healthy` (at cycle 343, matches last state file, same

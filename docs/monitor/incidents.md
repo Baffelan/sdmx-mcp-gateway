@@ -4,6 +4,47 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-25T12:44Z - cycle 376
+
+**Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy`, already resolved
+by the time of this run. Last state file (cycle 373, same branch) recorded
+ESTAT healthy; history shows the change appeared at cycle 374 and had
+already cleared by cycle 375, clean through cycle 376 (current). No other
+endpoint changed status. `changes` array on `/api/contracts` is empty; the
+only non-`ok` verdict in the current matrix is STATSNZ `auth:listing`
+`capability_appeared`, which has been open and unchanged since cycle 60 and
+is not re-reportable.
+
+**Cycle saw (374):** gateway metadata failing with `tool call list_dataflows
+timed out after 60.0s`. All other ESTAT checks (gateway data, direct
+metadata, direct data, direct json) were not listed as failing.
+
+**Live recheck:** cycle 376 finished at 12:02:38Z; this run started at
+12:44Z, about 41 minutes later. `/api/status` shows ESTAT fully healthy
+across all checks at cycle 376, and it had already recovered one full cycle
+earlier (375, started 10:01:22Z). No separate direct-provider probe was
+needed given two consecutive clean cycles plus this near-live status read.
+
+**Classification:** `gateway_issue` (this routine's own 60s call deadline on
+`list_dataflows` firing under provider load), matching the long-documented
+ESTAT `list_dataflows` timeout pattern -- working as designed, not a gateway
+bug. This is the nineteenth episode on record.
+
+**History:** resolved within a single cycle, consistent with seventeen of
+the eighteen prior episodes (the eighteenth, cycles 362-364, was the only
+one to persist across three consecutive cycles before this run's last
+report). No sign of multi-cycle persistence recurring this time.
+
+**Recommended action:** none; close this watch item. Continue watching for a
+twentieth episode and specifically whether multi-cycle persistence repeats.
+The standing fix (raise the deadline, stream the listing, or cache the
+parsed result) remains open as a code-change-scope fix, not actioned by
+this read-only routine.
+
+**Could not determine:** nothing outstanding for this entry; the resolution
+is corroborated by two consecutive clean cycles and a near-live status
+check.
+
 ## 2026-08-25T06:43Z - cycle 373
 
 **Changed:** ILO `gateway_issue` -> `healthy`, resolved (already resolved by the

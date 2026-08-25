@@ -4,6 +4,58 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-25T00:43Z - cycle 370
+
+**Changed:** ILO `healthy` -> `gateway_issue`, new as of cycle 370 (current).
+Last state file (cycle 367, same branch) recorded ILO healthy; history shows
+it stayed clean through cycles 368 and 369, with the change appearing only at
+370. No other endpoint changed status and no contract changed (`changes`
+array empty at cycle 370).
+
+**Cycle saw:** gateway data check failing with `probe status: error; HTTP 403
+from provider.`. Gateway metadata (`list_dataflows`) and all three direct
+checks (metadata, data, json) passed. `contracts.broken` empty; the only
+`references:contentconstraint` row reads `ignored`, the known architectural
+baseline for ILO, not a change.
+
+**Live recheck:** direct `dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+returned HTTP 200 in 0.9s. The exact URL the gateway's data probe uses,
+`data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`, also
+returned HTTP 200, in 1.6s. A control request to ECB's direct dataflow
+endpoint returned HTTP 200 too, ruling out a network-wide issue on this
+routine's side. The live recheck disagrees with the cycle's failing gateway
+probe: transient.
+
+**Classification:** `gateway_issue` (direct path OK, gateway path failing) --
+nominally ours, but the live recheck already resolves clean and the failure
+sits entirely inside the provider round-trip (`probe_data_url` calling the
+same pinned data URL that just answered 200 directly), not in any gateway
+logic that transforms the request. No code site to point at from this
+evidence alone.
+
+**History:** this specific shape (gateway data check alone failing with
+HTTP 403, gateway metadata and all direct checks healthy) has one prior
+occurrence on record, at cycle 322, but that one was the tail end of a
+blanket-403 `provider_down` episode (cycle 321) recovering in two stages
+rather than one. This is the first time it has appeared standalone, with no
+preceding blanket-403 cycle. ILO has a long history of separate 403-flavored
+flaps (blanket `provider_down`, direct-only 403, this gateway-data-only 403);
+each has resolved within one or two cycles every time it has been seen.
+
+**Recommended action:** watch cycle 371. If it clears, file this as an
+eighth blanket-403-adjacent flap variant and keep watching for a second
+standalone occurrence. If it persists past cycle 371 with direct still
+healthy, that would be new: no prior gateway-data-only 403 has lasted beyond
+the two-cycle tail seen at 322-323, and none has occurred without a
+preceding blanket-403 cycle.
+
+**Could not determine:** why the gateway's outbound request to the exact
+same URL failed at 403 while this routine's direct request to that URL
+succeeded one cycle later. Could be an IP-specific block on the gateway's
+egress that this routine's network cannot reproduce, or the failure could
+simply have already cleared by the time of this recheck, roughly 40 minutes
+after the cycle ran. No corroborating evidence to choose between them.
+
 ## 2026-08-24T18:46Z - cycle 367
 
 **Changed (1 of 3):** ESTAT `gateway_issue` (at cycle 364, matches last state

@@ -4,6 +4,49 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-25T06:43Z - cycle 373
+
+**Changed:** ILO `gateway_issue` -> `healthy`, resolved (already resolved by the
+time of this run). Last state file (cycle 370, same branch) recorded ILO
+`gateway_issue`; history shows the recovery landed at cycle 371 and has held
+clean through cycles 372 and 373. No other endpoint changed status and no
+non-cosmetic contract changed (`changes` array holds only the known
+Content-Type parameter-order flap on ILO's `encoding:structure_xml`,
+verdict stayed `ok`, not re-reportable per standing guidance).
+
+**Cycle saw (371-373):** all five ILO checks passing (gateway metadata,
+gateway data, direct metadata, direct data, direct json).
+
+**Live recheck:** cycle 373 finished at 06:02:36Z; this run started at
+06:43Z, about 40 minutes later, and `/api/status` still shows ILO fully
+healthy across all checks, so the recovery has held for roughly 41 minutes
+past the cycle that confirmed it. No separate direct-provider probe was
+needed given three consecutive clean cycles plus this near-live status read.
+
+**Classification:** confirms the prediction filed in the prior run's open
+item -- this was the second true standalone occurrence of the
+gateway-data-only 403 shape (first was cycle 370 itself; the only earlier
+occurrence, cycle 322, was the tail of the cycle 321 blanket-403 episode).
+It resolved within a single cycle, same as every ILO gateway_issue flap on
+record. No second occurrence yet of a gateway-data-only 403 persisting past
+one cycle.
+
+**History:** ILO gateway_issue (gateway-data-only 403 flap, standalone
+shape): now two occurrences, cycles 370 and (tail-end context) 322, both
+resolved within one to two cycles. STATSNZ `auth:listing`
+`capability_appeared` is still present at cycle 373 (first seen cycle 60);
+not re-reported since it did not appear as a was/now entry in this cycle's
+`changes` array.
+
+**Recommended action:** none; close this watch item. If the gateway-data-only
+403 shape recurs a third time, or persists past one cycle, that would be new
+and worth deeper investigation into `probe_data_url` in
+`monitor/checks_gateway.py`.
+
+**Could not determine:** nothing outstanding for this entry; the resolution
+is corroborated by three consecutive clean cycles and a near-live status
+check.
+
 ## 2026-08-25T00:43Z - cycle 370
 
 **Changed:** ILO `healthy` -> `gateway_issue`, new as of cycle 370 (current).

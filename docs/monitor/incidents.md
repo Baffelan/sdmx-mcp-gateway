@@ -4,6 +4,47 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-26T06:45Z - cycle 385
+
+**Changed:** ILO `provider_down` (cycle 382, open at last run) -> `healthy`
+(383) -> `gateway_issue` (384) -> `healthy` (385)
+
+**Cycle saw:** cycle 383 showed all checks passing (the blanket-403 episode
+from cycle 382 cleared). Cycle 384 then showed gateway metadata HTTP 403
+Forbidden and gateway data probe HTTP 403 from provider, with the direct
+path healthy throughout -- a `gateway_issue` shape, not a repeat of the
+provider_down episode. Cycle 385 shows all checks passing again.
+
+**Live recheck:** a direct request to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at the time of this run
+returned HTTP 200. Direct requests to ECB and OECD control endpoints at the
+same time also answered without error, so this routine's own network is not
+a factor.
+
+**Classification:** cycle 384 is `gateway_issue` (direct path succeeded,
+gateway paths failed) -- ours, not theirs, but only while it lasted.
+
+**History:** the cycle 382 blanket-403 (`provider_down`) episode reported
+last run closed within one cycle, as all but one prior occurrence has. The
+cycle 384 shape is new: both gateway metadata and gateway data 403 together,
+with a fully healthy cycle (383) in between it and the provider_down episode
+rather than being a direct tail of it. This does not match either previously
+catalogued ILO gateway pattern (the gateway-data-only 403 flap at cycles 322
+and 370, which leaves metadata passing; or the gateway-metadata-500 episode
+at cycles 268-269, which is HTTP 500 not 403 and leaves data passing).
+Treating it as a new, third gateway-side ILO shape to watch separately.
+
+**Recommended action:** watch for a second occurrence of this specific
+combination (gateway metadata + gateway data both 403, direct healthy, with
+a healthy cycle preceding it). No code action indicated from a single
+occurrence that resolved within one cycle.
+
+**Could not determine:** whether cycle 384 was a fresh provider-side event
+or a delayed tail effect of the cycle 382 episode that happened to skip
+cycle 383. No other endpoint or contract changed in this window (382-385);
+STATSNZ `auth:listing` remains `capability_appeared`, unchanged since cycle
+60, not re-reported.
+
 ## 2026-08-26T00:42Z - cycle 382
 
 **Changed:** ILO `healthy` -> `provider_down` (new this cycle, not yet resolved

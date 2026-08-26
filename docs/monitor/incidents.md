@@ -4,6 +4,50 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-26T18:43Z - cycle 391
+
+**Changed:** ABS and ESTAT both `healthy` -> `gateway_issue` (cycle 389) ->
+`healthy` (390, 391)
+
+**Cycle saw:** at cycle 389 both ABS and ESTAT failed with the identical
+failing check: `gateway metadata: tool call list_dataflows timed out after
+60.0s`. All ten other endpoints (BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC,
+STATSNZ, UNICEF) stayed healthy through the same cycle, so this was not the
+monitor's own network being unreachable.
+
+**Live recheck:** not performed against the providers directly, since the
+monitor's own history already shows recovery two cycles ago (390 and 391
+both report all-healthy for both endpoints); no live evidence remains to
+recheck against for a timeout that resolved on its own within one cycle.
+
+**Classification:** `gateway_issue` for both -- the direct paths stayed
+healthy, only the gateway's `list_dataflows` tool call timed out. This is
+the gateway/monitor side, not a provider fault.
+
+**History:** this is the second time ABS and ESTAT have shown `gateway_issue`
+in the exact same cycle (first was cycle 319, see prior open item). Unlike
+cycle 319, this occurrence carries new information: both endpoints failed
+with the byte-identical failure message and the same 60-second deadline,
+which points more toward a shared cause (the gateway or its host under load
+for that cycle window) than coincidence. ESTAT alone has a long-standing
+history of solo `list_dataflows` timeouts (nineteen prior episodes); this is
+the first time that exact failure text has appeared on ABS, and the first
+time it has appeared on two endpoints in the same cycle with matching text.
+
+**Recommended action:** treat the standing recommendation for the ESTAT
+timeout pattern (raise the call deadline, stream the listing, or cache the
+parsed result in `monitor/checks_gateway.py`) as now also relevant to
+whatever produced the ABS timeout at the same moment. Still a code-change,
+not something this read-only routine can act on.
+
+**Could not determine:** whether the shared cause is the gateway process
+itself being under load, an upstream network blip affecting the monitor's
+outbound calls to both providers' underlying `list_dataflows` handlers at
+once, or purely a coincidence of two independent slow responses landing in
+the same two-hour window. A third same-cycle occurrence, especially with
+matching failure text again, would make the shared-cause reading much
+stronger.
+
 ## 2026-08-26T06:45Z - cycle 385
 
 **Changed:** ILO `provider_down` (cycle 382, open at last run) -> `healthy`

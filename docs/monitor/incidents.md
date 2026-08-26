@@ -4,6 +4,64 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-26T00:42Z - cycle 382
+
+**Changed:** ILO `healthy` -> `provider_down` (new this cycle, not yet resolved
+as of this run)
+
+**Cycle saw:** gateway metadata: HTTP 403 Forbidden from provider; gateway
+data: probe status error, HTTP 403 from provider; direct metadata: HTTP 403.
+
+**Live recheck:** a direct request to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at the time of this run
+returned HTTP 403, the same shape the cycle saw. Direct requests to ECB and
+OECD at the same time both returned 200, ruling out this routine's own
+network as the cause.
+
+**Classification:** `provider_down` (metadata failing on both the gateway and
+direct paths) -- theirs, nothing to fix in our code.
+
+**History:** new as of cycle 382; ILO was healthy across cycles 375-381 (the
+last state file, cycle 379, same branch, also recorded it healthy). This is
+the eighth occurrence of the recurring ILO blanket-403 pattern (priors:
+cycles 244, 251, 260, 264, 272, 281, 321; all but 321 resolved within a
+single cycle, 321 took two cycles with a gateway-data-only tail at 322).
+
+**Recommended action:** none beyond watching; every prior occurrence has
+cleared on its own within one to two cycles. Re-check next run; escalate only
+if this persists past cycle 383 or the recovery is staggered like cycle
+321-322 was.
+
+**Could not determine:** whether provider-side rate limiting or an IP block
+is the cause; this routine has no visibility into ILO's infrastructure.
+
+**Changed:** ABS `healthy` -> `gateway_issue` -> `healthy`, already resolved
+by the time of this run
+
+**Cycle saw (381):** gateway metadata failing with `Error:` (empty error
+body), the recurring empty-error-body shape. All other ABS checks were
+passing.
+
+**Live recheck:** `/api/status` at cycle 382 shows ABS fully healthy across
+all checks; the recovery had already held for one full cycle before this run
+started.
+
+**Classification:** `gateway_issue` (gateway-side metadata call failing) --
+ours, matching the long-standing ABS empty-error-body flap. This is the
+eleventh occurrence (the most recent prior was cycle 365, resolved by 366;
+all ten prior occurrences resolved within one cycle).
+
+**History:** resolved within a single cycle, consistent with every prior
+occurrence. The underlying empty error message is still worth fixing under
+code-change scope (`GatewayError`/`next_step` in `monitor/checks_gateway.py`),
+not actioned by this read-only routine.
+
+**Recommended action:** none; close this watch item. Continue watching for a
+twelfth occurrence.
+
+**Could not determine:** the underlying cause of the empty error body itself;
+this remains the standing code-change-scope item, not a new investigation.
+
 ## 2026-08-25T12:44Z - cycle 376
 
 **Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy`, already resolved

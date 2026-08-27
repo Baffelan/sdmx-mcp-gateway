@@ -4,6 +4,78 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-27T18:44Z - cycle 403
+
+**Changed:** ILO `provider_down` still open, now eight consecutive cycles
+(396-403) without resolving -- this exceeds the five-cycle mark reported
+last run and keeps climbing. ESTAT flapped twice since cycle 400: `healthy`
+-> `gateway_issue` (401) -> `healthy` (402) -> `gateway_issue` (403, still
+open at time of writing).
+
+**Cycle saw (ILO):** same blanket shape as every prior cycle in this
+episode -- gateway metadata `Client error '403 Forbidden'` on
+`dataflow/ILO/all/latest`, gateway data probe HTTP 403, and all three
+direct checks (metadata, data, json) also HTTP 403. Unchanged across
+cycles 396 through 403.
+
+**Live recheck (ILO):** re-ran `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+directly at 2026-08-27T18:43:24Z -- still HTTP 403. Confirmed live, not a
+stale cycle artifact.
+
+**Network sanity:** direct-hit ECB (`dataflow/ECB`) and OECD
+(`dataflow/all`) at the same moment -- both HTTP 200. The routine's own
+network is fine; the block is isolated to ILO.
+
+**Cycle saw (ESTAT):** cycles 401 and 403 both show `gateway metadata: tool
+call list_dataflows timed out after 60.0s`; cycle 402 was clean `healthy`
+with no failing checks.
+
+**Live recheck (ESTAT):** re-ran the direct `dataflow/ESTAT` listing just
+now -- HTTP 200 in 28.4s, under the 60s deadline. Consistent with the known
+pattern of the gateway's own call deadline firing under a slow response,
+not a provider outage.
+
+**Contracts:** the ten ILO assertions (`auth:listing`,
+`constraint:availableconstraint`, `errors:missing_artefact`, and all eight
+`references:*` variants) still read `broken` with `observed: 403`, the same
+blanket-403 condition surfacing through contracts, not a separate finding.
+The one `changes` entry this cycle (ABS `encoding:structure_xml`,
+charset/version parameter order, verdict stays `ok`) is the known cosmetic
+flap already on record -- not re-reporting. STATSNZ `auth:listing` still
+reads `capability_appeared`, unchanged since cycle 60 -- not re-reporting.
+
+**Classification:** ILO remains `provider_down` (both gateway and direct
+403; provider-side, nothing to fix in our code). ESTAT is `gateway_issue`
+(direct path fine, only the gateway's `list_dataflows` tool call timed out;
+on our side, but the known architectural pattern, not a new bug).
+
+**History:** ILO's blanket-403 episode (started cycle 396) has now run
+eight consecutive cycles (396-403), roughly 16 hours, without a single
+healthy reading in between. Every prior occurrence on record (244, 251,
+260, 264, 272, 281, 321, 382) resolved within one or two cycles at most.
+This is now well past all of those and is approaching the "roughly 24h/12
+cycles" mark previously set as the point to treat this as a standing block
+rather than a transient outage; four more cycles (24 hours from the block's
+start) will cross it. ESTAT's two flaps this window (401, 403) are its
+twenty-third and twenty-fourth episodes overall of the same one-cycle
+`list_dataflows` timeout pattern, consistent with the long-running
+architectural cause. All other ten endpoints stayed healthy through cycles
+401, 402, and 403, ruling out the routine's own network for either finding.
+
+**Recommended action:** ILO -- keep watching; if it reaches 12 consecutive
+cycles (cycle 407, roughly 24h) without a healthy reading, treat it as a
+standing block and flag that the gateway's ILO request pattern (headers,
+rate) may need review, which is beyond what this read-only routine can act
+on. No new action for ESTAT beyond the standing recommendation already on
+record (raise the call deadline, stream the listing, or cache the parsed
+result in `monitor/checks_gateway.py`).
+
+**Could not determine:** why this ILO occurrence is running longer than
+every prior one -- whether it is a longer provider-side outage, a rate
+limit that escalated to a longer ban, or an IP/UA block on the monitor's
+egress. Nothing in the response body distinguishes these; the next run
+will show whether it has cleared.
+
 ## 2026-08-27T12:47Z - cycle 400
 
 **Changed:** ILO `provider_down` still open, now five consecutive cycles

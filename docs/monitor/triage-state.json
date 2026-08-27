@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 391,
-  "last_cycle_started_at": "2026-08-26T18:01:22+00:00",
-  "last_run": "2026-08-26T18:43Z",
+  "last_cycle_id": 394,
+  "last_cycle_started_at": "2026-08-27T00:01:22+00:00",
+  "last_run": "2026-08-27T00:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -40,5 +40,5 @@
     "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162. No new occurrence through cycle 388. Watch for a second occurrence.",
     "ECB references:* 504 flap (cycles 182-183 pattern): first occurrence, cycles 182-183, resolved by cycle 184. No new occurrence through cycle 388. Watch for a second occurrence."
   ],
-  "alerted": true
+  "alerted": false
 }

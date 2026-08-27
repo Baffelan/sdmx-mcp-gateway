@@ -4,6 +4,57 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-27T06:43Z - cycle 397
+
+**Changed:** ILO `healthy` -> `provider_down` (cycle 396, still open at cycle
+397). ESTAT `healthy` -> `gateway_issue` (cycle 395) -> `healthy` (396) ->
+`gateway_issue` (397, still open).
+
+**Cycle saw (ILO):** gateway metadata `Client error '403 Forbidden'` on
+`dataflow/ILO/all/latest`, gateway data probe HTTP 403, and all three direct
+checks (metadata, data, json) also HTTP 403. Blanket failure across gateway
+and direct paths alike.
+
+**Live recheck (ILO):** re-ran `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+directly just now -- still HTTP 403. Confirmed live, not a stale cycle
+artifact.
+
+**Cycle saw (ESTAT):** `gateway metadata: tool call list_dataflows timed out
+after 60.0s`, direct path healthy throughout.
+
+**Live recheck (ESTAT):** re-ran the direct `dataflow/ESTAT` listing just
+now -- HTTP 200 in 32.9s, under the 60s deadline. Consistent with the known
+pattern of this being the gateway's own call deadline firing under a slow
+response, not a provider outage.
+
+**Classification:** ILO is `provider_down` (both gateway and direct 403;
+their problem, nothing to fix in our code). ESTAT is `gateway_issue` (direct
+path fine, only the gateway's `list_dataflows` tool call timed out; on our
+side, but the known architectural pattern, not a new bug).
+
+**History:** ILO blanket-403 provider_down is now on its ninth on-record
+occurrence (priors: 244, 251, 260, 264, 272, 281, 321, 382, all but 321
+resolved within a single cycle; 321 took two cycles). This occurrence has
+now spanned two cycles (396, 397) without resolving, matching the 321
+precedent rather than the more common one-cycle recovery -- worth watching
+for a third cycle. ESTAT's `list_dataflows` timeout is its twenty-second
+episode overall (prior: cycle 395 resolved by 396), consistent with the
+long-running flapping pattern already on record; all ten other endpoints
+stayed healthy through both cycle 395 and 397, ruling out the routine's own
+network.
+
+**Recommended action:** no action for ILO (provider-side, nothing to fix in
+our code); watch the next cycle for resolution. No new action for ESTAT
+beyond the standing recommendation already on record (raise the call
+deadline, stream the listing, or cache the parsed result in
+`monitor/checks_gateway.py`), still a code-change-scope fix this read-only
+routine cannot act on.
+
+**Could not determine:** whether ILO's two-cycle persistence this time
+signals something worse than the usual one-cycle blip, since it was still
+failing live at the moment of this recheck; the next run will show whether
+it clears within the 321-style two-cycle window or goes longer.
+
 ## 2026-08-26T18:43Z - cycle 391
 
 **Changed:** ABS and ESTAT both `healthy` -> `gateway_issue` (cycle 389) ->

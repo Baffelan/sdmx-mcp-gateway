@@ -4,6 +4,51 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-28T12:46Z - cycle 412
+
+**Changed:** ILO `provider_down` -> `healthy`. This is the recovery of the
+standing block first reported at cycle 382 and escalated to a standing block
+at cycle 409. It ran 16 consecutive cycles (396 through 411), roughly 32
+hours, and cleared between cycle 411 and cycle 412.
+
+**Cycle saw (ILO):** cycle 412's `failing` array is empty; all checks
+(gateway metadata, gateway data, direct metadata, direct data, direct json)
+report `ok: true`. Cycle 411 still showed the same blanket 403 shape as every
+prior cycle in the episode.
+
+**Live recheck (ILO):** `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+direct at 2026-08-28T12:46:06Z -- HTTP 200. Confirms the recovery live, not a
+stale-cycle artifact.
+
+**Network sanity:** direct-hit ECB at the same moment returned HTTP 404 (a
+normal response for that bare path, not a connection failure) -- the routine's
+own network answered fine before and during this check.
+
+**Contracts:** all ten previously-`broken` ILO assertions
+(`auth:listing`, `dialect:sdmx3`, `errors:missing_artefact`, and all eight
+`references:*` variants) now read `verdict: ok`, was `403` now `200` (or the
+expected status per assertion). `constraint:availableconstraint` moved
+`403 -> 500`, which is the long-documented architectural fact for ILO
+(`/availableconstraint/` returns 500; constraints come via `references=all`),
+not a new problem -- verdict is `ok`. `references:contentconstraint` reads
+`ignored` (200, parameter silently dropped), also already-known ILO
+behaviour, not new.
+
+**Classification:** recovery from `provider_down`. No gateway-side change is
+implicated; the block lifted on ILO's side the same way it did in the eight
+prior shorter episodes on record (244, 251, 260, 264, 272, 281, 321, plus this
+one). Nothing else changed: all other eleven endpoints stayed healthy straight
+through cycles 410, 411, and 412, and no other contract assertion changed.
+
+**Could not determine:** why the block lifted, or whether ILO made any
+change on their side. No public status information was available to check.
+
+**Recommended action:** close the "standing block needing a human decision"
+item from cycle 409 as resolved. Keep watching for a tenth recurrence of this
+blanket-403 pattern; if it recurs, the roughly-24h/12-cycle point is already
+established as the threshold to re-flag it as a standing block rather than a
+transient outage.
+
 ## 2026-08-28T06:43Z - cycle 409
 
 **Changed:** nothing in raw status terms -- ILO `provider_down` is still

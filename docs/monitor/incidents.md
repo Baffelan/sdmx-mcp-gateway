@@ -4,6 +4,66 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-28T00:43Z - cycle 406
+
+**Changed:** ESTAT recovered: `gateway_issue` (open at cycle 403) ->
+`healthy`, and has stayed healthy through cycles 404, 405, and 406. ILO
+`provider_down` is still open and unchanged in status since the last run,
+now ten consecutive cycles (396-406) without a healthy reading.
+
+**Cycle saw (ESTAT):** cycle 403 was the last one showing `gateway
+metadata: tool call list_dataflows timed out after 60.0s`; cycles 404-406
+all show `healthy` with no failing checks.
+
+**Cycle saw (ILO):** same blanket shape as every prior cycle in this
+episode -- gateway metadata `Client error '403 Forbidden'` on
+`dataflow/ILO/all/latest`, gateway data probe HTTP 403, and all three
+direct checks (metadata, data, json) also HTTP 403. Unchanged across
+cycles 396 through 406.
+
+**Live recheck (ILO):** re-ran `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+directly at 2026-08-28T00:43:09Z -- still HTTP 403. Confirmed live, not a
+stale cycle artifact.
+
+**Network sanity:** direct-hit ECB (`dataflow/ECB`) at the same moment --
+HTTP 200. The routine's own network is fine; the block is isolated to ILO.
+
+**Contracts:** the ten ILO assertions (`auth:listing`,
+`constraint:availableconstraint`, `errors:missing_artefact`, and all eight
+`references:*` variants) still read `broken` with `observed: 403`, the same
+blanket-403 condition surfacing through contracts, not a separate finding.
+The one `changes` entry this cycle (ABS `encoding:structure_xml`,
+charset/version parameter order, verdict stays `ok`) is the known cosmetic
+flap already on record -- not re-reporting. STATSNZ `auth:listing` still
+reads `capability_appeared`, unchanged since cycle 60 -- not re-reporting.
+
+**Classification:** ESTAT's recovery matches the long-running one-cycle
+`list_dataflows` timeout pattern (the gateway's own 60s call deadline
+firing under a slow response), not a new bug -- this is its twenty-fifth
+episode overall, resolved within one cycle as usual. ILO remains
+`provider_down` (both gateway and direct 403; provider-side, nothing to fix
+in our code).
+
+**History:** ILO's blanket-403 episode (started cycle 396) has now run ten
+consecutive cycles (396-406), roughly 20 hours, without a single healthy
+reading in between. This is short of the "roughly 24h/12 cycles" mark
+(cycle 407-408) previously set as the point to treat this as a standing
+block; the next run will show whether it crosses that line. All other ten
+endpoints stayed healthy through cycles 404, 405, and 406, ruling out the
+routine's own network for either finding.
+
+**Recommended action:** ILO -- keep watching; if the next run still shows
+no healthy reading, treat it as a standing block and flag that the
+gateway's ILO request pattern (headers, rate) may need review, which is
+beyond what this read-only routine can act on. No action needed for ESTAT;
+already resolved.
+
+**Could not determine:** why this ILO occurrence is running longer than
+every prior one on record -- whether it is a longer provider-side outage, a
+rate limit that escalated to a longer ban, or an IP/UA block on the
+monitor's egress. Nothing in the response body distinguishes these; the
+next run will show whether it has cleared.
+
 ## 2026-08-27T18:44Z - cycle 403
 
 **Changed:** ILO `provider_down` still open, now eight consecutive cycles

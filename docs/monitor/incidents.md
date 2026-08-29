@@ -4,6 +4,57 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-29T00:44Z - cycle 418
+
+**Changed:** ILO `healthy` -> `degraded`. All nine of ILO's non-`ignored`
+contract assertions (`auth:listing`, `constraint:availableconstraint`,
+`errors:missing_artefact`, and all six `references:*` variants except
+`contentconstraint`, which was already `ignored`) flipped to `403` and
+verdict `broken` in the same cycle. `dialect:sdmx3` also flipped `400 -> 403`
+but stayed verdict `ok` (both are non-200, so the assertion's own logic
+treats them the same).
+
+**Cycle saw (ILO basic checks):** all five basic checks (gateway metadata,
+gateway data, direct metadata, direct data, direct json) report `ok: true`,
+`failing: []`, in the same cycle 418. This is not the blanket-403
+`provider_down` pattern from cycles 396-411 (resolved at 412): that episode
+failed the basic checks too. Here only the contract probes were denied.
+
+**Live recheck (ILO), 2026-08-29T00:44Z:**
+- `GET /rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` (unauthenticated,
+  `Accept: application/vnd.sdmx.structure+xml;version=2.1`, matches
+  `auth:listing` and the references baseline) -> HTTP 200
+- same URL with `?references=all&detail=allstubs` -> HTTP 200
+- `/rest/availableconstraint/DF_GED_XLU1_SEX_HHT_CHL_RT/all/all/all` -> HTTP
+  500 (the documented architectural fact, not new)
+- `/rest/dataflow/ILO/NONEXISTENT_XYZ_2026/latest` -> HTTP 404 (expected)
+
+All four already back to normal, roughly 43 minutes after the cycle started.
+Disagreement between what the cycle saw and this recheck means transient.
+
+**Classification:** `degraded` per `monitor/derive.py` (contract broken,
+basic checks otherwise healthy). Provider-side: same URLs behind the same
+network path answered fine an hour later, and every other endpoint in this
+cycle was clean, so the routine's own network is not implicated.
+
+**History:** new as of cycle 418; no prior cycle in the last 48 hours shows
+this shape. It resembles the `provider_down` blanket-403 pattern (cycles
+396-411) in breadth -- effectively all query shapes on ILO denied at once --
+but differs in that the plain metadata/data GETs the basic checks use kept
+succeeding. First occurrence of a contract-only blanket 403 while basic
+checks stay healthy.
+
+**Recommended action:** watch for a second occurrence of this exact shape
+(contract probes denied, basic checks healthy). If it recurs or widens to
+the basic checks too, treat it as the same recurring ILO block family
+already tracked (nine prior `provider_down` episodes) rather than a new bug.
+
+**Could not determine:** why the contract probes specifically were denied
+while the basic checks were not in the same cycle -- the two request sets hit
+overlapping URLs (the `auth:listing` probe and the direct metadata check use
+the identical URL), so this looks like a narrow, short-lived block on ILO's
+side rather than anything the request shape controls.
+
 ## 2026-08-28T12:46Z - cycle 412
 
 **Changed:** ILO `provider_down` -> `healthy`. This is the recovery of the

@@ -4,6 +4,50 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-29T06:44Z - cycle 421
+
+**Changed:** IMF `healthy` -> `provider_down` -> `healthy`, flapped and
+recovered between runs. Cycle 419 failed; cycle 420 and the current cycle
+421 are clean. This routine's last recorded state (cycle 418) was healthy,
+so the whole episode happened and cleared in the gap between runs.
+
+**Cycle saw (IMF, cycle 419):** `failing` array: gateway metadata `Error:
+Server error '503 Service Unavailable' for url
+'https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest'`,
+gateway data `probe status: error; HTTP 503 from provider.`, direct
+metadata `HTTP 503`, direct data `ReadTimeout:`. Both gateway and direct
+paths failed together. Cycle 420 and 421 both show `failing: []`.
+
+**Live recheck:** direct metadata (`https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest`)
+-> HTTP 200 now. Confirms the cycle 420 recovery is real, not a stale-cycle
+artifact.
+
+**Network sanity:** direct-hit ECB at the same time -> HTTP 200. Only IMF
+was affected across all twelve endpoints in cycle 419's history, and no
+other endpoint deviated from `healthy` in cycles 415 through 421, so this
+routine's own network is not implicated.
+
+**Classification:** `provider_down` (gateway and direct both failed with
+`503`/timeout at the same time). Provider-side; nothing to fix in our code.
+
+**History:** first occurrence of an IMF `provider_down` cycle found in the
+last 48 hours of `/api/history`; not one of the previously tracked IMF
+flap patterns (those were the cycle 161 `references:*` 401 contract flap).
+Resolved within a single cycle (419 -> 420).
+
+**Recommended action:** none needed beyond watching for a second
+occurrence; single-cycle self-resolving provider outage, no code involved.
+
+**Could not determine:** the cause of the 503s on IMF's side. No public
+IMF status page was checked.
+
+**Also noted (not a new event):** the ILO contract-only blanket-403 flap
+reported at cycle 418 (previous entry below) stayed resolved through
+cycles 419-421 with no second occurrence; `endpoint_status_at_last_run`
+below is updated to `healthy` to match, but no new report entry is written
+for it since the recovery was already confirmed live in that same cycle
+418 entry.
+
 ## 2026-08-29T00:44Z - cycle 418
 
 **Changed:** ILO `healthy` -> `degraded`. All nine of ILO's non-`ignored`

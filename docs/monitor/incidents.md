@@ -4,6 +4,42 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-30T00:43Z - cycle 430
+
+**Changed:** UNICEF `healthy` -> `degraded`
+
+**Cycle saw:** gateway data: `probe status: error; HTTP 429 from provider.`;
+direct data: `HTTP 429`; direct json: `HTTP 429`. Both gateway metadata and
+direct metadata stayed `ok:true`. Cycles 428 and 429 (the two cycles since
+this routine's last run at cycle 427) were both clean; the failure appears
+only at the current cycle 430.
+
+**Live recheck:** direct data (`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`)
+-> HTTP 200 now, and direct metadata also HTTP 200. Already recovered by the
+time of this recheck, roughly 40 minutes after the cycle started.
+
+**Network sanity:** direct-hit ECB and ABS at the same time -> both HTTP 200.
+Only UNICEF was affected in cycle 430's history; no other endpoint deviated
+from `healthy` in cycles 428 through 430, so this routine's own network is
+not implicated.
+
+**Classification:** `degraded` (both gateway and direct data paths hit a
+provider-side HTTP 429, metadata unaffected on both paths). Provider-side
+rate limiting on the data probe specifically, not a gateway bug: the gateway
+path failed with the same 429 the direct path saw, and the metadata call
+(a different endpoint) succeeded on both paths throughout.
+
+**History:** seventh occurrence of the known UNICEF 429 flap. Prior
+occurrences: cycle 126, 178, 262, 305, 346, all resolved within one cycle.
+This one matches the pattern: single cycle, already recovered by recheck.
+
+**Recommended action:** none beyond the standing watch; no code change
+indicated. Continue watching for an eighth occurrence.
+
+**Could not determine:** whether cycle 431 (not yet run) will also show
+`failing: []`; the live recheck confirms the provider is currently answering,
+but the monitor's own next cycle is the fuller confirmation.
+
 ## 2026-08-29T06:44Z - cycle 421
 
 **Changed:** IMF `healthy` -> `provider_down` -> `healthy`, flapped and

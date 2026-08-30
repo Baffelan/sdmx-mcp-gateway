@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 430,
-  "last_cycle_started_at": "2026-08-30T00:01:22+00:00",
-  "last_run": "2026-08-30T00:43Z",
+  "last_cycle_id": 433,
+  "last_cycle_started_at": "2026-08-30T06:01:22+00:00",
+  "last_run": "2026-08-30T06:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -15,7 +15,7 @@
     "SBS": "healthy",
     "SPC": "healthy",
     "STATSNZ": "healthy",
-    "UNICEF": "degraded"
+    "UNICEF": "healthy"
   },
   "open_items": [
     "IMF provider_down flap: first occurrence, cycle 419 (gateway metadata 503, gateway data 503, direct metadata 503, direct data ReadTimeout, all at once), resolved by cycle 420. Confirmed with a live recheck at 2026-08-29T06:44Z (direct metadata HTTP 200). Distinct from the cycle 161 references:* 401 contract flap below. Watch for a second occurrence.",
@@ -26,7 +26,7 @@
     "ABS gateway metadata empty-error-body flap: eleventh occurrence, cycle 381, resolved by cycle 382. All eleven occurrences have now resolved within one cycle. Empty error message itself still worth fixing under code-change scope (GatewayError/next_step in monitor/checks_gateway.py).",
     "ILO gateway-data-only 403 flap (standalone): two occurrences on record, cycle 370 (resolved by 371) and cycle 322 (tail end of the cycle 321 blanket-403 episode). Both resolved within one to two cycles. No new occurrence through cycle 427 (the cycle 384 and 396-411 episodes are the different both-metadata-and-data or blanket shapes, see above). Watch for a third occurrence of this standalone data-only shape.",
     "SBS gateway DNS resolution flap: first occurrence, cycle 366 (`Temporary failure in name resolution` on gateway metadata, gateway data probe timed out), resolved by cycle 367. No second occurrence through cycle 427. Isolated to SBS; same failure shape previously seen for FBOS at cycle 50 (treated as infrastructure, not provider-down). Watch for a second occurrence; escalate if it recurs.",
-    "UNICEF HTTP 429 flap: seventh occurrence cycle 430 (gateway data and direct data+json all HTTP 429, both metadata checks ok). Live recheck at 2026-08-30T00:43Z: direct data and metadata both HTTP 200, already recovered. Prior occurrences cycle 126, 178, 262, 305, 346, all resolved within one cycle; this one matches the pattern. Watch for an eighth occurrence.",
+    "UNICEF HTTP 429 flap: eighth occurrence cycle 430 (gateway data and direct data+json all HTTP 429, both metadata checks ok), confirmed resolved by cycle 431 and stable healthy through cycle 433. Live recheck at 2026-08-30T06:43Z: direct data and metadata both HTTP 200. Prior occurrences cycle 126, 178, 262, 305, 346, all resolved within one cycle; this one matches the pattern. Watch for a ninth occurrence.",
     "ABS and ESTAT gateway_issue coincided in the same cycle twice now (cycle 319 and cycle 389, both resolved within one cycle). No third same-cycle occurrence through cycle 427 (cycles 395, 397, 401, 403 ESTAT-only timeouts did not coincide with an ABS failure). Watch for a third same-cycle occurrence with matching failure text.",
     "OECD gateway_issue 403 Forbidden episode (cycles 290-292, gateway list_dataflows and gateway data probe both HTTP 403, direct path healthy throughout): resolved by cycle 293. No new occurrence through cycle 427. Watch for a second occurrence; escalate for real if a future episode again spans more than one cycle.",
     "ILO direct-path 403 flap (basic checks): tenth occurrence cycle 286, resolved by cycle 287 (one cycle, as usual), clean since (superseded by the blanket 403 pattern, a different and more severe pattern -- see above). Prior occurrences cycle 32, 94, 159, 166, 202, 238, 244, 249, 267. Watch for an eleventh occurrence of this specific direct-only shape.",

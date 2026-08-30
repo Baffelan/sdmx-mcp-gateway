@@ -4,6 +4,32 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-30T06:43Z - cycle 433
+
+**Changed:** UNICEF `degraded` -> `healthy`, confirmed resolved.
+
+**Cycle saw:** cycle 431 already shows `failing: []` for UNICEF, and cycles
+432 and 433 stay clean. This closes the eighth occurrence of the known
+UNICEF HTTP 429 flap reported at cycle 430 in the previous run (see entry
+below), which had already been marked "already recovered" via a live
+recheck at the time. This run's own visibility (last known state was cycle
+430, degraded) only now confirms the monitor's official cycle record agrees.
+
+**Live recheck:** direct metadata and direct data both HTTP 200 at
+2026-08-30T06:43Z.
+
+**Classification:** `healthy`, no gateway-side involvement -> this was
+always the provider's own rate limiting, not ours to fix.
+
+**History:** eighth occurrence of the recurring UNICEF 429 flap, resolved
+within one cycle like all seven priors (cycle 126, 178, 262, 305, 346, 430).
+No new pattern.
+
+**Recommended action:** none. Continue watching for a ninth occurrence.
+
+**Could not determine:** nothing outstanding; both the monitor's own history
+and a live recheck agree.
+
 ## 2026-08-30T00:43Z - cycle 430
 
 **Changed:** UNICEF `healthy` -> `degraded`

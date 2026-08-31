@@ -4,6 +4,52 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-31T00:44Z - cycle 442
+
+**Changed:** ILO `healthy` -> `provider_down`
+
+**Cycle saw:** gateway metadata: `Error: Client error '403 Forbidden' for
+url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`; gateway data:
+`probe status: error; HTTP 403 from provider`; direct metadata, direct
+data, and direct json all `HTTP 403`. All twelve non-ignored ILO contract
+assertions flipped to HTTP 403 / verdict `broken` in the same cycle
+(`/api/contracts` `changes`), the same blanket shape as prior episodes.
+Cycles 419 through 441 (the full 48h history window, and every cycle since
+this routine's last run at cycle 439) were clean; the failure appears only
+at cycle 442.
+
+**Live recheck:** direct dataflow listing
+(`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`) -> HTTP 200 at
+2026-08-31T00:44Z. Direct data
+(`https://sdmx.ilo.org/rest/data/DF_GED_XLU1_SEX_HHT_CHL_RT/all`) -> also
+HTTP 200, though slow (~39s). Already recovered by the time of this
+recheck, roughly 40 minutes after the cycle started.
+
+**Network sanity:** direct-hit ECB and OECD at the same time -> both HTTP
+200 promptly. Only ILO was affected; the live network from this routine is
+not implicated.
+
+**Classification:** `provider_down` (metadata failing on both the gateway
+and direct paths) -> theirs, nothing to fix in our code. The full-basic-plus-contracts
+blanket-403 shape matches the recurring ILO episode family (see prior
+episodes resolved at cycles 200s-412), not the narrower gateway-issue or
+contract-only variants.
+
+**History:** this is a new occurrence as of cycle 442, the first blanket-403
+episode since the ninth one resolved at cycle 412 (roughly 32 hours, cycles
+396-411) and the contract-only variant at cycle 418. No second cycle of
+data yet to say whether this resolves within one cycle like most priors, or
+escalates like the 396-411 episode did past the ~24h/12-cycle mark.
+
+**Recommended action:** watch the next cycle; if ILO is still down, this
+is not yet the standing-block threshold (12 consecutive cycles / ~24h) but
+is worth flagging again if it reaches it. No code change indicated; this
+matches the provider's own known-flaky auth/rate-limit surface.
+
+**Could not determine:** whether the underlying cause on ILO's side is the
+same as previous blanket-403 episodes (no cause has ever been confirmed
+for those either); ILO gives no public status signal.
+
 ## 2026-08-30T06:43Z - cycle 433
 
 **Changed:** UNICEF `degraded` -> `healthy`, confirmed resolved.

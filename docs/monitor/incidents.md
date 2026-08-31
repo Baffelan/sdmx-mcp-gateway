@@ -4,6 +4,37 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-08-31T06:43Z - cycle 445
+
+**Changed:** ILO `provider_down` -> `healthy`, confirmed resolved.
+
+**Cycle saw:** cycle 443 already shows `failing: []` for ILO, and cycles
+444 and 445 stay clean. This closes the blanket-403 episode reported at
+cycle 442 in the previous run (see entry below), which had already been
+marked "already recovered" via a live recheck at the time. This run's own
+visibility (last known state was cycle 442, `provider_down`) only now
+confirms the monitor's official cycle record agrees. `/api/contracts`
+shows zero `changes` this cycle, consistent with all twelve ILO
+assertions having reverted to their normal verdicts.
+
+**Live recheck:** direct dataflow listing
+(`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`) -> HTTP 200 at
+2026-08-31T06:43Z.
+
+**Classification:** `healthy`, both gateway and direct paths recovered ->
+this was always the provider's own transient block, not ours to fix.
+
+**History:** resolved within one cycle (443), matching the usual pattern
+for this recurring ILO blanket-403 family (most episodes clear in one to
+two cycles; only the 396-411 episode ran long, escalating past the
+~24h/12-cycle mark). This is the eleventh recorded occurrence of the
+blanket-403 shape. No new pattern.
+
+**Recommended action:** none. Continue watching for a twelfth occurrence.
+
+**Could not determine:** the underlying cause on ILO's side, as with every
+prior occurrence of this pattern; ILO gives no public status signal.
+
 ## 2026-08-31T00:44Z - cycle 442
 
 **Changed:** ILO `healthy` -> `provider_down`

@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 442,
-  "last_cycle_started_at": "2026-08-31T00:01:22+00:00",
-  "last_run": "2026-08-31T00:44Z",
+  "last_cycle_id": 445,
+  "last_cycle_started_at": "2026-08-31T06:01:22+00:00",
+  "last_run": "2026-08-31T06:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "provider_down",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,7 +18,7 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO blanket-403 provider_down episode: tenth occurrence, started cycle 442 (all five basic checks plus all twelve non-ignored contract assertions HTTP 403 / broken in the same cycle). Not yet resolved as of this run (cycle 442 is the only cycle of data so far). Live recheck at 2026-08-31T00:44Z (roughly 40 minutes after the cycle started) already shows direct dataflow listing and direct data both back to HTTP 200, so this may resolve within one cycle like most priors (244, 251, 260, 264, 272, 281, 321, 382, 412-episode's own prior pattern), but the ninth occurrence (cycles 396-411) ran 16 cycles / ~32 hours and escalated to a standing block at the ~24h/12-cycle mark (cycle 409), so do not assume quick resolution without checking the next cycle. No cause has ever been confirmed for any occurrence; ILO gives no public status signal. Watch closely at the next run.",
+    "ILO blanket-403 provider_down episode: eleventh occurrence, started cycle 442, resolved by cycle 443 (one cycle), confirmed still healthy through cycle 445. Matches the usual one-to-two-cycle resolution pattern (244, 251, 260, 264, 272, 281, 321, 382, 412); only the ninth occurrence (cycles 396-411) ran long, escalating to a standing block at the ~24h/12-cycle mark. No cause has ever been confirmed for any occurrence; ILO gives no public status signal. Watch for a twelfth occurrence.",
     "IMF provider_down flap: first occurrence, cycle 419 (gateway metadata 503, gateway data 503, direct metadata 503, direct data ReadTimeout, all at once), resolved by cycle 420. Confirmed with a live recheck at 2026-08-29T06:44Z (direct metadata HTTP 200). Distinct from the cycle 161 references:* 401 contract flap below. Watch for a second occurrence.",
     "ILO contract-only blanket 403 (new shape): cycle 418, all nine non-ignored ILO contract assertions (auth:listing, constraint:availableconstraint, errors:missing_artefact, six of the eight references:* variants) flipped to HTTP 403 / verdict broken in the same cycle, while all five basic checks (gateway+direct metadata/data/json) stayed ok:true. Derived status healthy -> degraded, not provider_down (the 396-411 blanket-403 episode failed the basic checks too). Live recheck at 2026-08-29T00:44Z: all affected URLs back to 200 (or the expected 500/404), roughly 43 minutes after the cycle started. First occurrence of this exact shape. No second occurrence through cycle 439. Watch for a second occurrence; if it recurs or widens to the basic checks, treat as part of the existing recurring ILO block family rather than a separate bug.",
     "ESTAT list_dataflows timeout pattern: twenty-fifth occurrence, cycle 403, resolved by cycle 404, healthy through cycle 442. Consistent with the long-running one-cycle-flap pattern (the gateway's own 60s call deadline firing under a slow response), not a new bug. Standing recommendation (raise deadline, stream listing, or cache parsed result in monitor/checks_gateway.py) remains open as a code-change-scope fix, not actioned by this read-only routine.",

@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 457,
-  "last_cycle_started_at": "2026-09-01T06:01:22+00:00",
-  "last_run": "2026-09-01T06:42Z",
+  "last_cycle_id": 460,
+  "last_cycle_started_at": "2026-09-01T12:01:22+00:00",
+  "last_run": "2026-09-01T12:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",

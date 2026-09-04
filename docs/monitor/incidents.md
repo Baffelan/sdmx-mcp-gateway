@@ -4,6 +4,59 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-04T00:43Z - cycle 490
+
+**Changed:** ILO `healthy` -> `degraded`, contract-only blanket 403
+
+**Cycle saw:** all seven non-ignored `references:*` contract assertions
+(`references:all`, `references:children`, `references:contentconstraint`,
+`references:descendants`, `references:none`, `references:parents`,
+`references:parentsandsiblings`) flipped to HTTP 403 / verdict `broken` in
+`/api/contracts` `changes` at cycle 490. The five basic checks (gateway and
+direct metadata/data/json) all stayed `ok:true`, and `auth:listing`,
+`constraint:availableconstraint`, `dialect:sdmx3`, `encoding:structure_xml`,
+and `errors:missing_artefact` all stayed `ok`. `/api/history` still reports
+`ILO` as `healthy` with `failing: []` at cycle 490, because that series
+tracks only the five basic checks; the `degraded` status in `/api/status`
+comes from the contract breakage alone. Cycles 476-489 (the preceding 48h)
+were clean.
+
+**Live recheck:** at 2026-09-04T00:43Z, direct queries against
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+with each `references=` value: `children`, `parents`, `descendants`,
+`parentsandsiblings`, and `all` all HTTP 200; `contentconstraint` still HTTP
+403; `none` HTTP 403 on the first check, then HTTP 200 on an immediate
+second check ~15 seconds later. So most of the block had already lifted by
+the time of this recheck, with `none` and `contentconstraint` still
+flickering. Disagreement between the cycle snapshot (all seven broken) and
+the live recheck (five of seven already recovered) confirms this is
+transient, not a sustained block.
+
+**Network sanity:** direct-hit ECB and OECD at the same time -> both HTTP
+200 promptly. Only ILO is affected; the live network from this routine is
+not implicated.
+
+**Classification:** `degraded` (contract assertions broken, all five basic
+checks and the non-`references:*` contract assertions passing) -> theirs,
+nothing to fix in our code. This is the same contract-only blanket-403
+shape first seen at cycle 418, distinct from the broader blanket-403
+episodes that also fail the basic checks (cycles 382, 396-411, 442).
+
+**History:** second occurrence of this exact contract-only shape. The first
+was cycle 418, resolved by the next cycle with no recurrence through cycle
+487 per the last run's open items. This is a new occurrence as of cycle
+490, not yet confirmed resolved by a later monitor cycle (this run's live
+recheck shows it resolving, but the monitor's own next cycle has not run
+yet).
+
+**Recommended action:** none. Watch the next cycle to confirm the
+monitor's own record shows recovery; escalate only if this widens to the
+basic checks or fails to clear within a cycle or two, matching the general
+ILO blanket-403 family's usual one-to-two-cycle resolution pattern.
+
+**Could not determine:** the underlying cause on ILO's side, as with every
+prior occurrence of this pattern; ILO gives no public status signal.
+
 ## 2026-08-31T06:43Z - cycle 445
 
 **Changed:** ILO `provider_down` -> `healthy`, confirmed resolved.

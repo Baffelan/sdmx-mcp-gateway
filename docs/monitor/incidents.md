@@ -4,6 +4,43 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-04T18:42Z - cycle 499
+
+**Changed:** ESTAT healthy -> gateway_issue -> healthy, flapped between runs
+
+**Cycle saw:** cycle 498 (started 16:01:22Z) recorded ESTAT `gateway_issue`
+with one failing check: `gateway metadata: tool call list_dataflows timed
+out after 60.0s`. The direct path was not reported as failing. Cycle 499
+(started 18:01:22Z, the newest cycle at this run) shows ESTAT back to
+`healthy`, all checks passing. Cycle 497 (started 14:01:22Z, the cycle right
+after the last run's cycle 496) was also healthy, so the failure was
+isolated to the single cycle 498.
+
+**Live recheck:** none needed beyond the monitor's own next cycle: cycle 499
+started about 40 minutes before this check and already shows full recovery.
+No other endpoint changed status across cycles 497-499, so there is no
+indication of a shared network or gateway problem at that time.
+
+**Classification:** provider-side/self-inflicted transient (`gateway_issue`,
+matches the standing note: this is the gateway's own 60s call deadline
+firing under a slow `list_dataflows` response from ESTAT, not a new bug)
+
+**History:** twenty-sixth occurrence of this exact pattern (prior occurrence
+was cycle 403, resolved by cycle 404). Every occurrence on record has
+resolved within one cycle. Not flapping in the concerning sense; this is the
+long-running expected behavior described in the skill's known-flap list.
+
+**Recommended action:** none beyond the existing standing recommendation
+(raise the gateway's call deadline, stream the dataflow listing, or cache
+the parsed result in `monitor/checks_gateway.py`) which remains open as a
+code-change-scope fix, not something this read-only routine can action.
+
+**Could not determine:** nothing outstanding; the monitor and gateway were
+both reachable throughout this check and the recovery is directly observed
+in cycle 499.
+
+---
+
 ## 2026-09-04T06:42Z - cycle 493
 
 **Changed:** ILO `degraded` -> `healthy`, contract blanket-403 resolved

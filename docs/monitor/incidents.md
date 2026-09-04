@@ -4,6 +4,54 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-04T06:42Z - cycle 493
+
+**Changed:** ILO `degraded` -> `healthy`, contract blanket-403 resolved
+
+**Cycle saw:** at cycle 493, all twelve ILO contract assertions read `ok`
+except `references:contentconstraint`, which reads `ignored` (the known
+architectural fact: ILO accepts the parameter and silently drops it, not a
+failure). All seven `references:*` assertions that were `broken`/403 at
+cycle 490 (`all`, `children`, `contentconstraint`, `descendants`, `none`,
+`parents`, `parentsandsiblings`) are back to HTTP 200. The five basic checks
+stayed `ok` throughout, as they did at cycle 490 too. `/api/contracts`
+`changes` for this cycle lists only the known cosmetic `encoding:structure_xml`
+Content-Type parameter-order flap on ABS (verdict stays `ok`, not
+re-reported per standing note), so ILO's contracts did not change between
+cycle 492 and 493 -> the recovery happened at some point in cycle 491 or
+492, exact cycle not observable since `/api/contracts` exposes only current
+state plus the latest single-cycle diff, not a full contract history.
+
+**Live recheck:** monitor's own cycle 493 snapshot (started 06:01:22Z,
+about 40 minutes before this check) already shows full recovery with normal
+latencies (342-913ms). A direct recheck from this session against
+`sdmx.ilo.org` was inconclusive: `references=children`, `contentconstraint`,
+and `none` returned HTTP 200, but `all`, `descendants`, and `parents` timed
+out after 20s with no bytes received. A parallel direct check against ECB
+(200) ruled out a general network problem on this session's side; ILO
+specifically is known to be flaky under direct load (see the standing ILO
+flap entries below), so the timeouts are attributed to that, not treated as
+a fresh finding.
+
+**Classification:** provider-side transient (contract-only degradation,
+matches the `gateway_issue`/`degraded` distinction from cycle 490: basic
+gateway and direct checks passing throughout, only the contract layer was
+affected, and only briefly)
+
+**History:** second occurrence of this exact contract-only blanket-403
+shape (first was cycle 418, resolved by the next cycle). This one lasted
+longer, from cycle 490 through some point in 491-492, resolved by 493 at
+the latest -- roughly 2-4 hours, still well inside the one-to-few-cycle
+pattern this failure mode has always shown, unlike the ninth `provider_down`
+blanket episode (cycles 396-411) which ran to a ~24h standing block.
+
+**Recommended action:** none: this closes out the cycle 490 alert as
+resolved. Continue watching for a third occurrence of this exact shape.
+
+**Could not determine:** the exact cycle within 491-492 that the contract
+checks flipped back to `ok`, since the API does not expose per-cycle
+contract history, only the current snapshot and the latest diff.
+
 ## 2026-09-04T00:43Z - cycle 490
 
 **Changed:** ILO `healthy` -> `degraded`, contract-only blanket 403

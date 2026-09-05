@@ -4,6 +4,48 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-05T06:43Z - cycle 505
+
+**Changed:** ESTAT healthy -> gateway_issue, twice since the last run (last
+run's state was cycle 502, healthy)
+
+**Cycle saw:** cycle 503 (started 02:01:22Z) recorded ESTAT `gateway_issue`
+with one failing check: `gateway metadata: tool call list_dataflows timed
+out after 60.0s`. Cycle 504 (started 04:01:22Z) shows full recovery,
+healthy. Cycle 505 (started 06:01:22Z, the newest cycle at this run) shows
+`gateway_issue` again, with the identical failing check and message. No
+other endpoint changed status across cycles 502-505.
+
+**Live recheck:** direct GET of ESTAT's own dataflow listing
+(`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`)
+at 06:43Z returned HTTP 200 in 26.2s, well under the gateway's 60s deadline.
+The listing is a ~37 MB response, consistent with a large payload that
+occasionally crosses the deadline under load rather than a hard failure.
+Disagreement between the cycle's timeout and this recheck's clean 26s
+response is expected for this pattern: it means the slowness is transient
+and load-dependent, not a standing outage.
+
+**Classification:** provider-side/self-inflicted transient (`gateway_issue`,
+matches the standing note: this is the gateway's own 60s call deadline
+firing under a slow `list_dataflows` response from ESTAT, not a new bug)
+
+**History:** twenty-seventh and twenty-eighth occurrences of this exact
+pattern (prior occurrence was cycle 498, resolved by cycle 499). The
+twenty-seventh (cycle 503) resolved within one cycle, matching every prior
+occurrence on record. The twenty-eighth (cycle 505) is the current status as
+of this run; the live recheck above suggests it is likely to resolve on the
+next cycle as usual, but that is not yet confirmed by the monitor itself.
+
+**Recommended action:** none beyond the existing standing recommendation
+(raise the gateway's call deadline, stream the dataflow listing, or cache
+the parsed result in `monitor/checks_gateway.py`), which remains open as a
+code-change-scope fix, not something this read-only routine can action.
+
+**Could not determine:** whether cycle 505's occurrence has already
+resolved by the time of this run; the monitor had not started a cycle 506
+yet when this check ran. The next run's history will show whether it
+recovered within one cycle as usual.
+
 ## 2026-09-04T18:42Z - cycle 499
 
 **Changed:** ESTAT healthy -> gateway_issue -> healthy, flapped between runs

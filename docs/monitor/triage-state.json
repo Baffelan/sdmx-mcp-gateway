@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 499,
-  "last_cycle_started_at": "2026-09-04T18:01:22+00:00",
-  "last_run": "2026-09-04T18:42Z",
+  "last_cycle_id": 502,
+  "last_cycle_started_at": "2026-09-05T00:01:22+00:00",
+  "last_run": "2026-09-05T00:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -37,10 +37,10 @@
     "ECB metadata 503 (provider_down): occurred cycle 199 only, resolved by cycle 200. No new occurrence through cycle 493. Watch for a second occurrence.",
     "ABS gateway metadata 502 Bad Gateway flap: occurred cycle 198 only, resolved by cycle 199. No new occurrence through cycle 493. Watch for recurrence. Distinct from the empty-error-body flap above.",
     "UNICEF direct-path HTTP 404 'no data found' flap: occurred cycle 197 only, resolved by cycle 198. No new occurrence through cycle 493. Watch for a second occurrence.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 493: listing served without credentials. Still open, not re-reported since no new change.",
-    "Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes. Latest occurrence: FBOS encoding:structure_xml, cycle 499.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 502: listing served without credentials. Still open, not re-reported since no new change.",
+    "Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes. Latest occurrence: ILO encoding:structure_xml, cycle 502.",
     "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162. No new occurrence through cycle 493. Watch for a second occurrence.",
     "ECB references:* 504 flap (cycles 182-183 pattern): first occurrence, cycles 182-183, resolved by cycle 184. No new occurrence through cycle 493. Watch for a second occurrence."
   ],
-  "alerted": true
+  "alerted": false
 }

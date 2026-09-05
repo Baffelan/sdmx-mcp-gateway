@@ -4,6 +4,39 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-05T12:44Z - cycle 508
+
+**Changed:** ESTAT gateway_issue -> healthy, confirming the recovery left open
+by the last run (cycle 505's entry could not confirm resolution yet)
+
+**Cycle saw:** cycle 506 (started 08:01:22Z) shows ESTAT back to `healthy`,
+no failing checks. Cycles 507 and 508 (started 10:01:22Z and 12:01:22Z, the
+newest at this run) both stayed healthy. No other endpoint changed status
+across cycles 505-508, `stale` is false, `gateway_up` is true, and
+`/api/contracts` `changes` is empty.
+
+**Live recheck:** not needed; the monitor's own cycle 506 already shows
+full recovery, one cycle after the cycle 505 timeout, matching every prior
+occurrence of this pattern.
+
+**Classification:** provider-side/self-inflicted transient (`gateway_issue`,
+the gateway's own 60s call deadline firing under a slow `list_dataflows`
+response from ESTAT, not a new bug) -> resolved.
+
+**History:** this closes the twenty-eighth occurrence (cycle 505) of the
+long-running ESTAT list_dataflows timeout pattern. Resolved within one
+cycle, same as all twenty-seven prior occurrences on record. No escalation;
+the standing recommendation (raise the gateway's call deadline, stream the
+listing, or cache the parsed result in `monitor/checks_gateway.py`) remains
+open as a code-change-scope fix, not something this read-only routine can
+action.
+
+**Recommended action:** none. Continue watching for a twenty-ninth
+occurrence; only escalate if a future occurrence fails to resolve within
+one to two cycles.
+
+**Could not determine:** nothing outstanding for this item.
+
 ## 2026-09-05T06:43Z - cycle 505
 
 **Changed:** ESTAT healthy -> gateway_issue, twice since the last run (last

@@ -4,6 +4,43 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-06T06:44Z - cycle 517
+
+**Changed:** UNICEF degraded -> healthy, confirming the recovery the last run
+left open (cycle 514's entry could not wait for the monitor's next cycle)
+
+**Cycle saw:** cycle 515 (started 02:01:22Z) already shows UNICEF back to
+`healthy`, no failing checks. Cycles 516 and 517 (started 04:01:22Z and
+06:01:22Z, the newest at this run) both stayed healthy. No other endpoint
+changed status across cycles 514-517, `stale` is false, `gateway_up` is
+true. `/api/contracts` `changes` shows only the known cosmetic Content-Type
+parameter-order flap, this time on ABS and OECD `encoding:structure_xml`
+(verdict stays `ok`, not re-reported per standing note), and the long-open
+STATSNZ `auth:listing` `capability_appeared` row is unchanged from prior
+runs.
+
+**Live recheck:** direct GET of UNICEF's data endpoint
+(`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/data/UNICEF,GLOBAL_DATAFLOW,1.0/.`)
+at 06:44Z returned HTTP 200. ECB's direct path also answered 200 in the same
+recheck, ruling out a network problem on this session's side.
+
+**Classification:** provider-side, resolved (`healthy`; the prior cycle's
+failure was `direct data: HTTP 429` only, gateway data had already passed
+throughout, so this was never a gateway bug).
+
+**History:** this closes out the ninth occurrence of the recurring UNICEF
+HTTP 429 flap (first reported at cycle 514), resolved within one cycle
+(514 -> 515) exactly matching all eight prior occurrences (cycles 126, 178,
+262, 305, 346, 430, plus two earlier ones on record). No sign of a longer
+standing block like the ILO ninth-occurrence episode.
+
+**Recommended action:** none. Pattern behaves as expected. Watch for a
+tenth occurrence.
+
+**Could not determine:** nothing outstanding on this item; the open
+question from the last run (whether cycle 515/516 would show recovery) is
+now answered yes.
+
 ## 2026-09-06T00:43Z - cycle 514
 
 **Changed:** UNICEF healthy -> degraded (last run's state was cycle 511, healthy)

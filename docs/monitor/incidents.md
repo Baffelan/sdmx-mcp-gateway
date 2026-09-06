@@ -4,6 +4,41 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-06T00:43Z - cycle 514
+
+**Changed:** UNICEF healthy -> degraded (last run's state was cycle 511, healthy)
+
+**Cycle saw:** cycles 512 and 513 (started 20:01:22Z and 22:01:22Z) stayed
+healthy. Cycle 514 (started 00:01:22Z, the newest at this run) shows
+`degraded`, one failing check: `direct data: HTTP 429`. Gateway metadata,
+gateway data, direct metadata, and direct json all passed. No other
+endpoint changed status across cycles 512-514, `stale` is false, `gateway_up`
+is true, and `/api/contracts` `changes` shows only the known cosmetic
+Content-Type parameter-order flap on ABS `encoding:structure_xml` (verdict
+stays `ok`, not re-reported per standing note).
+
+**Live recheck:** direct GET of the same query
+(`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`)
+at 00:42Z returned HTTP 200 with the expected observation. ABS and OECD
+direct paths also answered 200 in the same recheck, ruling out a network
+problem on this session's side. Disagreement between the cycle's 429 and
+this recheck's clean 200 is expected for this pattern: transient
+rate-limiting, not a standing outage.
+
+**Classification:** provider-side, mixed (`degraded`; only the direct data
+check failed, gateway data succeeded, so this is not a gateway bug).
+
+**History:** this is the ninth occurrence of the recurring UNICEF HTTP 429
+flap. Prior occurrences: cycle 126, 178, 262, 305, 346, and the eighth at
+cycle 430, all resolved within one cycle. New as of cycle 514.
+
+**Recommended action:** none. Expect resolution by the next cycle, matching
+every prior occurrence. Watch for a tenth occurrence.
+
+**Could not determine:** whether the monitor's own next cycle (516, due
+~02:01Z) actually records recovery; this run cannot wait for it and does
+not call `/api/refresh` to force one.
+
 ## 2026-09-05T12:44Z - cycle 508
 
 **Changed:** ESTAT gateway_issue -> healthy, confirming the recovery left open

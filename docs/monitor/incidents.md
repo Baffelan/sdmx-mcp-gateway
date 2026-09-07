@@ -4,6 +4,68 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-07T06:44Z - cycle 529
+
+**Changed:** ABS healthy -> gateway_issue -> healthy (between runs)
+
+**Cycle saw:** cycle 527 (started 2026-09-07T02:01:22Z) shows ABS gateway
+metadata failing with an empty error message (`gateway metadata: Error:`),
+same shape as the eleven prior occurrences on file, the latest at cycle
+381. Gateway data, direct metadata, direct data, and direct json all
+passed in cycle 527. Cycle 526 (the last cycle seen by the previous run)
+and cycle 528 onward are all healthy for ABS, so this failed and recovered
+entirely between the previous run and this one.
+
+**Live recheck:** direct GET of `https://data.api.abs.gov.au/rest/dataflow/ABS/all/latest`
+at 06:44Z returned HTTP 200 on three consecutive attempts (one earlier
+attempt in this session timed out at 30s with no response, but immediate
+retries succeeded in under 2s each, so that looks like a local/transient
+blip on this session's side, not the provider).
+
+**Classification:** `gateway_issue` for that one cycle, matching the
+known ABS empty-error-body flap. All twelve occurrences of this pattern
+(cycle 198 [different, 502], 381, and now 527) have resolved within one
+cycle.
+
+**History:** twelfth occurrence of this specific empty-error-body shape.
+Not new; consistent with the chronic pattern already on file. The empty
+error message itself remains worth fixing under code-change scope
+(`GatewayError`/`next_step` in `monitor/checks_gateway.py`), not actioned
+by this read-only routine.
+
+**Recommended action:** none beyond continuing to watch. This is the
+same recurring, self-resolving flap as before.
+
+**Could not determine:** the root cause of the empty error body itself;
+this has never been established across any of the twelve occurrences.
+
+## 2026-09-07T06:44Z - cycle 529
+
+**Changed:** ILO gateway_issue -> healthy (resolves the cycle 526 entry below)
+
+**Cycle saw:** cycle 527 (started 2026-09-07T02:01:22Z) already shows ILO
+back to `healthy`, no failing checks. Cycles 528 and 529 (started
+2026-09-07T04:01:22Z and 06:01:22Z, the newest at this run) both stayed
+healthy. Resolved within one cycle of the cycle 526 flare recorded below.
+
+**Live recheck:** direct GET of `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+at 06:44Z returned HTTP 200, consistent with the monitor's own healthy
+reading.
+
+**Classification:** resolved. The cycle 526 episode is now confirmed a
+one-cycle flap, matching the general ILO flap-and-recover pattern rather
+than the start of a new standing block.
+
+**History:** this closes out the "first sighting" from cycle 526 (see
+entry below) as a single-cycle occurrence of that gateway-metadata-only
+403 shape. No second occurrence yet.
+
+**Recommended action:** none. Continue watching for a second occurrence
+of this specific shape to confirm whether it becomes a recurring pattern.
+
+**Could not determine:** nothing outstanding; the open question from the
+cycle 526 entry (one-off vs standing block) is now answered: one-off.
+
 ## 2026-09-07T00:42Z - cycle 526
 
 **Changed:** ILO healthy -> gateway_issue

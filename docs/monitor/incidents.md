@@ -4,6 +4,45 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-07T18:43Z - cycle 535
+
+**Changed:** ECB healthy -> provider_down
+
+**Cycle saw:** cycle 535 (started 2026-09-07T18:01:22Z) shows every ECB check
+failing with HTTP 503: gateway metadata (`Server error '503 Service
+Temporarily Unavailable'` from `data-api.ecb.europa.eu/service/dataflow/ECB/all/latest`),
+gateway data, and all three direct checks (metadata, data, json). All twelve
+of the associated contract assertions read `503` too; nine come back
+`broken` (`constraint:availableconstraint`, `errors:missing_artefact`, and
+the seven `references:*` assertions), since none of them normally return
+503. Cycles 528 through 534 (the preceding 14 hours) were all healthy for
+ECB with no failing checks.
+
+**Live recheck:** direct GET of
+`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest` at 18:43Z
+(about 40 minutes after the cycle) returned HTTP 200. Other providers'
+hosts (BIS, IMF, OECD, ABS) all answered normally in the same window,
+ruling out a network problem on this routine's side.
+
+**Classification:** `provider_down` (metadata failing on both the gateway
+and the direct path) for cycle 535 only. This is the ECB's own
+infrastructure, whole-service `503`, not the gateway's fault.
+
+**History:** new. This is not the old HTTP 406 `Accept` header issue that
+was open through cycle 43 and fixed by retrying `text/csv` -- that was a
+gateway-side content-negotiation bug, this is a blanket 503 from the
+provider itself, and no ECB failure of any shape has been seen since
+cycle 199 (a one-cycle metadata 503, also self-resolved). First occurrence
+of a whole-provider 503 outage on record for ECB.
+
+**Recommended action:** none beyond watching for a second occurrence. The
+live recheck already shows recovery; treat this as a one-cycle provider
+outage unless it recurs.
+
+**Could not determine:** the cause on ECB's side (deploy, maintenance
+window, or genuine incident); ECB gives no public status signal consulted
+by this routine.
+
 ## 2026-09-07T06:44Z - cycle 529
 
 **Changed:** ABS healthy -> gateway_issue -> healthy (between runs)

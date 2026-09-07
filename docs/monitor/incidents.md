@@ -4,6 +4,52 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-07T00:42Z - cycle 526
+
+**Changed:** ILO healthy -> gateway_issue
+
+**Cycle saw:** gateway metadata check failed with `Client error '403
+Forbidden' for url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`
+(2 attempts). Gateway data, direct metadata, direct data, and direct json
+all passed in the same cycle (526, started 2026-09-07T00:01:22Z). The
+previous 24 consecutive cycles (503-525, back to 2026-09-05T02:01:22Z) were
+all healthy for ILO.
+
+**Live recheck:** direct GET of the same URL
+(`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`) at 00:42Z returned
+HTTP 200. Also rechecked ECB (200) and IMF (404, expected for that bare
+path) directly to confirm this session's own network path is fine, ruling
+out a local network problem.
+
+**Classification:** `gateway_issue` (direct path OK, gateway path failing)
+-> ours per the monitor's vocabulary, but the live recheck against the same
+URL from a different network path succeeded immediately, and ILO's history
+has repeated single-cycle 403 flares that resolve on their own (see below).
+No code fix is being made from this read-only routine either way.
+
+**History:** new as of cycle 526. Distinct in shape from every ILO episode
+already on file: it is gateway-metadata-only (data still passed), 403 (not
+500), and does not touch `/api/contracts` (all ILO contract rows still
+read `ok`/`ignored`, no blanket 403 across assertions as seen in the
+contract-only episodes). Closest prior pattern is the cycle 268-269
+gateway_issue episode (gateway metadata only, direct healthy throughout),
+but that was HTTP 500, not 403. Not yet confirmed as a new recurring shape;
+this is the first sighting.
+
+**Recommended action:** watch the next cycle before concluding anything
+further. If it resolves within one cycle, matches the general ILO
+flap-and-recover pattern and needs no code change. If it persists past one
+cycle, or recurs, it is worth a closer look at the gateway's ILO listing
+call (`fresh=True` cache bypass, from monitor/checks_gateway.py) since the
+direct path proves ILO is answering fine right now.
+
+**Could not determine:** whether this is a one-off flap (most likely, going
+by history) or the start of a new standing gateway-specific block. Also
+could not directly probe the gateway's own outbound path (its host is not
+in this routine's network allowlist), so the "ours vs theirs" call rests on
+the monitor's own classification plus the live direct-path recheck, not on
+reproducing the gateway's exact call.
+
 ## 2026-09-06T06:44Z - cycle 517
 
 **Changed:** UNICEF degraded -> healthy, confirming the recovery the last run

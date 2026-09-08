@@ -4,6 +4,48 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-08T12:43Z - cycle 544
+
+**Changed:** ECB healthy -> degraded -> healthy (flapped and recovered between runs)
+
+**Cycle saw:** cycle 542 (started 2026-09-08T08:01:22Z) shows ECB `degraded`,
+failing `gateway data: probe status: error; Network or transport error --
+provider unreachable` and `direct metadata: ReadTimeout:`. Gateway metadata
+and direct data/json checks passed the same cycle (not listed in `failing`).
+Cycles 538, 540, 541, 543, and 544 all read healthy for ECB, and
+`/api/contracts` shows no `changes` entries touching ECB assertions for
+this window.
+
+**Live recheck:** direct GET of
+`https://data-api.ecb.europa.eu/service/dataflow/ECB` at 12:43Z returned
+HTTP 200 in 1.2s. Other providers (ABS direct dataflow listing) answered
+normally in the same window, ruling out a network problem local to this
+routine. The gateway-side check could not be independently rechecked: no
+directly reachable deployed gateway instance exists from this session.
+
+**Classification:** single-cycle `degraded` (one gateway check and one
+direct check failing, on different check kinds, others in the same cycle
+passing), resolved by the next cycle.
+
+**History:** third distinct ECB flap shape in under 24 hours: cycle 535 was
+a whole-provider HTTP 503 outage (every check failing), cycle 539 was
+gateway-data-504 plus direct-json-ReadTimeout, and this cycle 542 episode is
+gateway-data-network-error plus direct-metadata-ReadTimeout. No two of the
+three share the same failing-check combination. Each has self-resolved
+within one cycle. No other endpoint moved in this cycle or the surrounding
+window.
+
+**Recommended action:** watch for a fourth occurrence. Three episodes in
+under 24 hours after weeks of clean history is a change in rate worth
+tracking even though each individual episode is short; if a fourth lands
+within the next day or two, treat ECB stability as worth investigating for
+real rather than logging another isolated flap.
+
+**Could not determine:** whether the three distinct-shaped flaps share one
+root cause on ECB's side (or on the network path to it) or are independent
+transient events; the gateway-side check specifically could not be
+rechecked live from this session.
+
 ## 2026-09-08T06:44Z - cycle 541
 
 **Changed:** ECB healthy -> degraded -> healthy (flapped and recovered between runs)

@@ -4,6 +4,76 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-08T06:44Z - cycle 541
+
+**Changed:** ECB healthy -> degraded -> healthy (flapped and recovered between runs)
+
+**Cycle saw:** cycle 539 (started 2026-09-08T02:01:22Z) shows ECB `degraded`,
+failing `gateway data: probe status: error; HTTP 504 from provider.` and
+`direct json: ReadTimeout:`. Gateway metadata and direct metadata/data checks
+passed the same cycle. Cycles 538, 540, and 541 all read healthy for ECB with
+no failing entries, and `/api/contracts` shows no `changes` entries touching
+ECB assertions for this window.
+
+**Live recheck:** direct GET of
+`https://data-api.ecb.europa.eu/service/dataflow/ECB` at 06:44Z: first
+attempt timed out at 30s with zero bytes received, immediate retry returned
+HTTP 200 in 1.1s. A direct data query
+(`data/EXR/M.USD.EUR.SP00.A?lastNObservations=1`) succeeded on the first try.
+ABS answered normally in the same window, so this reads as transient on
+ECB's side or on the path to it, not a wider network problem here.
+
+**Classification:** single-cycle `degraded` (one gateway check and one
+direct check failing, others on the same cycle passing), resolved by the
+next cycle.
+
+**History:** new shape. Distinct from the cycle 535 whole-provider 503
+outage (all checks, HTTP 503) and from the contract-only 504 flaps recorded
+for cycles 182-183 and 283-286 (`references:*` and
+`constraint:availableconstraint`/`references:none` assertions, not basic
+checks). This is the first time a basic-check timeout/504 pair has been
+seen for ECB alone, and it landed about 8 hours after the cycle 535 outage.
+No other endpoint moved in the same cycle.
+
+**Recommended action:** none yet; watch for a second occurrence, especially
+another 504/timeout pairing, since ECB has now shown two distinct failure
+shapes within a day.
+
+**Could not determine:** whether the 504 and the ReadTimeout share one
+cause on ECB's side, or are two independent transient failures that
+happened to land in the same cycle.
+
+## 2026-09-08T06:44Z - cycle 541
+
+**Changed:** ABS healthy -> gateway_issue -> healthy (flapped and recovered between runs)
+
+**Cycle saw:** cycle 539 (started 2026-09-08T02:01:22Z) shows ABS
+`gateway_issue`, failing only `gateway metadata: Error:` (empty error body,
+matching every prior occurrence of this pattern). Gateway data and all
+three direct checks passed the same cycle. Cycles 538, 540, and 541 all
+read healthy for ABS.
+
+**Live recheck:** direct GET of `https://data.api.abs.gov.au/rest/dataflow/ABS`
+at 06:44Z returned HTTP 200 in under 3 seconds.
+
+**Classification:** `gateway_issue` (direct path healthy, gateway path
+failed) -- ours, not the provider's, per the monitor's own classification.
+Resolved by the next cycle.
+
+**History:** thirteenth occurrence of this exact shape (gateway metadata
+`Error:` with an empty body); prior occurrence was cycle 527, resolved by
+528. All thirteen occurrences on record have resolved within one cycle. The
+empty error message itself remains an open, code-change-scope fix
+(`GatewayError`/`next_step` in `monitor/checks_gateway.py`), not actioned
+by this read-only routine.
+
+**Recommended action:** none beyond the standing recommendation to fix the
+empty error message; no new action needed for the flap itself.
+
+**Could not determine:** the underlying cause of the gateway-side error,
+same as every prior occurrence -- ABS gives no error detail beyond the
+empty message.
+
 ## 2026-09-08T00:47Z - cycle 538
 
 **Changed:** ECB provider_down -> healthy (confirmed recovery)

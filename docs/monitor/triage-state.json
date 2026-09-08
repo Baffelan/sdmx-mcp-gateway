@@ -1,12 +1,12 @@
 {
-  "last_cycle_id": 535,
-  "last_cycle_started_at": "2026-09-07T18:01:22+00:00",
-  "last_run": "2026-09-07T18:43Z",
+  "last_cycle_id": 538,
+  "last_cycle_started_at": "2026-09-08T00:01:22+00:00",
+  "last_run": "2026-09-08T00:47Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
-    "ECB": "provider_down",
+    "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
     "ILO": "healthy",
@@ -18,7 +18,7 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ECB whole-provider HTTP 503 outage: first occurrence of this shape, cycle 535 (2026-09-07T18:01:22Z). Every check failed (gateway metadata, gateway data, direct metadata, direct data, direct json) and nine of twelve contract assertions read broken, all with HTTP 503. Preceding cycles 528-534 (14 hours) were healthy. Live recheck at 18:43Z of the direct metadata URL returned HTTP 200, so it had already recovered; other providers' hosts answered normally in the same window, ruling out a network problem here. Distinct from the cycle 199 ECB metadata-only 503 (see below) and unrelated to the old HTTP 406 Accept-header issue fixed before cycle 44. Watch for a second occurrence; if ECB status is anything other than healthy at the next run, treat it as a recurrence of this pattern.",
+    "ECB whole-provider HTTP 503 outage: first occurrence of this shape, cycle 535 (2026-09-07T18:01:22Z), resolved by cycle 536 and confirmed healthy through cycle 538 (three consecutive cycles, roughly 6 hours). Every check had failed (gateway metadata, gateway data, direct metadata, direct data, direct json) and nine of twelve contract assertions read broken, all with HTTP 503; preceding cycles 528-534 (14 hours) were healthy. Live recheck at 00:43Z (direct metadata, after one transient 30s timeout that cleared on immediate retry to HTTP 200 three times in a row) confirms the recovery the previous run's own recheck already showed. Distinct from the cycle 199 ECB metadata-only 503 and unrelated to the old HTTP 406 Accept-header issue fixed before cycle 44. Closed as a single one-cycle outage; watch for a second occurrence.",
     "ILO gateway-metadata-only 403 flap (new shape): first occurrence, cycle 526 (gateway metadata 403 Forbidden on dataflow listing, 2 attempts; gateway data, direct metadata, direct data, direct json all passed same cycle; no contract rows affected). Preceding 24 cycles (503-525) all healthy. Resolved by cycle 527, confirmed still healthy through cycle 532. Live recheck of the same URL at 06:44Z returned HTTP 200. Distinct from the cycle 268-269 gateway_issue episode (same metadata-only shape but HTTP 500, not 403) and from the broader both-metadata-and-data or blanket-403 episodes. Watch for a second occurrence of this specific shape.",
     "ILO contract-only blanket 403 (new shape): second occurrence, started cycle 490, resolved by cycle 493 at the latest (exact recovery cycle within 491-492 not observable, since /api/contracts exposes only current state plus the latest single-cycle diff). All references:* assertions back to ok (contentconstraint reads ignored, as expected) at cycle 493, basic checks stayed ok throughout. First occurrence was cycle 418, resolved by the next cycle. This second occurrence ran longer (roughly 2-4 hours / 1-3 cycles) but still far short of the ninth provider_down episode's ~24h standing block. Watch for a third occurrence.",
     "ILO blanket-403 provider_down episode: eleventh occurrence, started cycle 442, resolved by cycle 443 (one cycle), confirmed still healthy (basic checks) through cycle 493. Matches the usual one-to-two-cycle resolution pattern (244, 251, 260, 264, 272, 281, 321, 382, 412); only the ninth occurrence (cycles 396-411) ran long, escalating to a standing block at the ~24h/12-cycle mark. No cause has ever been confirmed for any occurrence; ILO gives no public status signal. Watch for a twelfth occurrence.",
@@ -44,5 +44,5 @@
     "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162. No new occurrence through cycle 532. Watch for a second occurrence.",
     "ECB references:* 504 flap (cycles 182-183 pattern): first occurrence, cycles 182-183, resolved by cycle 184. No new occurrence through cycle 532. Watch for a second occurrence."
   ],
-  "alerted": false
+  "alerted": true
 }

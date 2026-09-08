@@ -4,6 +4,45 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-08T00:47Z - cycle 538
+
+**Changed:** ECB provider_down -> healthy (confirmed recovery)
+
+**Cycle saw:** cycle 536 shows ECB with all checks passing, no failing
+entries. History from cycle 533 through 538 reads healthy, healthy,
+provider_down (535), healthy, healthy, healthy -- so the whole-provider 503
+outage reported by the previous run (cycle 535) lasted exactly one cycle and
+had already cleared by cycle 536. Cycles 536-538 (roughly 6 hours) show no
+recurrence, and no other endpoint's status moved in that window. `/api/status`
+for cycle 538 reports `stale: false`, `gateway_up: true`, no drift. The two
+contract assertions that showed a was/now change (`auth:listing` and
+`errors:missing_artefact`, both `503 -> ` their normal values) are exactly the
+tail of that same recovery, not a new issue; verdict stayed `ok` /
+`conforms` throughout.
+
+**Live recheck:** direct GET of
+`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest` at 00:43Z:
+first attempt timed out after 30s with zero bytes received, three immediate
+retries all returned HTTP 200 in under a second each. BIS and IMF answered
+HTTP 200 on the first try in the same window, so this reads as a local/session
+network blip rather than an ECB problem, consistent with the monitor's own
+cycle 538 reading of healthy.
+
+**Classification:** recovery confirmed. The cycle 535 event stays classified
+as `provider_down` (the provider's own infrastructure, not the gateway's
+fault); nothing here changes that classification.
+
+**History:** closes the open item from the previous run. First and only
+occurrence of a whole-provider 503 outage for ECB (aside from the unrelated,
+metadata-only cycle 199 blip); resolved within a single cycle, the usual
+pattern for this class of failure. Watch for a second occurrence.
+
+**Recommended action:** none. Continue watching; no code change indicated.
+
+**Could not determine:** the cause on ECB's side (deploy, maintenance
+window, or genuine incident) -- unchanged from the previous run, ECB gives
+no public status signal consulted by this routine.
+
 ## 2026-09-07T18:43Z - cycle 535
 
 **Changed:** ECB healthy -> provider_down

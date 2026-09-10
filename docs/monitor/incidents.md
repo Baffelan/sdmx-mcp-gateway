@@ -4,6 +4,56 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-10T12:43Z - cycle 568
+
+**Changed:** OECD healthy -> degraded -> healthy (flapped between runs, already resolved)
+
+**Cycle saw:** the previous run (cycle 565, all twelve endpoints healthy) did
+not see this. History for cycles 566-568 shows OECD went `degraded` at cycle
+566 (2026-09-10T08:01:22Z) with a single failing check, `direct data:
+ReadTimeout:`. No other check failed that cycle: gateway metadata, gateway
+data, direct metadata, and direct json are all absent from the `failing`
+list, so only OECD's own direct-data path timed out while the gateway path
+succeeded. Cycle 567 (10:01:22Z) and the current cycle 568 (12:01:22Z) both
+show OECD back to `healthy` with no failing checks.
+
+**Live recheck:** not performed separately; the monitor's own two subsequent
+cycles (567, 568) already confirm recovery, and the current `/api/status`
+read (cycle 568, finished 12:02:38Z) shows OECD healthy with all five checks
+passing.
+
+**Classification:** `degraded` per the monitor at cycle 566 (mixed: one
+check failing). Provider-side/network timeout on the direct path only; the
+gateway path was unaffected in the same cycle, so this does not look like a
+gateway bug.
+
+**History:** new as of cycle 566; healthy for at least the preceding several
+cycles (560-565 all healthy per `/api/history`), and healthy again since
+cycle 567. Grep of this file's prior OECD entries turns up the cycles
+290-292 `gateway_issue` 403 episode and the recurring cosmetic
+`encoding:structure_xml` Content-Type parameter-order flap, but no prior
+"direct data: ReadTimeout" shape for OECD. Treating this as a new flap
+shape rather than a recurrence of a known one.
+
+**Recommended action:** none beyond watching for a second occurrence of this
+specific shape (direct-data-only ReadTimeout). One cycle, self-resolved, no
+gateway-side check affected.
+
+**Could not determine:** whether the timeout was OECD's server being slow
+that one cycle or a transient network hiccup between the monitor and OECD;
+the gateway path succeeding in the same cycle makes a monitor-wide network
+problem unlikely, but this alone doesn't rule out a monitor-to-OECD-specific
+routing blip.
+
+Also seen this cycle, not reported as a change: the contract row
+`ILO encoding:structure_xml` flapped its Content-Type parameter order
+(`version` before vs after `charset`) between the last recorded value and
+now, verdict stayed `ok` throughout. This is the known cosmetic flap already
+on record (open item since earlier runs); not re-reported per the standing
+instruction not to re-report it unless the verdict itself changes. Also
+unchanged: STATSNZ `auth:listing` still reads `capability_appeared` (first
+seen cycle 60, still open, no new change).
+
 ## 2026-09-10T06:42Z - cycle 565
 
 **Changed:** ILO gateway_issue -> healthy (recovered)

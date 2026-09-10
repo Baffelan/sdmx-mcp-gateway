@@ -4,6 +4,56 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-10T00:43Z - cycle 562
+
+**Changed:** ILO healthy -> gateway_issue
+
+**Cycle saw:** cycle 562 (started 2026-09-10T00:01:22Z) shows ILO
+`gateway_issue`, failing `gateway data: probe status: error; HTTP 403 from
+provider.`. Gateway metadata passed the same cycle but took 2 attempts and
+4470ms (slow, not failing). Direct metadata, direct data (119 obs returned,
+HTTP 200), and direct json all passed cleanly. Cycles 558-561 all read
+healthy for ILO with no failing checks. No other endpoint changed status in
+cycles 558-562, and `/api/contracts` shows only the known cosmetic
+Content-Type parameter-order flap on ILO `encoding:structure_xml` (verdict
+stayed `ok`), not a real change.
+
+**Live recheck:** direct GET of `https://sdmx.ilo.org/rest/dataflow/ILO` at
+00:43Z returned HTTP 200 in 2.8s, consistent with the cycle's direct-path
+result. The gateway-side check could not be independently rechecked: the
+deployed gateway host (`sdmx-mcp-gateway-production.up.railway.app`) is not
+in this session's allowed hosts and returns HTTP 403 on connect, same as
+prior runs. All other endpoints read healthy in the same cycle, ruling out
+a network problem local to this routine.
+
+**Classification:** `gateway_issue` (direct path OK, gateway data path
+403). Per the monitor's vocabulary this is nominally ours, but the failing
+check's own error text is `HTTP 403 from provider`, i.e. ILO itself
+returned 403 to the gateway's request specifically while answering the
+same kind of request directly without issue. This is not a new code
+pattern: the standing open item "ILO gateway-data-only 403 flap
+(standalone)" already tracks two prior occurrences (cycle 370, cycle 322),
+both resolved within one to two cycles, both with metadata and direct
+checks unaffected.
+
+**History:** third occurrence of this specific standalone shape (gateway
+data 403 alone, gateway metadata and all direct checks passing). Still
+open as of this cycle (562 is the latest cycle; no later cycle exists yet
+to confirm recovery).
+
+**Recommended action:** watch the next cycle for recovery, consistent with
+the one-to-two-cycle pattern of the prior two occurrences. No code change
+indicated yet; if this stretches past two to three cycles or recurs a
+fourth time, escalate for real investigation, since three occurrences of a
+single shape starts to look like more than transient provider-side
+rate-limiting or IP-based throttling.
+
+**Could not determine:** whether ILO is throttling the gateway's IP
+specifically (would explain direct-from-this-session and gateway-side
+diverging), or something else on the gateway's request path. The gateway
+host is unreachable from this session so the request it actually sent
+cannot be inspected here.
+
 ## 2026-09-08T12:43Z - cycle 544
 
 **Changed:** ECB healthy -> degraded -> healthy (flapped and recovered between runs)

@@ -4,6 +4,40 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-10T06:42Z - cycle 565
+
+**Changed:** ILO gateway_issue -> healthy (recovered)
+
+**Cycle saw:** the previous run (cycle 562, this same branch) reported ILO
+`gateway_issue` with `gateway data: probe status: error; HTTP 403 from
+provider`, the third occurrence of the standalone gateway-data-only 403
+shape. History for cycles 563, 564, 565 all show ILO back to `healthy`
+with no failing checks, so the recovery landed within one cycle (by 563),
+matching the one-to-two-cycle pattern of the two prior occurrences (cycle
+370, cycle 322).
+
+**Live recheck:** current `/api/status` (cycle 565, started
+2026-09-10T06:01:22Z, finished 06:02:32Z) shows all twelve endpoints
+`healthy`, `gateway_up: true`, `stale: false`, no drift. `/api/contracts`
+shows zero entries in `changes` and no `broken` or new
+`capability_appeared` verdicts; the only non-`ok` rows are the known
+architectural `ignored` verdicts on BIS/ILO/IMF `references:contentconstraint`
+and the long-standing STATSNZ `auth:listing` `capability_appeared` (open
+since cycle 60, unchanged).
+
+**Classification:** resolved `gateway_issue`, no code action needed.
+
+**History:** third occurrence of this shape overall, resolved by the cycle
+immediately after it appeared (562 -> 563), consistent with the first two
+occurrences. No other endpoint changed status across cycles 561-565.
+
+**Recommended action:** none. Continue watching for a fourth occurrence of
+this specific shape per the standing open item.
+
+**Could not determine:** nothing outstanding for this event; the recovery
+is confirmed by three consecutive healthy cycles (563-565) and the live
+status check.
+
 ## 2026-09-10T00:43Z - cycle 562
 
 **Changed:** ILO healthy -> gateway_issue

@@ -4,6 +4,49 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-12T00:43Z - cycle 586
+
+**Changed:** ILO healthy -> gateway_issue
+
+**Cycle saw:** the previous run (cycle 583, all twelve endpoints healthy,
+confirmed clean through cycle 585 via `/api/history`) did not see this.
+Cycle 586 (started 2026-09-12T00:01:22Z, the newest at this run) shows ILO
+`gateway_issue`: gateway metadata failed with `403 Forbidden` on
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` (2 attempts). Gateway
+data, direct metadata, direct data, and direct json all passed the same
+cycle. No contract rows broken; `references:contentconstraint` still reads
+`ignored`, as expected.
+
+**Live recheck:** direct GET of
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at 00:43Z returned HTTP
+200. Two other providers (ECB, ABS) also answered normally, ruling out a
+network problem on this routine's side. The gateway path itself (the
+deployed MCP gateway service) is not reachable from this routine's network
+allowlist, so it could not be re-probed directly; the direct-to-provider
+recheck is the only independent confirmation available.
+
+**Classification:** `gateway_issue` (direct path OK, gateway path failing).
+By the monitor's vocabulary this points at our own code, not the provider,
+though no root cause has ever been confirmed for any past occurrence of
+this exact shape.
+
+**History:** second occurrence of this specific shape (gateway-metadata-only
+403, gateway data OK, direct fully healthy, no contract rows affected). The
+only prior occurrence was cycle 526, resolved by cycle 527 (see the
+2026-09-07T06:44Z entry below) and confirmed still healthy through cycle
+571. This is distinct from the broader ILO blanket-403 (`provider_down`)
+episodes and from the standalone gateway-data-only 403 shape (most recently
+cycle 562), which are separate patterns.
+
+**Recommended action:** watch the next cycle before escalating further; the
+one prior occurrence of this exact shape resolved within a single cycle.
+Escalate for real if this stretches past two to three cycles, matching the
+threshold already applied to the related gateway-data-only shape.
+
+**Could not determine:** whether cycle 587 has already recovered (this run
+observed only cycle 586, the newest available); root cause of the 403
+itself, consistent with every prior ILO gateway-side 403 episode.
+
 ## 2026-09-10T12:43Z - cycle 568
 
 **Changed:** OECD healthy -> degraded -> healthy (flapped between runs, already resolved)

@@ -53,6 +53,32 @@ def _dataflow_cache_status_note(client: SDMXProgressiveClient) -> str:
     return f"Served from cache (age: {int(age_s)}s, TTL {DATAFLOW_CACHE_TTL_S:.0f}s)."
 
 
+def structure_url(
+    client: SDMXProgressiveClient, agency: str, dataflow_id: str, version: str = "latest"
+) -> str | None:
+    """
+    Full-structure URL (``references=all``) for a dataflow on the client's provider.
+
+    This is the one URL a downstream SDMX-ML parser needs to load the dataflow,
+    its DSD and every codelist in a single request (SDMXerWizard's ``load_schema``
+    takes it verbatim). Returns ``None`` when the client carries no ``base_url``,
+    so callers never fail merely because the field cannot be built.
+    """
+    base_url = getattr(client, "base_url", None)
+    if not isinstance(base_url, str) or not base_url:
+        return None
+    return (
+        base_url.rstrip("/")
+        + "/dataflow/"
+        + agency
+        + "/"
+        + dataflow_id
+        + "/"
+        + version
+        + "?references=all"
+    )
+
+
 async def list_dataflows(
     client: SDMXProgressiveClient,
     keywords: list[str] | None = None,
@@ -106,17 +132,20 @@ async def list_dataflows(
         dataflows = filtered_dataflows[start_idx:end_idx]
 
         # Create lightweight summaries
-        summaries: list[dict[str, str]] = []
+        summaries: list[dict[str, Any]] = []
         for df in dataflows:
             desc = str(df.get("description", ""))
             if len(desc) > 100:
                 desc = desc[:100] + "..."
+            df_id = str(df.get("id", ""))
+            df_agency = str(df.get("agency", "")) or str(agency_id)
             summaries.append(
                 {
-                    "id": str(df.get("id", "")),
+                    "id": df_id,
                     "agency": str(df.get("agency", "")),
                     "name": str(df.get("name", "")),
                     "description": desc,
+                    "structure_url": structure_url(client, df_agency, df_id),
                 }
             )
 
@@ -289,6 +318,7 @@ async def get_dataflow_structure(
             "dataflow_id": dataflow_id,
             "agency_id": agency_id,
             "dataflow_name": dataflow_name,
+            "structure_url": structure_url(client, str(agency_id), dataflow_id),
             "total_dimensions": len(dimensions_summary),
             "structure": {
                 "id": structure_dict.get("id", ""),

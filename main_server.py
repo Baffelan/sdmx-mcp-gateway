@@ -488,6 +488,7 @@ async def list_dataflows(
             agency=df.get("agency", ""),
             name=df["name"],
             description=df.get("description", ""),
+            structure_url=df.get("structure_url"),
         )
         for df in result.get("dataflows", [])
     ]
@@ -594,6 +595,7 @@ async def get_dataflow_structure(
         name=result.get("dataflow_name", ""),
         description="",
         version="latest",
+        structure_url=result.get("structure_url"),
     )
 
     struct_data = result.get("structure", {})

@@ -105,6 +105,8 @@ sdmx-mcp-gateway/
 | `build_data_url`         | Generate data retrieval URL               | `DataUrlResult`             |
 | `get_codelist`           | Browse specific codelist                  | `dict`                      |
 
+Every dataflow returned by `list_dataflows` and `get_dataflow_structure` carries a `structure_url`: the provider's full-structure query (`references=all`) for that dataflow, dataflow plus DSD plus every codelist in one request. Progressive discovery keeps that payload out of the model's context; the URL lets a downstream parser fetch it once when it needs the whole thing, for example [SDMXerWizard](https://github.com/Baffelan/SDMXerWizard.jl)'s `load_schema(url=...)`.
+
 SDMX 2.1 has no server-side pagination, so `list_dataflows` fetches a provider's entire dataflow listing under the hood even when `limit` is small; for ESTAT that listing alone is 37 MB. The parsed result is cached process-wide (shared across every session, not per client) for `DATAFLOW_CACHE_TTL_S` seconds (default `900`, 15 minutes), keyed on the base URL, agency, and the other parameters that change the answer. The result's `next_step` field always states whether that call was served from cache and, if so, how old the entry is, so a caller never has to guess. Pass `fresh=True` to bypass the cache and force a live re-fetch; the fresh result still refreshes the cache for everyone else. Use `fresh=True` for liveness checks, where a cached answer would say nothing about whether the provider is reachable right now.
 
 ### Reference Metadata

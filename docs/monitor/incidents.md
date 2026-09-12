@@ -4,6 +4,52 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-12T12:43Z - cycle 592
+
+**Changed:** ESTAT healthy -> gateway_issue, still failing (not yet resolved)
+
+**Cycle saw:** the previous run (cycle 589, all twelve endpoints healthy)
+did not see this. `/api/history?hours=48` shows ESTAT still `healthy` at
+cycle 590 (2026-09-12T08:01:22Z), then `gateway_issue` at cycle 591
+(2026-09-12T10:01:22Z) and again at cycle 592 (the newest, started
+2026-09-12T12:01:22Z): `gateway metadata: tool call list_dataflows timed out
+after 60.0s` (2 attempts) both times. Gateway data, direct metadata, direct
+data all passed both cycles; direct json is skipped by design (Eurostat
+returns 406 for SDMx-JSON). No contract rows broken. The one contract
+`changes` entry this cycle is ABS `encoding:structure_xml`'s Content-Type
+parameter order flipping back (charset before version), a known cosmetic
+flap, verdict stayed `ok`. `STATSNZ auth:listing` still reads
+`capability_appeared`, unchanged, so not re-reported.
+
+**Live recheck:** direct GET of
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT`
+at 12:44Z returned HTTP 200 in 26.8s (37 MB payload), comfortably under the
+gateway's 60s call deadline. This does not contradict the cycle 591-592
+readings; it shows the same listing call is simply slow and variable under
+load, consistent with every prior occurrence of this pattern.
+
+**Classification:** `gateway_issue` (ours, not Eurostat's). This is the
+documented `list_dataflows` 60s deadline firing under a slow response, in
+`monitor/checks_gateway.py`. No contract impact.
+
+**History:** the 29th occurrence of this pattern (open_items records 28
+prior occurrences through cycle 505, every one resolved within a single
+cycle). This occurrence is different only in duration: it has now spanned
+two consecutive cycles (591 and 592, 4 hours) without resolving, the first
+time this pattern has not self-resolved within one cycle.
+
+**Recommended action:** watch the next cycle. If ESTAT is still
+`gateway_issue` there, that would break the established one-cycle
+resolution pattern and warrants treating this as a genuine regression
+rather than the usual transient flap. The standing code-change-scope fix
+(raise the deadline, stream the listing, or cache the parsed result) remains
+open and unactioned by this read-only routine.
+
+**Could not determine:** whether the next cycle recovers, and why this
+occurrence has run longer than all 28 prior ones; the live recheck happened
+at a different moment than either failing cycle and cannot confirm what the
+gateway's own call saw at 10:01Z or 12:01Z.
+
 ## 2026-09-12T06:43Z - cycle 589
 
 **Changed:** ILO gateway_issue -> healthy (recovered by the next cycle)

@@ -4,6 +4,39 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-12T06:43Z - cycle 589
+
+**Changed:** ILO gateway_issue -> healthy (recovered by the next cycle)
+
+**Cycle saw:** the previous run (cycle 586) saw ILO `gateway_issue`: gateway
+metadata `403 Forbidden` on `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`.
+`/api/history?hours=48` for cycles 585-589 shows ILO already back to `healthy`
+by cycle 587 (2026-09-12T02:01:22Z), with an empty `failing` list, and it has
+stayed healthy through cycles 588 and 589 (the newest, started
+2026-09-12T06:01:22Z). Every other endpoint stayed `healthy` across 585-589.
+No contract `changes` this cycle. `STATSNZ auth:listing` still reads
+`capability_appeared`, unchanged from the last run, so not re-reported.
+
+**Live recheck:** direct GET of
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at 06:42Z returned HTTP
+200, consistent with the monitor's own cycle 587-589 readings.
+
+**Classification:** resolved `gateway_issue`. Consistent with every prior
+occurrence of ILO gateway-side 403 shapes, which have all self-resolved
+within one to two cycles; no root cause has ever been confirmed.
+
+**History:** the cycle 586 episode was the second occurrence of the
+gateway-metadata-only 403 shape (first was cycle 526, resolved by cycle 527).
+This second occurrence resolved by cycle 587, one cycle later, matching the
+first occurrence's resolution time exactly.
+
+**Recommended action:** none. Continue watching for a third occurrence of
+this shape; escalate for real only if a future occurrence stretches past two
+to three cycles.
+
+**Could not determine:** root cause of either occurrence of this 403 shape,
+same as before.
+
 ## 2026-09-12T00:43Z - cycle 586
 
 **Changed:** ILO healthy -> gateway_issue

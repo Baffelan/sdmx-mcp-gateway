@@ -4,6 +4,55 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-12T18:43Z - cycle 595
+
+**Changed:** ESTAT `gateway_issue` still not resolved, now 5 consecutive cycles
+
+**Cycle saw:** the previous run (cycle 592) already reported ESTAT
+`gateway_issue` and flagged it as an escalation to watch. `/api/history?hours=48`
+now shows cycles 593, 594, and 595 (started 2026-09-12T14:01:22Z, 16:01:22Z,
+18:01:22Z) all still `gateway_issue`, same shape every time: `gateway metadata:
+tool call list_dataflows timed out after 60.0s`. Gateway data, direct metadata,
+and direct data all keep passing; direct json stays skipped by design. No
+endpoint other than ESTAT is non-healthy anywhere in the last 48 hours. Two
+contract `changes` entries this cycle (ABS and OECD `encoding:structure_xml`
+Content-Type parameter order), both the known cosmetic flap, verdict stayed
+`ok`, not re-reported. `STATSNZ auth:listing` still reads `capability_appeared`,
+unchanged.
+
+**Live recheck:** direct GET of
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`
+at 18:43Z returned HTTP 200 in 27.0s (37.3 MB payload), comfortably under the
+gateway's 60s call deadline, same size and timing as the cycle-592 recheck.
+The listing itself is not failing or growing unboundedly; something about the
+gateway's own path (tool-call overhead, parsing the 37 MB body, or contention)
+is what pushes it past 60s on the gateway side specifically.
+
+**Classification:** `gateway_issue` (ours, not Eurostat's), same as cycle 592.
+No contract impact.
+
+**History:** now the first occurrence of this pattern to run for four full
+cycles unbroken (591 through 595, 10 hours), against a documented history of
+28 prior occurrences that all resolved within a single cycle, and the cycle
+592 occurrence that had, at the time, already been the longest ever at two
+cycles. This is a genuine regression from the established pattern, not a
+repeat of an already-reported state: duration has more than doubled again
+since the last report.
+
+**Recommended action:** treat this as no longer a simple flap. The standing
+code-change-scope fix (raise the `list_dataflows` deadline, stream the
+listing, or cache the parsed result in `monitor/checks_gateway.py`) should be
+prioritized rather than left open indefinitely; this read-only routine cannot
+action it. Keep watching every subsequent cycle until it resolves or the
+duration itself becomes the headline finding.
+
+**Could not determine:** why the gateway-side call takes longer than 60s
+while a direct fetch of the same payload consistently completes in ~27s;
+whether this reflects gateway-side resource contention, a change in how the
+tool call parses the response, or something else. The live recheck cannot see
+what the gateway's own call actually experienced during any of cycles
+591-595.
+
 ## 2026-09-12T12:43Z - cycle 592
 
 **Changed:** ESTAT healthy -> gateway_issue, still failing (not yet resolved)

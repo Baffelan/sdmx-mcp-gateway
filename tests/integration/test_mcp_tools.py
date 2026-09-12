@@ -68,8 +68,45 @@ class TestListDataflows:
         client = MagicMock(spec=SDMXProgressiveClient)
         client.agency_id = "SPC"
         client.endpoint_key = "SPC"
+        client.base_url = "https://stats-sdmx-disseminate.pacificdata.org/rest"
         client.discover_dataflows = AsyncMock(return_value=mock_dataflows)
         return client
+
+    @pytest.mark.asyncio
+    async def test_list_dataflows_carries_structure_url(self, mock_client):
+        """Each summary carries the full-structure URL a downstream parser can fetch."""
+        result = await list_dataflows(client=mock_client)
+        urls = {df["id"]: df["structure_url"] for df in result["dataflows"]}
+        assert urls["TRADE_FOOD"] == (
+            "https://stats-sdmx-disseminate.pacificdata.org/rest"
+            "/dataflow/SPC/TRADE_FOOD/latest?references=all"
+        )
+        assert all(u.endswith("?references=all") for u in urls.values())
+
+    @pytest.mark.asyncio
+    async def test_list_dataflows_structure_url_uses_dataflow_agency(self, mock_client):
+        """A sub-agency reported by the provider wins over the endpoint agency."""
+        mock_client.discover_dataflows = AsyncMock(return_value=[
+            {"id": "DSD_TOURISM_INTER@DF_INBOUND", "agency": "OECD.CFE.TOU",
+             "name": "Inbound tourism", "description": ""},
+        ])
+        mock_client.base_url = "https://sdmx.oecd.org/public/rest"
+        result = await list_dataflows(client=mock_client, agency_id="all")
+        assert result["dataflows"][0]["structure_url"] == (
+            "https://sdmx.oecd.org/public/rest/dataflow/OECD.CFE.TOU/"
+            "DSD_TOURISM_INTER@DF_INBOUND/latest?references=all"
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_dataflows_without_base_url_still_answers(self, mock_dataflows):
+        """A client with no base_url (older mocks, unusual wiring) degrades to None."""
+        client = MagicMock(spec=SDMXProgressiveClient)
+        client.agency_id = "SPC"
+        client.endpoint_key = "SPC"
+        client.discover_dataflows = AsyncMock(return_value=mock_dataflows)
+        result = await list_dataflows(client=client)
+        assert "error" not in result
+        assert result["dataflows"][0]["structure_url"] is None
 
     @pytest.mark.asyncio
     async def test_list_dataflows_no_keywords(self, mock_client, mock_dataflows):
@@ -201,9 +238,19 @@ class TestGetDataflowStructure:
         client = MagicMock(spec=SDMXProgressiveClient)
         client.agency_id = "SPC"
         client.endpoint_key = "SPC"
+        client.base_url = "https://stats-sdmx-disseminate.pacificdata.org/rest"
         client.get_dataflow_overview = AsyncMock(return_value=mock_overview)
         client.get_structure_summary = AsyncMock(return_value=mock_structure)
         return client
+
+    @pytest.mark.asyncio
+    async def test_get_dataflow_structure_carries_structure_url(self, mock_client):
+        """The result names the full-structure URL for the resolved agency and id."""
+        result = await get_dataflow_structure(client=mock_client, dataflow_id="TRADE_FOOD")
+        assert result["structure_url"] == (
+            "https://stats-sdmx-disseminate.pacificdata.org/rest"
+            "/dataflow/SPC/TRADE_FOOD/latest?references=all"
+        )
 
     @pytest.mark.asyncio
     async def test_get_structure_success(self, mock_client):

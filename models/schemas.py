@@ -74,6 +74,14 @@ class DataflowSummary(BaseModel):
     )
     name: str = Field(description="Human-readable name")
     description: str = Field(description="Brief description (may be truncated)")
+    structure_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "Full-structure URL (references=all) for this dataflow on the provider: "
+            "dataflow, DSD and all codelists in one request. Hand it verbatim to a "
+            "downstream SDMX-ML parser such as SDMXerWizard load_schema(url=...)."
+        ),
+    )
 
 
 class DataflowListResult(BaseModel):
@@ -167,6 +175,13 @@ class DataflowInfo(BaseModel):
     name: str = Field(description="Human-readable name")
     description: str = Field(description="Description")
     version: str = Field(description="Resolved version number")
+    structure_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "Full-structure URL (references=all) for this dataflow on the provider, "
+            "ready for a downstream SDMX-ML parser such as SDMXerWizard load_schema(url=...)."
+        ),
+    )
 
 
 class AttributeDetail(BaseModel):

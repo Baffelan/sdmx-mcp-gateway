@@ -4,6 +4,67 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-13T00:43Z - cycle 598
+
+**Changed:** UNICEF healthy -> degraded, HTTP 429 on gateway data and direct data
+
+**Cycle saw:** cycle 598 (started 2026-09-13T00:01:22Z) shows UNICEF `degraded`,
+failing `gateway data: probe status: error; HTTP 429 from provider.` and
+`direct data: HTTP 429`, both after 2 attempts. Gateway metadata, direct
+metadata, and direct json all passed the same cycle. Cycles 590 through 597
+were all healthy across every endpoint on UNICEF.
+
+**Live recheck:** direct GET of
+`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`
+at 00:43Z returned HTTP 200 in 0.83s, and again HTTP 200 in 0.29s a few seconds
+later. Already resolved by the time of this check, well within the same
+2-hour cycle window.
+
+**Classification:** `degraded`, provider-side rate limiting (HTTP 429 from
+UNICEF), not a gateway bug. No contract rows affected.
+
+**History:** tenth occurrence of the known UNICEF HTTP 429 flap pattern (prior
+occurrences at cycles 126, 178, 262, 305, 346, 430, and the ninth at cycle
+514, all resolved within one cycle). This one already reads as resolved on
+live recheck, consistent with that pattern.
+
+**Recommended action:** none. Matches the established one-cycle
+self-resolving shape; no code or process action indicated. Watch for an
+eleventh occurrence.
+
+**Could not determine:** the exact rate-limit window UNICEF applies, or
+whether this cycle's two failing checks (gateway data, direct data) landed in
+the same burst of requests from this monitor or elsewhere.
+
+## 2026-09-13T00:43Z - cycle 598 (ESTAT recovery)
+
+**Changed:** ESTAT `gateway_issue` -> healthy, recovered by cycle 596
+
+**Cycle saw:** the previous run (cycle 595) reported ESTAT `gateway_issue` for
+a fourth consecutive cycle (591-595, 10 hours) and flagged it as a genuine
+regression from the usual one-cycle pattern. `/api/history?hours=48` now shows
+cycles 596, 597, and 598 (started 2026-09-12T20:01:22Z, 22:01:22Z,
+2026-09-13T00:01:22Z) all `healthy`, with no failing checks. No live recheck
+was needed beyond the monitor's own three consecutive healthy cycles.
+
+**Classification:** recovered `gateway_issue` (was ours, not Eurostat's).
+
+**History:** the episode ran cycles 591-595 (5 cycles, 10 hours), the longest
+of the 29 documented occurrences of this `list_dataflows` timeout pattern by
+a wide margin (previous longest was 2 cycles at cycle 592). It self-resolved
+without any code change on our side, same as every prior occurrence, just
+after a much longer duration.
+
+**Recommended action:** the standing code-change-scope fix (raise the
+`list_dataflows` deadline, stream the listing, or cache the parsed result in
+`monitor/checks_gateway.py`) remains open and worth prioritizing given this
+episode's duration, even though it self-resolved. This read-only routine
+cannot action it.
+
+**Could not determine:** why this occurrence ran roughly 5x longer than the
+previous worst case, or what changed between cycle 595 and 596 that let the
+gateway-side call complete within its 60s deadline again.
+
 ## 2026-09-12T18:43Z - cycle 595
 
 **Changed:** ESTAT `gateway_issue` still not resolved, now 5 consecutive cycles

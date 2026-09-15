@@ -4,6 +4,48 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-15T00:43Z - cycle 622
+
+**Changed:** ILO healthy -> gateway_issue, direct path OK, gateway data failing
+
+**Cycle saw:** the previous run (cycle 619, all twelve endpoints healthy) did
+not see this. `/api/history?hours=48` shows cycles 620 and 621 both healthy
+with no failing checks, then cycle 622 (started 2026-09-15T00:01:22Z, finished
+00:02:37Z) shows ILO `gateway_issue` with a single failing check: `gateway
+data: probe status: error; HTTP 403 from provider.` after 2 attempts. Gateway
+metadata passed but slow (4125ms, 1 attempt); direct metadata, direct data
+(119 observations), and direct json all passed the same cycle. No contract
+rows affected (`ILO encoding:structure_xml` Content-Type parameter order also
+flapped this cycle, but verdict stayed `ok`; that is the known cosmetic flap,
+not re-reported here).
+
+**Live recheck:** direct GET of both ILO URLs at 00:43Z returned HTTP 200:
+metadata (`/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`) in 1.03s, data
+(`/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`) in
+1.84s. The failing check is the gateway path only (MCP call through the
+deployed gateway), which this routine cannot replicate directly; the direct
+path recheck at least confirms ILO itself is answering normally right now.
+Another provider (ECB) was also reachable from here, ruling out a
+network-wide problem on this end.
+
+**Classification:** `gateway_issue` per the monitor (direct path OK, gateway
+path failing on data only). Matches the standing pattern, not a new gateway
+bug on its own, but still notable as ours to watch, not ILO's.
+
+**History:** fourth occurrence of the known "ILO gateway-data-only 403 flap
+(standalone)" shape. Prior occurrences: cycle 322 (tail end of the cycle 321
+blanket-403 episode), cycle 370 (resolved by 371), and cycle 562 (resolved by
+563). All three resolved within one cycle. This occurrence is one cycle old
+as of this run.
+
+**Recommended action:** none yet. Consistent with the established
+one-cycle self-resolving shape; confirm resolution on the next run rather
+than acting now. Escalate for real if this stretches past two to three
+cycles, per the standing watch item.
+
+**Could not determine:** whether cycle 623 (due ~02:01:22Z, after this run
+ends) shows ILO healthy again, since that cycle has not run yet.
+
 ## 2026-09-13T00:43Z - cycle 598
 
 **Changed:** UNICEF healthy -> degraded, HTTP 429 on gateway data and direct data

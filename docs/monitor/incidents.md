@@ -4,6 +4,48 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-15T18:43Z - cycle 631
+
+**Changed:** ESTAT healthy -> gateway_issue
+
+**Cycle saw:** `/api/status` at cycle 631 (started 2026-09-15T18:01:22Z,
+finished 18:03:32Z) shows ESTAT `gateway_issue` with a single failing check:
+`gateway metadata: tool call list_dataflows timed out after 60.0s`. Direct
+metadata, direct data, and gateway data all passed the same cycle. No
+contract rows affected. `/api/history?hours=48` shows ESTAT healthy with no
+failing checks across every prior cycle back to 620 (2026-09-14T20:01:22Z),
+so this is new as of cycle 631, not a continuation of anything already open.
+
+**Live recheck:** direct GET of
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`
+just now returned HTTP 200 in 28.0s, downloading a 37.2 MB payload. That is
+well under the gateway's 60s deadline on its own, but the gateway's
+`list_dataflows` call also parses that payload after downloading it, which is
+enough added latency to cross 60s under load. Other endpoints (ABS, ECB, and
+the rest) were healthy in the same cycle, ruling out a network-wide problem
+on this end.
+
+**Classification:** `gateway_issue` per the monitor (gateway metadata timing
+out, direct and gateway-data paths both fine). Matches the long-documented
+"ESTAT list_dataflows timeout pattern": our own 60s call deadline firing
+under load on a large payload, not a provider-side fault.
+
+**History:** thirtieth occurrence of this pattern. The prior (twenty-ninth)
+episode started cycle 591 and ran 5 consecutive cycles (10 hours) before
+resolving by cycle 596, by far the longest of the 29 prior occurrences;
+confirmed healthy through cycle 630 since then. This occurrence is one cycle
+old as of this run.
+
+**Recommended action:** watch the next cycle before treating this as
+anything but the usual self-resolving pattern. The standing code-change-scope
+recommendation (raise the deadline, stream the listing, or cache the parsed
+result in `monitor/checks_gateway.py`) remains open and unactioned by this
+read-only routine; worth prioritizing given how long the twenty-ninth episode
+ran, even though most occurrences resolve within one to two cycles.
+
+**Could not determine:** whether cycle 632 (due ~20:01:22Z, after this run
+ends) shows ESTAT healthy again, since that cycle has not run yet.
+
 ## 2026-09-15T06:42Z - cycle 625
 
 **Changed:** ILO gateway_issue -> healthy (resolved)

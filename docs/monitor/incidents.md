@@ -4,6 +4,37 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-15T06:42Z - cycle 625
+
+**Changed:** ILO gateway_issue -> healthy (resolved)
+
+**Cycle saw:** `/api/status` at cycle 625 (started 2026-09-15T06:01:22Z) shows
+all twelve endpoints healthy, ILO included. `/api/history?hours=48` shows ILO
+back to `healthy` with no failing checks at cycle 623 (started
+2026-09-15T02:01:22Z), and still healthy through cycles 624 and 625 as well.
+The last recorded state (cycle 622) had ILO in `gateway_issue` from a single
+failing check: `gateway data: probe status: error; HTTP 403 from provider.`
+That resolved within one cycle, matching the established pattern for this
+flap shape.
+
+**Live recheck:** direct GET of `https://sdmx.ilo.org/rest/dataflow/ILO` and
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` both returned HTTP 200
+just now. Consistent with the monitor's own cycle 623-625 readings.
+
+**Classification:** resolved. No code-side action needed; this was the
+fourth occurrence of the known "ILO gateway-data-only 403 flap (standalone)"
+shape, and it resolved within one cycle exactly as the prior three did
+(cycles 322, 370, 562).
+
+**History:** fourth occurrence overall, now confirmed resolved. Watch for a
+fifth occurrence; escalate for real only if a future episode stretches past
+two to three cycles, per the standing watch item.
+
+**Recommended action:** none. Close out the cycle 622 open item as resolved.
+
+**Could not determine:** nothing outstanding; both the monitor's own history
+and a live recheck agree ILO is healthy.
+
 ## 2026-09-15T00:43Z - cycle 622
 
 **Changed:** ILO healthy -> gateway_issue, direct path OK, gateway data failing

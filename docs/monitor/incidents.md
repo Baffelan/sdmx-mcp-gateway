@@ -4,6 +4,41 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-16T00:43Z - cycle 634
+
+**Changed:** ESTAT gateway_issue -> healthy (resolved)
+
+**Cycle saw:** `/api/status` at cycle 634 (started 2026-09-16T00:01:22Z,
+finished 00:02:37Z) shows all twelve endpoints healthy, ESTAT included.
+`/api/history?hours=48` shows ESTAT back to `healthy` with no failing checks
+starting at cycle 632 (started 2026-09-15T20:01:22Z) and still healthy through
+cycles 633 and 634. The last recorded state (cycle 631, started 18:01:22Z) had
+ESTAT in `gateway_issue` from a single failing check: `gateway metadata: tool
+call list_dataflows timed out after 60.0s`.
+
+**Live recheck:** not performed; the history series already shows two full
+cycles of recovery (632, 633) before this run, and the prior run already
+confirmed the direct dataflow listing completing in 28.0s on its own.
+
+**Classification:** `gateway_issue` resolved back to `healthy`. Matches the
+long-documented "ESTAT list_dataflows timeout pattern": our own 60s call
+deadline firing under load on a large payload, not a provider-side fault.
+
+**History:** this was the thirtieth occurrence (started cycle 631, reported
+in the previous entry below). It resolved within one cycle (healthy again by
+cycle 632), matching the typical resolution window for this pattern and much
+shorter than the twenty-ninth occurrence, which ran 5 cycles (10 hours)
+before resolving. No other endpoint changed status and no contract changed
+between cycle 631 and cycle 634.
+
+**Recommended action:** none beyond the standing, still-open code-change-scope
+recommendation (raise the deadline, stream the listing, or cache the parsed
+result in `monitor/checks_gateway.py`), which this read-only routine cannot
+action itself.
+
+**Could not determine:** nothing outstanding; the monitor answered normally
+and the recovery is confirmed across two cycles of history.
+
 ## 2026-09-15T18:43Z - cycle 631
 
 **Changed:** ESTAT healthy -> gateway_issue

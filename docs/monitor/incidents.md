@@ -4,6 +4,61 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-17T18:42Z - cycle 655
+
+**Changed:** ESTAT healthy -> gateway_issue (twice, with one recovery in
+between); ABS healthy -> gateway_issue -> healthy (resolved)
+
+**Cycle saw:** the previous run's state (cycle 652, all twelve endpoints
+healthy) did not see either of these. `/api/history?hours=48` for the cycles
+since then:
+
+- cycle 653 (2026-09-17T14:01:22Z): ESTAT `gateway_issue`, single failing
+  check `gateway metadata: tool call list_dataflows timed out after 60.0s`.
+- cycle 654 (2026-09-17T16:01:22Z): ESTAT back to `healthy`. ABS
+  `gateway_issue`, single failing check `gateway metadata: Error:` (empty
+  error body).
+- cycle 655 (2026-09-17T18:01:22Z, current): ESTAT `gateway_issue` again,
+  same failing check as cycle 653. ABS back to `healthy`. No other endpoint
+  changed status. `/api/contracts` shows no entries in `changes` and no
+  `broken` or `capability_appeared` verdicts beyond the already-open STATSNZ
+  `auth:listing` item; the only non-`ok` rows are the standing BIS/ILO/IMF
+  `references:contentconstraint` `ignored` architectural facts.
+
+**Live recheck:** direct GET of
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`
+at 18:42Z returned HTTP 200 in 28.9s, downloading a 37.3 MB payload. Same
+shape as every prior occurrence: well under the gateway's 60s deadline on its
+own, but combined with the gateway's post-download parsing it is enough to
+cross 60s under load. Did not separately recheck ABS live; the monitor's own
+history already shows two cycles either side of the flap (654 failing, 655
+healthy), and the failing message text matches the known empty-error-body
+shape exactly.
+
+**Classification:** both `gateway_issue`, i.e. ours, not the providers'.
+ESTAT matches the long-documented "ESTAT list_dataflows timeout pattern" (our
+own 60s call deadline firing under load, not a provider fault). ABS matches
+the long-documented "ABS gateway metadata empty-error-body flap" (an empty
+error message is itself the known bug to fix, not evidence of a new one).
+
+**History:** ESTAT: thirty-first occurrence started cycle 653, resolved by
+654; thirty-second occurrence started cycle 655 and is still open as of this
+run (no cycle 656 yet). Prior longest episode (twenty-ninth, cycles 591-596)
+ran 5 consecutive cycles; this pair is one cycle each so far. ABS: fourteenth
+occurrence of the empty-error-body flap, started cycle 654, resolved by
+cycle 655 within one cycle, consistent with all thirteen prior occurrences.
+
+**Recommended action:** ESTAT: watch cycle 656 before treating the second
+(655) occurrence as anything but the usual self-resolving pattern; the
+standing code-change-scope recommendation (raise the deadline, stream the
+listing, or cache the parsed result in `monitor/checks_gateway.py`) remains
+open and unactioned by this read-only routine. ABS: none; already resolved,
+and the empty-error-message bug itself remains open code-change-scope work
+in `GatewayError`/`next_step` in `monitor/checks_gateway.py`.
+
+**Could not determine:** whether cycle 656 (due ~20:01:22Z, after this run
+ends) shows ESTAT healthy again, since that cycle has not run yet.
+
 ## 2026-09-16T00:43Z - cycle 634
 
 **Changed:** ESTAT gateway_issue -> healthy (resolved)

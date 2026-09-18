@@ -4,6 +4,46 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-18T00:42Z - cycle 658
+
+**Changed:** ESTAT gateway_issue -> healthy (resolved)
+
+**Cycle saw:** previous state (cycle 655) had ESTAT `gateway_issue`, single
+failing check `gateway metadata: tool call list_dataflows timed out after
+60.0s`, reported as "thirty-second occurrence, still open" in the prior run.
+`/api/history?hours=48` for cycles 656-658: ESTAT `healthy` at 656, 657, and
+658 (current), no failing checks. All other eleven endpoints stayed
+`healthy` across 655-658. `/api/contracts` at cycle 658 shows one entry in
+`changes` (ABS `encoding:structure_xml`, charset/version parameter order,
+verdict stayed `ok`, matches the standing "Content-Type parameter order"
+architectural fact, not re-reported) and one `capability_appeared` row
+(STATSNZ `auth:listing`), which is the same standing open item first seen
+cycle 60 and not a new change. No `broken` verdicts.
+
+**Live recheck:** direct GET of
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT` at
+00:42Z returned HTTP 200 in 28.2s downloading a 37.4 MB payload, same shape
+as the prior recheck (28.9s at cycle 655) and consistent with the endpoint
+being healthy now: well clear of a timeout on its own.
+
+**Classification:** was `gateway_issue` (ours, not ESTAT's), now resolved.
+Confirms the long-documented "ESTAT list_dataflows timeout pattern" self
+-resolved within one cycle again.
+
+**History:** thirty-second occurrence, started cycle 655, resolved by cycle
+656, confirmed still healthy through cycle 658 (3 consecutive healthy
+cycles). Same one-cycle resolution as the thirty-first occurrence (653-654)
+immediately before it. Prior longest episode (twenty-ninth, cycles 591-596)
+ran 5 consecutive cycles; recent occurrences continue to resolve fast.
+
+**Recommended action:** none beyond the standing code-change-scope
+recommendation (raise the deadline, stream the listing, or cache the parsed
+result in `monitor/checks_gateway.py`), which remains open and unactioned by
+this read-only routine.
+
+**Could not determine:** nothing outstanding; both the cycle history and the
+live recheck agree ESTAT is healthy now.
+
 ## 2026-09-17T18:42Z - cycle 655
 
 **Changed:** ESTAT healthy -> gateway_issue (twice, with one recovery in

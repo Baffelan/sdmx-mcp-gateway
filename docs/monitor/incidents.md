@@ -4,6 +4,75 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-18T12:46Z - cycle 664
+
+**Changed:** ABS contract assertion `errors:missing_artefact` `500 -> 404`
+(recovered; `verdict` reads `ok` now)
+
+**Cycle saw:** the previous run's state (cycle 661, `docs/monitor/triage
+-state.json` on this same branch) recorded all twelve endpoints `healthy`
+with no open contract items for ABS. `/api/history?hours=48` shows ABS (and
+every other endpoint) `healthy` across cycles 659-664 with an empty
+`failing` list at every one of them, so this did not show up as an
+endpoint-status change. `/api/contracts` at cycle 664 lists one entry in
+`changes`: ABS `errors:missing_artefact` `was: "500"`, `now: "404"`,
+`verdict: "ok"`, `spec_verdict: "conforms"`. The monitor computes `was` as
+the most recent prior cycle with a non-null `observed` value for that
+assertion (`storage.py: previous_contract_values`), so at some point after
+cycle 661 this check returned HTTP 500 instead of ABS's expected 404, then
+recovered by cycle 664. No other endpoint or contract changed; no `broken`
+or `capability_appeared` verdicts elsewhere besides the standing STATSNZ
+`auth:listing` `capability_appeared` item (open since cycle 60, not
+re-reported).
+
+**Live recheck:** direct GET of
+`https://data.api.abs.gov.au/rest/dataflow/ABS/NONEXISTENT_XYZ_2026/latest`
+at 12:45:59Z returned HTTP 404 in 0.83s, matching the expected value and the
+current `now` reading. A sanity GET against ECB
+(`data-api.ecb.europa.eu/service/dataflow/ECB/EXR/latest`) returned HTTP 200
+in the same window, so the network this routine runs on is not implicated.
+
+**Classification:** provider-side, self-resolved. `check_error_semantics`
+(`monitor/contracts.py`) marks any observed status other than ABS's
+configured `missing_artefact_status=404` as `broken`; a 500 there means ABS's
+own dataflow-lookup path returned a server error for this probe on the cycle
+it happened, not a gateway bug.
+
+**Notable tooling gap found while investigating:** a contract going `broken`
+should flip the endpoint to `degraded` per `monitor/derive.py` (`broken`
+list -> `degraded` when otherwise healthy), and `/api/status` does pass
+contract rows into that computation. But `/api/history`'s per-cycle status
+(`monitor/main.py`, the `api_history` handler) calls
+`derive_status(rows, cycle_row["gateway_up"])` **without** the contract rows,
+so a contract-only failure never appears in `/api/history`'s `status` or
+`failing` fields for the cycle it happened in, even though `/api/status`
+would have shown ABS `degraded` live at the time. That is why this flap is
+invisible in the history series above despite being real. This is a
+code-change-scope observation, not something this read-only routine can or
+should fix.
+
+**History:** first occurrence found of a bare `errors:missing_artefact`
+500/`broken` flap on ABS alone. The one prior ABS contract-only flap on
+record (2026-08-13, cycle 234-235) hit `dialect:sdmx3` and
+`errors:missing_artefact` together, both as HTTP 503, and did show up as an
+endpoint-level `healthy -> degraded -> healthy` transition in that era's
+history (predating, or not affected by, the `/api/history` gap identified
+above). Distinct shape; treating as new rather than a recurrence.
+
+**Recommended action:** none needed now; already resolved and confirmed by
+live recheck. Separately, worth filing as a code fix: pass `contract_rows`
+into the `derive_status` call inside `api_history` so contract-only
+degradations are visible in `/api/history` and not just in the live
+`/api/status` snapshot. Out of scope for this read-only routine.
+
+**Could not determine:** the exact cycle the HTTP 500 occurred on. `/api/
+contracts` only exposes the current value and the most recent prior
+differing value, not a full per-cycle series for contract assertions, so it
+could have been any single cycle (or, in principle, more than one) between
+662 and 663. Also could not determine whether the 500 was scoped to this one
+probe URL or affected other ABS dataflow-lookup traffic in the same window,
+since the routine only has this one pinned probe to go on.
+
 ## 2026-09-18T00:42Z - cycle 658
 
 **Changed:** ESTAT gateway_issue -> healthy (resolved)

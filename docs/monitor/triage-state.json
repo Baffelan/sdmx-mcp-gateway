@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 661,
-  "last_cycle_started_at": "2026-09-18T06:01:22+00:00",
-  "last_run": "2026-09-18T06:42Z",
+  "last_cycle_id": 664,
+  "last_cycle_started_at": "2026-09-18T12:01:22+00:00",
+  "last_run": "2026-09-18T12:46Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,6 +18,7 @@
     "UNICEF": "healthy"
   },
   "open_items": [
+    "ABS contract-only errors:missing_artefact 500 flap (new shape, bare): observed 500 (expected 404, verdict broken) at some cycle between 661 and 663, recovered by cycle 664 (2026-09-18T12:01:22Z); see the 2026-09-18T12:46Z report entry. Live recheck at 12:45:59Z confirmed HTTP 404 on the direct probe URL, matching expectation. Distinct from the 2026-08-13 cycle 234-235 flap, which hit dialect:sdmx3 and errors:missing_artefact together as 503, not this assertion alone as 500. Also surfaced a monitor tooling gap: /api/history's per-cycle status computation (monitor/main.py api_history) does not pass contract rows into derive_status, so a contract-only degraded cycle like this one never shows up in the history series even though /api/status would have shown it live; flagged as a code-change-scope fix, not actioned here. Watch for a second occurrence of this specific assertion/status combination.",
     "ILO gateway-data-only 403 flap (standalone): fourth occurrence, cycle 622 (2026-09-15T00:01:22Z, gateway data: probe status: error; HTTP 403 from provider, 2 attempts; gateway metadata passed but slow, 4125ms/1 attempt; direct metadata, direct data, direct json all passed). Resolved by cycle 623, confirmed still healthy through cycle 625; see the 2026-09-15T06:42Z report entry. Live recheck at 06:42Z confirmed ILO answering normally on both direct URLs. Prior occurrences: cycle 562 (resolved by 563), cycle 370 (resolved by 371), and cycle 322 (tail end of the cycle 321 blanket-403 episode), all resolved within one cycle. Watch for a fifth occurrence; escalate for real if a future episode stretches past two to three cycles.",
     "ILO gateway-metadata-only 403 flap (new shape): second occurrence, cycle 586 (2026-09-12T00:01:22Z, gateway metadata 403 Forbidden on dataflow listing, 2 attempts; gateway data, direct metadata, direct data, direct json all passed same cycle; no contract rows affected). Resolved by cycle 587, confirmed still healthy through cycle 589; see the 2026-09-12T06:43Z report entry. First occurrence was cycle 526, resolved by cycle 527, confirmed healthy through cycle 571. Both occurrences resolved within one cycle. Watch for a third occurrence; escalate for real if it stretches past two to three cycles.",
     "OECD direct-data-only ReadTimeout flap (new shape): first occurrence, cycle 566 (2026-09-10T08:01:22Z, direct data: ReadTimeout, gateway metadata/data and direct metadata/json all passed same cycle). Resolved by cycle 567, confirmed still healthy through cycle 589. No prior occurrence of this specific shape found in incidents.md; distinct from the cycles 290-292 OECD gateway_issue 403 episode. Watch for a second occurrence.",

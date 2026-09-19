@@ -4,6 +4,57 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-19T00:43Z - cycle 670
+
+**Changed:** ECB healthy -> gateway_issue (cycle 669) -> degraded (cycle 670);
+contract assertion `references:parentsandsiblings` `ok (200) -> broken (504)`
+
+**Cycle saw:** previous state (cycle 667, this same branch) recorded ECB
+`healthy`. `/api/history?hours=48` shows ECB healthy through cycle 668, then
+cycle 669 `gateway_issue` (`gateway data: probe status: error; HTTP 504 from
+provider`, direct path passing that cycle), then cycle 670 `degraded` with
+both `gateway data` and `direct data` returning HTTP 504 (`last_success`
+2026-09-18T20:01:22Z, i.e. cycle 668). `/api/contracts` at cycle 670 lists
+eight ECB assertions in `changes`: seven recovered from `504` at cycle 669
+back to their expected values this cycle (`auth:listing`,
+`constraint:availableconstraint`, `dialect:sdmx3`, `errors:missing_artefact`,
+`references:children`, `references:contentconstraint`, `references:parents`,
+all `verdict: ok`), but `references:parentsandsiblings` went the other way,
+`was: "200"`, `now: "504"`, `verdict: "broken"`. So cycle 669 looks like a
+brief whole-provider 504 blip that mostly cleared by cycle 670, except this
+one assertion and the data checks were still (or newly) hitting 504.
+
+**Live recheck:** at 00:43Z, direct GETs against ECB all returned HTTP 200
+within ~1.5s each: `dataflow/ECB/EXR/latest` (metadata control),
+`dataflow/ECB/EXR/latest?references=parentsandsiblings` (the broken
+assertion's own probe URL), and `data/EXR/M.USD.EUR.SP00.A?lastNObservations=1`
+(the data check). A control GET against OECD in the same window also
+returned 200, so the network this routine runs on is not implicated. ECB is
+healthy right now; the cycle-670 failures did not persist to the live check
+roughly 40 minutes later.
+
+**Classification:** provider-side, self-resolving so far (`gateway_issue`
+then `degraded`, direct path affected too, live recheck now clean).
+
+**History:** ECB has no prior flap on record that spans two consecutive
+cycles; the three flaps in the 2026-09-07/08 cluster and the earlier
+2026-07-30-era ones each resolved within a single cycle. This is the fourth
+distinct ECB failure shape since that cluster, and the first to still be
+failing (on the `references:parentsandsiblings` contract, specifically) at
+the next scheduled cycle after onset, even though the live recheck now shows
+it clear. Worth watching for a cycle 671 recurrence; if ECB is still degraded
+or `references:parentsandsiblings` still broken then, this stops being a
+same-shape-as-before transient.
+
+**Recommended action:** no code change; watch cycle 671. If
+`references:parentsandsiblings` is still `broken` next cycle, treat it as a
+real regression on that specific reference form rather than a shared-outage
+symptom, since every other ECB check has already recovered.
+
+**Could not determine:** whether cycles 669-670 were one continuous provider
+outage or two separate transient blips that happened to land back to back;
+the monitor's per-cycle probes do not retain enough detail to tell.
+
 ## 2026-09-18T12:46Z - cycle 664
 
 **Changed:** ABS contract assertion `errors:missing_artefact` `500 -> 404`

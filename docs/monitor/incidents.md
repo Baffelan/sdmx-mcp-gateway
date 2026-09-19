@@ -4,6 +4,49 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-19T06:42Z - cycle 673
+
+**Changed:** ECB degraded -> healthy (resolved by cycle 671, confirmed stable
+through cycle 673); contract assertion `references:parentsandsiblings`
+`broken (504) -> ok (200)`
+
+**Cycle saw:** the previous run's state (cycle 670, this same branch)
+recorded ECB `degraded`, with the cycle-670 report entry flagging cycle 669
+as `gateway_issue` and cycle 670 as `degraded` (both `gateway data` and
+`direct data` on HTTP 504), plus `references:parentsandsiblings` `broken`.
+`/api/history?hours=48` now shows ECB `healthy` with an empty `failing` list
+at cycles 671, 672, and 673. `/api/contracts` at cycle 673 lists no entries
+in `changes` and no `broken` or `capability_appeared` verdicts anywhere
+except the standing STATSNZ `auth:listing` `capability_appeared` item (open
+since cycle 60, not re-reported). ECB's own contract rows at cycle 673 are
+all `ok`, including `references:parentsandsiblings` (`200`, expected
+`200`). No other endpoint changed status across cycles 671-673.
+
+**Live recheck:** at 06:42Z, direct GETs against ECB all returned HTTP 200:
+`dataflow/ECB/EXR/latest` (metadata control, ~1.5s),
+`dataflow/ECB/EXR/latest?references=parentsandsiblings` (the previously
+broken assertion's own probe URL, ~1.6s), and
+`data/EXR/M.USD.EUR.SP00.A?lastNObservations=1` (the data check, ~1.6s). A
+control GET against OECD in the same window also returned 200, ruling out
+this routine's network.
+
+**Classification:** provider-side, self-resolved. This closes the cycle
+670 open item: the episode did not persist past cycle 671, so per that
+entry's own criterion it does not escalate to a regression.
+
+**History:** this remains the first (and so far only) ECB episode to span
+two consecutive cycles (669-670); it resolved by the very next cycle
+afterward and has now stayed clean for three cycles running. No fifth
+distinct ECB failure shape has appeared since.
+
+**Recommended action:** none. Close out the cycle-670 open item; keep the
+general "watch ECB" posture at the same level as before this episode, no
+elevated attention warranted since it resolved on schedule.
+
+**Could not determine:** nothing outstanding on this item; the open
+question left by the cycle-670 entry (whether it would still be broken at
+cycle 671) is now answered - it was not.
+
 ## 2026-09-19T00:43Z - cycle 670
 
 **Changed:** ECB healthy -> gateway_issue (cycle 669) -> degraded (cycle 670);

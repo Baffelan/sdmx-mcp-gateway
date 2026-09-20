@@ -4,6 +4,57 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-20T00:43Z - cycle 682
+
+**Changed:** ILO healthy -> gateway_issue
+
+**Cycle saw:** the previous run (cycle 679, all twelve endpoints healthy)
+recorded no issue. `/api/history?hours=48` shows ILO `healthy` at cycles
+680 and 681, then `gateway_issue` at cycle 682 (started
+2026-09-20T00:01:22Z, the newest cycle at this run), with `failing`
+showing `gateway metadata: Error: Client error '403 Forbidden' for url
+'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`. The full cycle 682
+detail confirms: gateway metadata failed 403 (2 attempts), gateway data
+passed, and direct metadata, direct data, and direct json all passed. No
+contract rows broken; `references:contentconstraint` still reads
+`ignored`, as expected. The only contract `changes` entry this cycle is
+ABS `encoding:structure_xml` Content-Type parameter-order flip
+(`charset` vs `version` ordering), the known cosmetic flap, verdict stayed
+`ok`. `STATSNZ auth:listing` still reads `capability_appeared`, unchanged
+from the last run, so not re-reported.
+
+**Live recheck:** direct GET of
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at 00:43Z returned
+HTTP 200 twice in a row (~2.7-3.0s each). Two other providers (OECD, ECB)
+also answered (403 and 302 respectively, both expected responses to an
+unparameterized root request, not failures), ruling out a network problem
+on this routine's side. The gateway path itself (the deployed MCP gateway
+service) is not reachable from this routine's network allowlist, so it
+could not be re-probed directly; the direct-to-provider recheck is the
+only independent confirmation available, and it already shows the 403 has
+cleared.
+
+**Classification:** `gateway_issue` (direct path OK, gateway path
+failing). By the monitor's vocabulary this points at our own code, not
+the provider, though no root cause has ever been confirmed for any past
+occurrence of this exact shape.
+
+**History:** third occurrence of the gateway-metadata-only 403 shape
+(gateway data OK, direct fully healthy, no contract rows affected). Prior
+occurrences: cycle 526 (resolved by cycle 527) and cycle 586 (resolved by
+cycle 587, see the 2026-09-12T06:43Z entry), both resolving within a
+single cycle. Distinct from the broader ILO blanket-403 (`provider_down`)
+episodes and the standalone gateway-data-only 403 shape (most recently
+cycle 622), which are separate patterns.
+
+**Recommended action:** watch the next cycle before escalating further;
+both prior occurrences of this exact shape resolved within one cycle and
+the live recheck already shows it cleared. Escalate for real if this
+stretches past two to three cycles.
+
+**Could not determine:** root cause of any of the three occurrences of
+this 403 shape.
+
 ## 2026-09-19T06:42Z - cycle 673
 
 **Changed:** ECB degraded -> healthy (resolved by cycle 671, confirmed stable

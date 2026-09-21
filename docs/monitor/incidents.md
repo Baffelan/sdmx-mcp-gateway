@@ -4,6 +4,73 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-21T12:43Z - cycle 700
+
+**Changed:** ILO `references:contentconstraint` verdict `ignored` -> `ok` (observed status unchanged, 200 -> 200)
+
+**Cycle saw:** all twelve endpoints `healthy`, `stale: false`, `gateway_up: true`,
+`drift: []`. `/api/history?hours=48` shows no endpoint status change across
+cycles 686-700. `/api/contracts` `changes` array is empty at this run, same as
+the previous run.
+
+Despite that empty `changes` array, a direct cycle-by-cycle comparison of
+`/api/cycle/{id}` contract rows (this run does not rely on `changes` alone,
+since it only diffs the `observed` field) found ILO's
+`references:contentconstraint` assertion read `ignored` at cycles 697, 698,
+and 699, then flipped to `ok` at cycle 700 (started 2026-09-21T12:01:22Z, the
+newest cycle at this run). `observed` stayed `200` throughout; only `verdict`
+and the accompanying `error` note (`accepted but ignored: same payload size
+as references=none`) changed, which is why `/api/contracts`'s `changes` list,
+which only diffs `observed`, never surfaced it, and why `/api/history` never
+surfaced it either (contract-only rows do not feed that series, the same gap
+recorded in the 2026-09-18T12:46Z entry for ABS). BIS and IMF, the other two
+endpoints documented as reading `ignored` on this assertion, both still read
+`ignored` at cycle 700, unchanged.
+
+**Live recheck:** direct GETs of
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+with `references=none` and `references=contentconstraint` (`detail=allstubs`
+on both, matching the monitor's own probe) at 12:43Z returned 1974 and 1973
+bytes respectively, a 1-byte difference, which is why the monitor's exact
+byte-size-match heuristic no longer classifies this as `ignored`. Diffing the
+two responses with the volatile `message:ID` and `message:Prepared` fields
+normalized out showed them otherwise byte-identical, and neither response
+contains any `ContentConstraint` element. The provider is still not honoring
+the `contentconstraint` reference; the byte counts only diverged because
+ILO's `message:ID` and sub-second `message:Prepared` timestamp happened to
+differ in length between the two requests.
+
+**Classification:** not a provider capability change. This is a false
+`ok` reading produced by the monitor's own ignored-detection heuristic
+(`monitor/contracts.py check_references`), which compares exact response
+byte-length against the `references=none` baseline fetched in the same
+cycle. ILO's structure responses carry a random `message:ID` and a
+sub-second `message:Prepared` timestamp, both of which vary per request, so
+the two probes' byte lengths can differ by chance even when the substantive
+content (no `ContentConstraint` elements either way) is unchanged. Whether
+`gateway_issue`/`provider_down`/etc. apply is moot here: this is a
+contract-detection artifact, not an endpoint health change, and no gateway
+code path is implicated.
+
+**History:** first time this specific assertion has read anything other than
+`ignored` since it was first observed reading `ignored` (see the
+2026-09-19-and-earlier baseline entries and the architectural-facts list in
+the skill file). No prior occurrence of this exact ignored -> ok flip found
+in this file.
+
+**Recommended action:** none against the gateway or ILO; behavior is
+unchanged. Worth a code-change-scope fix to the ignored-detection heuristic
+itself (compare content with volatile per-response fields normalized out,
+not raw byte length) and to `/api/contracts`'s `changes` computation (diff
+`verdict` in addition to `observed`, matching the gap already flagged for
+ABS on 2026-09-18), since both gaps let a real-looking verdict change pass
+through every automated surface unnoticed. Neither actioned here; this
+routine is read-only.
+
+**Could not determine:** whether this exact 1-byte coincidence has happened
+before and gone unnoticed at any earlier cycle, since the `changes` gap
+means no automated surface would have caught it.
+
 ## 2026-09-20T06:42Z - cycle 685
 
 **Changed:** ILO gateway_issue -> healthy (resolved)

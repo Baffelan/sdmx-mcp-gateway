@@ -4,6 +4,78 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-21T18:45Z - cycle 703
+
+**Changed:** ILO `healthy` -> `degraded` (contract `references:contentconstraint`
+`ok` -> `broken`, cycle 703). Also, between this run and the last: ESTAT
+`healthy` -> `gateway_issue` at cycle 702, recovered by cycle 703.
+
+**Cycle saw (703, 2026-09-21T18:01:22Z):** all five ILO basic checks passing
+(gateway metadata/data, direct metadata/data/json all healthy). The
+`references:contentconstraint` contract assertion, which read `ok` (the
+byte-size-heuristic reclassification reported at cycle 700) at cycles
+700-702, this time got `expected 200, observed 403` and was classified
+`broken`. This is the sole entry in `/api/contracts` `changes` for this run;
+a full diff of every contract row across all 12 endpoints between cycle 700
+and cycle 703 (not just the `changes` array, which only diffs `observed`)
+found no other assertion moved.
+
+**Cycle saw (702, 2026-09-21T16:01:22Z):** ESTAT `gateway metadata: tool
+call list_dataflows timed out after 60.0s`, the single failing check;
+gateway data and all three direct checks passed. Recovered by cycle 703
+(gateway metadata succeeded in 26.4s). `stale: false`, `gateway_up: true`,
+`drift: []` at every cycle in this window.
+
+**Live recheck (18:44Z-18:45Z):**
+- ILO: a direct GET of
+  `https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest?references=contentconstraint&detail=allstubs`
+  returned HTTP 200, 1973 bytes, matching a same-window `references=none`
+  fetch byte-for-byte apart from the volatile `message:ID`/`message:Prepared`
+  fields. The 403 the monitor saw at cycle 703 is already gone; the response
+  matches the documented `ignored` (accepted-but-dropped) baseline, not a
+  durable change.
+- ESTAT: two direct GETs of
+  `https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`
+  took over 65s (truncated by a 65s client timeout) and 26.6s respectively
+  for a 25-38 MB payload. Same shape as every prior occurrence: near or over
+  the gateway's 60s deadline on the raw fetch alone, before the gateway's own
+  parsing is added on top.
+
+**Classification:**
+- ILO: `degraded` per `monitor/derive.py` (contract broken, basic checks all
+  passing). The live recheck disagrees with the cycle-703 observation,
+  pointing to transient flakiness on ILO's side (consistent with ILO's
+  long-documented Cloudflare/WAF flakiness) rather than a durable behavior
+  change.
+- ESTAT: `gateway_issue`, i.e. ours, not the provider's. Matches the
+  long-documented "ESTAT `list_dataflows` timeout pattern": our own 60s call
+  deadline firing under a slow/large listing response, not a provider fault.
+
+**History:**
+- ILO: this assertion has read `broken` twice before: cycle 274 (`500`,
+  resolved by cycle 275) and the blanket-403 episode at cycle 226 (`403` as
+  part of an eight-assertion block, not a standalone flap). Cycle 703 is the
+  first standalone `403`-only flap on this assertion since cycle 226, and the
+  third overall `broken` reading on it. No recurrence yet as of this run (no
+  cycle 704 available).
+- ESTAT: thirty-third occurrence of the `list_dataflows` timeout pattern,
+  started cycle 702, resolved by cycle 703 within one cycle. The prior
+  longest episode (twenty-ninth, cycles 591-596) ran 5 consecutive cycles;
+  the thirty-first and thirty-second occurrences (cycles 653, 655) were also
+  one cycle each.
+
+**Recommended action:** ILO: none beyond watching; treat a third standalone
+`403` flap on this assertion, or a `broken` reading that persists past one
+cycle, as the threshold for a real investigation. ESTAT: none; already
+resolved, and the standing code-change-scope recommendation (raise the
+deadline, stream the listing, or cache the parsed result in
+`monitor/checks_gateway.py`) remains open and unactioned by this read-only
+routine.
+
+**Could not determine:** what specifically triggered ILO's single-cycle 403
+on this one assertion while every other ILO check and contract row in the
+same cycle passed cleanly; no provider status page or changelog was checked.
+
 ## 2026-09-21T12:43Z - cycle 700
 
 **Changed:** ILO `references:contentconstraint` verdict `ignored` -> `ok` (observed status unchanged, 200 -> 200)

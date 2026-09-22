@@ -4,6 +4,40 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-22T12:43Z - cycle 712
+
+**Changed:** ESTAT `gateway_issue` -> `healthy`
+
+**Cycle saw (712, 2026-09-22T12:01:22Z):** all ESTAT checks passing, no
+`broken` or `informational` contract rows. `stale: false`, `gateway_up: true`,
+`drift: []`.
+
+**History since last run:** cycle 709 (2026-09-22T06:01:22Z) showed the
+`gateway metadata: tool call list_dataflows timed out after 60.0s` failure
+reported in the previous entry below. Cycle 710 (08:01Z) already came back
+healthy, and cycles 710, 711, 712 are three consecutive clean cycles. No
+other endpoint changed status across 709-712. Contract changes array showed
+one entry, ABS `encoding:structure_xml` Content-Type parameter-order swap,
+verdict stayed `ok`; this is the documented cosmetic flap and is not
+re-reported.
+
+**Classification:** provider-side, matches the standing ESTAT
+`list_dataflows` timeout pattern (our own 60s call deadline firing, working
+as designed). This is the thirty-fourth recorded occurrence, now confirmed
+resolved after one cycle, in line with every occurrence except the
+twenty-ninth (5 cycles).
+
+**Live recheck:** not performed separately; three consecutive healthy cycles
+from the monitor itself (710, 711, 712) are stronger evidence of recovery
+than a single ad hoc recheck from here.
+
+**Recommended action:** none beyond the standing, already-open
+recommendation (raise the deadline, stream the listing, or cache the parsed
+result in `monitor/checks_gateway.py`). Not actioned by this read-only
+routine.
+
+**Could not determine:** nothing outstanding; this occurrence is closed.
+
 ## 2026-09-22T06:43Z - cycle 709
 
 **Changed:** ESTAT `healthy` -> `gateway_issue`

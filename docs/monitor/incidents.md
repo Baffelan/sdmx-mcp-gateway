@@ -4,6 +4,47 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-22T06:43Z - cycle 709
+
+**Changed:** ESTAT `healthy` -> `gateway_issue`
+
+**Cycle saw (709, 2026-09-22T06:01:22Z):** gateway metadata failing with
+`tool call list_dataflows timed out after 60.0s` (2 attempts). Gateway data
+and all three direct checks (metadata, data; json skipped, Eurostat does not
+serve SDMx-JSON) passed. Healthy at cycles 706, 707, 708. `stale: false`,
+`gateway_up: true`, `drift: []`. No other endpoint changed status across
+706-709, and a full row-by-row diff of every contract verdict between cycle
+706 and cycle 709 across all 12 endpoints found no change (the one entry in
+`/api/contracts` `changes`, ILO `encoding:structure_xml` Content-Type
+parameter order, is the already-documented cosmetic flap and its verdict
+stayed `ok`).
+
+**Live recheck (06:43Z):** direct GET of
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`
+took 26.3s for a 37.6 MB payload, HTTP 200. Same shape as every prior
+occurrence: the raw fetch alone sits close to the gateway's 60s deadline
+before the gateway's own parsing is added on top. A parallel check against
+ECB responded in under 1s, so the network this routine runs on is not the
+problem.
+
+**Classification:** `gateway_issue`, i.e. ours, not the provider's. Matches
+the long-documented ESTAT `list_dataflows` timeout pattern: the gateway's
+own 60s call deadline firing under a large listing response.
+
+**History:** thirty-fourth occurrence of this pattern. Thirty-third
+occurrence started cycle 702, resolved by cycle 703. No cycle 710 exists yet
+at the time of this run (next cycle expected ~08:01Z), so this occurrence is
+not yet confirmed resolved.
+
+**Recommended action:** none beyond watching for cycle 710 to confirm
+recovery. The standing code-change-scope recommendation (raise the
+deadline, stream the listing, or cache the parsed result in
+`monitor/checks_gateway.py`) remains open and unactioned by this read-only
+routine.
+
+**Could not determine:** whether cycle 709's occurrence has already
+recovered, since no later cycle exists yet.
+
 ## 2026-09-21T18:45Z - cycle 703
 
 **Changed:** ILO `healthy` -> `degraded` (contract `references:contentconstraint`

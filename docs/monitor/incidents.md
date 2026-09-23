@@ -4,6 +4,44 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-23T00:42Z - cycle 718
+
+**Changed:** UNICEF `healthy` -> `degraded`
+
+**Cycle saw (718, 2026-09-23T00:01:22+00:00):** gateway metadata and direct
+metadata both healthy. Gateway data failed with `probe status: error; HTTP
+429 from provider.`, direct data failed with `HTTP 429`, direct json failed
+with `HTTP 429`. `stale: false`, `gateway_up: true`, `drift: []`.
+
+**History since last run (716, 717, 718):** cycles 716 and 717 were healthy
+on every endpoint. Only cycle 718 shows a change, and only UNICEF is
+affected; all eleven other endpoints stayed healthy through 718. Contracts
+`changes` array showed one entry, ILO `encoding:structure_xml`
+Content-Type parameter-order swap, verdict stayed `ok`; this is the
+documented cosmetic flap and is not re-reported. `STATSNZ auth:listing`
+stayed `capability_appeared`, unchanged since cycle 60, not re-reported.
+
+**Live recheck:** direct data path
+(`/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`)
+returned HTTP 200 with a normal `StructureSpecificData` payload just now.
+Disagrees with the cycle's HTTP 429 reading, consistent with transient
+provider-side rate limiting rather than a lasting outage.
+
+**Classification:** provider-side. Metadata succeeded on both gateway and
+direct paths in the same cycle, only the data checks hit 429 on both
+paths, so this is not a gateway bug; matches the standing UNICEF HTTP 429
+flap pattern (open_items: ten prior occurrences, cycles 126, 178, 262, 305,
+346, 430, 514, 598, each resolved within one cycle). This is the eleventh
+occurrence.
+
+**Recommended action:** none. Every prior occurrence of this exact shape
+self-resolved within one cycle, and the live recheck already shows 200.
+Watch for a twelfth occurrence.
+
+**Could not determine:** nothing outstanding; live recheck already shows
+recovery, but the monitor's own next cycle (720, ~02:01Z) has not run yet
+to confirm two consecutive healthy cycles.
+
 ## 2026-09-22T12:43Z - cycle 712
 
 **Changed:** ESTAT `gateway_issue` -> `healthy`

@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 718,
-  "last_cycle_started_at": "2026-09-23T00:01:22+00:00",
-  "last_run": "2026-09-23T00:42Z",
+  "last_cycle_id": 721,
+  "last_cycle_started_at": "2026-09-23T06:01:22+00:00",
+  "last_run": "2026-09-23T06:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -15,7 +15,7 @@
     "SBS": "healthy",
     "SPC": "healthy",
     "STATSNZ": "healthy",
-    "UNICEF": "degraded"
+    "UNICEF": "healthy"
   },
   "open_items": [
     "ILO references:contentconstraint standalone 403 flap (new shape): first occurrence, cycle 703 (2026-09-21T18:01:22Z), classified broken (expected 200, observed 403). See the 2026-09-21T18:45Z report entry. Live recheck at 18:44Z already showed 200 again, byte-identical to references=none apart from volatile ID/timestamp fields, i.e. back to the documented ignored baseline. Endpoint status flipped healthy -> degraded for this one cycle; all five basic ILO checks and the other eleven contract assertions stayed healthy/ok throughout. Distinct from the cycle 226 blanket-403 episode (that one hit eight assertions plus both gateway basic checks together) and from the cycle 700 ignored -> ok heuristic flip (that one never left 200). Third overall broken/non-ignored reading on this assertion, after cycle 199 (same-cycle blip) and cycle 274 (500, resolved by cycle 275). Watch for a second standalone-403 occurrence; escalate for real if a future one persists past one cycle.",
@@ -32,7 +32,7 @@
     "ESTAT list_dataflows timeout pattern: thirty-fourth occurrence, started cycle 709 (2026-09-22T06:01:22Z), resolved by cycle 710 and confirmed still healthy through cycle 712; see the 2026-09-22T12:43Z report entry closing out the 2026-09-22T06:43Z entry. Thirty-third occurrence started cycle 702 (2026-09-21T16:01:22Z), resolved by cycle 703. Prior longest episode (twenty-ninth, cycles 591-596) ran 5 consecutive cycles (10 hours); the last four occurrences before this one were one cycle each. Standing recommendation (raise deadline, stream listing, or cache parsed result in monitor/checks_gateway.py) remains open as a code-change-scope fix, not actioned by this read-only routine. Watch for a thirty-fifth occurrence.",
     "ILO gateway_issue, both gateway metadata and gateway data HTTP 403 together, direct healthy: first occurrence of this exact combination, cycle 384, resolved by cycle 385. No second occurrence through cycle 703 outside of the cycle 454 blanket episode (a different, broader shape). Watch for a second occurrence of this specific shape.",
     "SBS gateway DNS resolution flap: first occurrence, cycle 366, resolved by cycle 367. No second occurrence through cycle 703. Watch for a second occurrence; escalate if it recurs.",
-    "UNICEF HTTP 429 flap: eleventh occurrence, cycle 718 (2026-09-23T00:01:22Z), gateway data and both direct data/json checks failed with HTTP 429, metadata healthy on both paths throughout; see the 2026-09-23T00:42Z report entry. Live recheck at 00:42Z already showed HTTP 200 on the direct data path. Prior occurrences cycle 126, 178, 262, 305, 346, 430, 514, 598, all resolved within one cycle. Watch for a twelfth occurrence; confirm resolved once cycle 719 or 720 comes back healthy.",
+    "UNICEF HTTP 429 flap: eleventh occurrence, cycle 718 (2026-09-23T00:01:22Z), gateway data and both direct data/json checks failed with HTTP 429, metadata healthy on both paths throughout; see the 2026-09-23T00:42Z report entry. Resolved by cycle 719, confirmed healthy through cycle 721; see the 2026-09-23T06:42Z report entry closing this out. Prior occurrences cycle 126, 178, 262, 305, 346, 430, 514, 598, all resolved within one cycle. Watch for a twelfth occurrence.",
     "ABS and ESTAT gateway_issue coincided in the same cycle twice (cycle 319 and cycle 389, both resolved within one cycle). No third same-cycle occurrence through cycle 703. Watch for a third same-cycle ABS/ESTAT occurrence with matching failure text.",
     "OECD gateway_issue 403 Forbidden episode (cycles 290-292): resolved by cycle 293. No new occurrence through cycle 703. Watch for a second occurrence; escalate for real if a future episode again spans more than one cycle.",
     "ILO direct-path 403 flap (basic checks): tenth occurrence cycle 286, resolved by cycle 287, clean since (superseded by the blanket 403 pattern). Prior occurrences cycle 32, 94, 159, 166, 202, 238, 244, 249, 267. Watch for an eleventh occurrence of this specific direct-only shape.",
@@ -45,7 +45,7 @@
     "ABS gateway metadata empty-error-body flap: fourteenth occurrence, cycle 654 (2026-09-17T16:01:22Z), resolved by cycle 655; see the 2026-09-17T18:42Z report entry. All fourteen occurrences have now resolved within one cycle. Empty error message itself still worth fixing under code-change scope (GatewayError/next_step in monitor/checks_gateway.py).",
     "UNICEF direct-path HTTP 404 'no data found' flap: occurred cycle 197 only, resolved by cycle 198. No new occurrence through cycle 703. Watch for a second occurrence.",
     "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 703: listing served without credentials. Still open, not re-reported since no new change.",
-    "Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints (seen again on ILO encoding:structure_xml at cycle 562, ABS encoding:structure_xml at cycle 574, ABS encoding:structure_xml at cycle 667, both ABS and ILO encoding:structure_xml at cycle 676, and ABS encoding:structure_xml again at cycle 712); do not re-report unless the verdict itself changes.",
+    "Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints (seen again on ILO encoding:structure_xml at cycle 562, ABS encoding:structure_xml at cycle 574, ABS encoding:structure_xml at cycle 667, both ABS and ILO encoding:structure_xml at cycle 676, ABS encoding:structure_xml at cycle 712, and ILO encoding:structure_xml again at cycle 721); do not re-report unless the verdict itself changes.",
     "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162. No new occurrence through cycle 703. Watch for a second occurrence.",
     "ECB references:* 504 flap (cycles 182-183 pattern): first occurrence, cycles 182-183, resolved by cycle 184. No new occurrence through cycle 703. Watch for a second occurrence of this specific pattern."
   ],

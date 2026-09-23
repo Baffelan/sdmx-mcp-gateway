@@ -4,6 +4,34 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-23T06:42Z - cycle 721
+
+**Changed:** UNICEF `degraded` -> `healthy`
+
+**Cycle saw (721, 2026-09-23T06:01:22+00:00):** all UNICEF checks passing,
+no `broken` or `informational` contract rows. `stale: false`,
+`gateway_up: true`, `drift: []`.
+
+**History since last run (719, 720, 721):** cycle 719 (02:01Z) already came
+back healthy, and cycles 719, 720, 721 are three consecutive clean cycles.
+No other endpoint changed status across 719-721; all eleven other
+endpoints stayed healthy throughout. Contracts `changes` array showed one
+entry, ILO `encoding:structure_xml` Content-Type parameter-order swap,
+verdict stayed `ok`; documented cosmetic flap, not re-reported. `STATSNZ
+auth:listing` stayed `capability_appeared`, unchanged since cycle 60, not
+re-reported.
+
+**Classification:** confirms resolution of the eleventh UNICEF HTTP 429
+occurrence reported in the previous entry (cycle 718). Matches every prior
+occurrence of this shape: self-resolved within one cycle.
+
+**Recommended action:** none. Close this open item; watch for a twelfth
+occurrence.
+
+**Could not determine:** nothing outstanding. This entry closes the
+"confirm resolved once cycle 719 or 720 comes back healthy" question left
+open in the previous entry.
+
 ## 2026-09-23T00:42Z - cycle 718
 
 **Changed:** UNICEF `healthy` -> `degraded`

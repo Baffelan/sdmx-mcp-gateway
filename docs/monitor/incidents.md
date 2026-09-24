@@ -4,6 +4,53 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-24T18:43Z - cycle 739
+
+**Changed:** ESTAT `healthy` -> `gateway_issue`
+
+**Cycle saw (739, 2026-09-24T18:01:22+00:00):** gateway metadata check
+failed with `tool call list_dataflows timed out after 60.0s` (2 attempts).
+Gateway data, direct metadata, and direct data all stayed healthy (`200`).
+Direct json is permanently skipped for ESTAT (provider does not serve
+SDMx-JSON). No `broken` or `capability_appeared` contract rows for ESTAT
+this cycle.
+
+**Live recheck (2026-09-24T18:43Z):** fetched
+`GET /dataflow/ESTAT/all/latest` directly against
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1` (the same
+listing `list_dataflows` retrieves). It returned `200` in 26.3s with a
+37.5 MB body. Direct path works but is heavy and slow right now, which is
+consistent with the gateway's `list_dataflows` call (download + parse)
+occasionally exceeding its 60s deadline under load.
+
+**Classification:** `gateway_issue` (direct path OK, gateway path
+failing) — nominally ours, but this is the standing, already-diagnosed
+`list_dataflows` timeout: our own call deadline firing against a very
+large ESTAT dataflow listing, working as designed rather than a new bug.
+
+**History:** thirty-fifth occurrence of this exact pattern. Endpoint was
+healthy for the nine preceding cycles (730-738, since 2026-09-24T00:01Z).
+Every prior occurrence (most recently the thirty-fourth, cycles 709-710,
+and the thirty-third, cycle 702) self-resolved within one to two cycles;
+the longest episode on record (the twenty-ninth) ran 5 cycles. This run
+cannot confirm resolution yet since cycle 739 is the current cycle.
+
+**Recommended action:** watch the next cycle (740, expected ~20:01Z) to
+confirm self-resolution, consistent with all 34 prior occurrences. The
+standing recommendation (raise the deadline, stream the listing, or cache
+the parsed result in `monitor/checks_gateway.py`) remains open as a
+code-change-scope fix, not actioned by this read-only routine.
+
+**Could not determine:** whether cycle 740 resolves this occurrence
+(not yet run at the time of this report).
+
+**Other observations, not separately reported:** two Content-Type
+parameter-order flaps in `/api/contracts` `changes` (ILO and SBS,
+`encoding:structure_xml`, verdict stayed `ok`) — the known cosmetic
+charset/version-ordering flap, not re-reported per standing guidance.
+`STATSNZ auth:listing` remains `capability_appeared` (open since cycle 60,
+unchanged this cycle).
+
 ## 2026-09-24T12:43Z - cycle 736
 
 **Changed:** OECD `healthy` -> `degraded` -> `healthy` (flapped between runs)

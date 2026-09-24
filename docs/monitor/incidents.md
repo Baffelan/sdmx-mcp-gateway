@@ -4,6 +4,47 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-24T12:43Z - cycle 736
+
+**Changed:** OECD `healthy` -> `degraded` -> `healthy` (flapped between runs)
+
+**Cycle saw (735, 2026-09-24T10:01:22+00:00):** direct data and direct json
+both failing with `HTTP 500`. Direct metadata and all gateway checks
+(metadata, data) stayed healthy throughout, so this was a mixed/partial
+failure, not a whole-provider outage. Resolved by cycle 736
+(2026-09-24T12:01:22+00:00): all OECD checks passing again, no `broken` or
+`informational` contract rows for OECD.
+
+**Live recheck (2026-09-24T12:43Z):** direct data query
+(`/data/OECD.SDD.TPS,DSD_PRICES@DF_PRICES_HICP/FRA.M......?firstNObservations=1`)
+returned `200` with a normal `GenericData` payload, confirming the cycle
+736 result. Live recheck agrees with the monitor: OECD is currently
+healthy.
+
+**Classification:** `degraded` at cycle 735 (some checks failing, mixed).
+Direct data/json failing while direct metadata and both gateway checks
+stayed healthy points at a transient provider-side HTTP 500 on OECD's data
+endpoint specifically, not a gateway bug: the gateway's own data check
+passed in the same cycle. Nothing to fix in our code.
+
+**History:** new shape. Distinct from the two OECD episodes already on
+record: the cycles 290-292 `gateway_issue` HTTP 403 episode, and the
+cycle 566 direct-data-only `ReadTimeout` flap (resolved by 567, still
+clean through cycle 703). This is the first time OECD has shown a direct
+data+json `HTTP 500` combination, and the first OECD flap to hit `json` as
+well as `data`. Self-resolved within one cycle, consistent with every
+prior OECD episode.
+
+**Recommended action:** none, already resolved. Add to the open-items
+watch list as a fourth distinct OECD failure shape; escalate if this
+specific combination (direct data+json HTTP 500) recurs or if a future
+episode spans more than one cycle.
+
+**Could not determine:** the provider-side cause of the HTTP 500 (OECD
+gives no detail in the response body); this is expected, since checking
+that would require asking OECD directly, which is outside what this
+routine can observe.
+
 ## 2026-09-23T06:42Z - cycle 721
 
 **Changed:** UNICEF `degraded` -> `healthy`

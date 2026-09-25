@@ -4,6 +4,49 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-25T12:42Z - cycle 748
+
+**Changed:** FBOS healthy -> `gateway_issue` (first occurrence for this
+endpoint of this specific shape; FBOS's only prior incident was a DNS
+resolution flap at cycle 50).
+
+**Cycle saw (748, 2026-09-25T12:01:22Z):** gateway metadata check failed
+with `Error: ` (empty message after the prefix), latency 32291ms, 2
+attempts. Gateway data check on FBOS succeeded (2925ms, 5105 observations).
+All three direct-path checks (metadata, data, json) succeeded (200,
+1306ms/406ms/534ms). All 14 FBOS contract rows read `ok`. No other endpoint
+changed status across cycles 746-748, and `/api/contracts` `changes` is
+empty. `stale` false, `gateway_up` true.
+
+**Live recheck:** could not independently probe the gateway path. The
+gateway host (`sdmx-mcp-gateway-production.up.railway.app`) is not in this
+environment's allowed network list, so a direct MCP call to `list_dataflows`
+for FBOS was not possible from here (connection failed, no HTTP response).
+Re-polled `/api/status` a few minutes later: still cycle 748, FBOS still
+reads `gateway_issue`, so this is not a within-session flap that already
+cleared.
+
+**Classification:** `gateway_issue` (direct path OK, gateway path failing)
+-> ours, per `monitor/derive.py`. The failing check is `gateway` / `metadata`,
+i.e. the `list_dataflows` MCP tool call with `fresh=True` in
+`monitor/checks_gateway.py:gateway_metadata_check`.
+
+**History:** new as of cycle 748; FBOS was healthy for at least the
+preceding 23 cycles (back to 725, the start of this 48h window).
+
+**Recommended action:** watch one more cycle. The empty `Error: ` message
+and ~32s latency closely resemble the long-running "ABS gateway metadata
+empty-error-body flap" pattern already on record (fifteen occurrences, all
+resolved within one cycle, root cause flagged as a code-change-scope fix to
+`GatewayError`/`next_step` in `monitor/checks_gateway.py`), but this is the
+first time that shape has been seen on FBOS rather than ABS.
+
+**Could not determine:** whether this is the same underlying bug as the ABS
+empty-error-body pattern reappearing on a different endpoint, or an
+unrelated fresh failure that happens to produce the same empty-message
+shape; the gateway itself was not reachable from this session to inspect
+further.
+
 ## 2026-09-25T06:43Z - cycle 745
 
 **Changed:** both endpoints flagged in the cycle 742 entry recovered: ABS

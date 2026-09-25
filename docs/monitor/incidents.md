@@ -4,6 +4,97 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-25T00:44Z - cycle 742
+
+**Changed:** three endpoints moved since the last run (cycle 739):
+ESTAT `gateway_issue` -> `healthy` (resolved), ABS `healthy` ->
+`gateway_issue` (new), ILO `healthy` -> `degraded` (new, contract-only).
+
+**Cycle saw (742, 2026-09-25T00:01:22Z):**
+- ESTAT: all checks passing, no `broken`/`informational` contract rows.
+  This closes out the cycle 739 entry (gateway metadata `list_dataflows`
+  timeout), resolved by cycle 740 at the latest and confirmed healthy
+  through 740, 741, and 742.
+- ABS: gateway metadata failed with `Error: ` (empty body, 2 attempts,
+  34.2s). Gateway data and all three direct checks (metadata, data, json)
+  stayed healthy (`200`). No `broken` contract rows for ABS; the only
+  `/api/contracts` `changes` entry for ABS this cycle is the known cosmetic
+  `encoding:structure_xml` Content-Type parameter-order flap (verdict
+  stayed `ok`, not re-reported per standing guidance).
+- ILO: all five basic checks passing (gateway metadata/data, direct
+  metadata/data/json). Two contract assertions flipped to `broken` in
+  `/api/contracts` `changes`: `constraint:availableconstraint` (expected
+  `500`, observed `403`) and `errors:missing_artefact` (expected `404`,
+  observed `403`). A third assertion, `dialect:sdmx3`, also observed `403`
+  instead of its usual `400`, but that assertion only ever grades
+  `capability_appeared` (on `200`) or `ok` (anything else), so it stayed
+  `ok`. All seven `references:*` assertions and `auth:listing` stayed
+  `ok`/`ignored`, unaffected.
+
+**Live recheck (2026-09-25T00:44Z), ILO:**
+- `GET /availableconstraint/DF_GED_XLU1_SEX_HHT_CHL_RT/all/all/all` ->
+  still `403`, unresolved.
+- `GET /dataflow/ILO/NONEXISTENT_XYZ_2026/latest` -> `404`, already back to
+  the expected baseline.
+- `GET /structure/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` -> `400`,
+  already back to the expected baseline.
+
+So of the three URLs that read `403` in the cycle-742 snapshot, two had
+already recovered by the time of this recheck roughly 40 minutes later;
+only `availableconstraint` is still `403`. Disagreement between the cycle
+snapshot and the live recheck on two of three URLs points to transient
+flakiness, not a durable change.
+
+**Network sanity:** ECB and OECD direct endpoints both answered `200`
+promptly at recheck time. Only ILO's contract probes were affected; the
+network this routine runs on is not implicated.
+
+**Classification:**
+- ESTAT: resolved instance of the long-documented `list_dataflows` timeout
+  pattern (ours, working as designed). No action.
+- ABS: `gateway_issue` (ours), matching the long-documented empty-error-body
+  flap on ABS gateway metadata. The empty error message itself remains an
+  open, code-change-scope fix in `monitor/checks_gateway.py`.
+- ILO: `degraded` per `monitor/derive.py` (contract broken, all five basic
+  checks passing) -> theirs, nothing to fix in our code. This is a new
+  shape: the documented ILO "contract-only blanket 403" pattern (cycles 418
+  and 490-493) hit the seven `references:*` assertions while
+  `constraint:availableconstraint` and `errors:missing_artefact` stayed
+  `ok`; this cycle is the mirror image, hitting exactly those two
+  assertions (plus the always-`ok` `dialect:sdmx3`) while every
+  `references:*` assertion stayed clean. Consistent with ILO's
+  long-documented Cloudflare/WAF-style flakiness rather than a durable
+  behavior change, especially given two of the three URLs already recovered
+  on live recheck.
+
+**History:**
+- ESTAT: this closes the thirty-fifth occurrence of the `list_dataflows`
+  timeout pattern opened at cycle 739, resolved within one to two cycles,
+  consistent with all 34 prior occurrences.
+- ABS: fifteenth occurrence of the empty-error-body flap (fourteenth was
+  cycle 654, resolved by 655). Every occurrence to date has resolved within
+  one cycle.
+- ILO: first occurrence of this specific two-assertion combination
+  (`constraint:availableconstraint` + `errors:missing_artefact` broken,
+  `references:*` untouched). Distinct from the cycle 226 blanket-403 (eight
+  assertions plus both gateway basic checks), the cycle 418/490-493
+  contract-only blanket-403 (all seven `references:*` assertions, this pair
+  unaffected), and the cycle 703 standalone `references:contentconstraint`
+  403 flap (a different single assertion).
+
+**Recommended action:** watch cycle 743 for all three. Expect ABS and ILO
+to self-resolve within one to two cycles based on every prior occurrence of
+their respective known failure families; escalate ILO for real only if this
+exact two-assertion combination recurs or persists past one cycle, since it
+is a new shape without precedent yet.
+
+**Could not determine:** the provider-side cause of ILO's `403` on
+`availableconstraint` (still open at recheck time), or why it selected
+exactly these two assertions plus the always-`ok` `dialect:sdmx3` while
+leaving `references:*` untouched; also could not determine the root cause
+of ABS's empty gateway-metadata error body, as with all fourteen prior
+occurrences.
+
 ## 2026-09-24T18:43Z - cycle 739
 
 **Changed:** ESTAT `healthy` -> `gateway_issue`

@@ -4,6 +4,57 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-25T06:43Z - cycle 745
+
+**Changed:** both endpoints flagged in the cycle 742 entry recovered: ABS
+`gateway_issue` -> `healthy`, ILO `degraded` -> `healthy`. No new problem
+this run.
+
+**Cycle saw (745, 2026-09-25T06:01:22Z):** all twelve endpoints healthy, no
+`broken` contract rows anywhere, `/api/contracts` `changes` array empty,
+`stale` false, `gateway_up` true. Checked `/api/cycle/743` and
+`/api/cycle/744` directly (not just the derived history series) to see when
+the recovery actually happened: both ABS and ILO already read fully
+healthy with no broken contract rows at cycle 743
+(2026-09-25T02:01:22Z), the very next cycle after the flap, and stayed
+clean through 744 and 745.
+
+**Live recheck (2026-09-25T06:43Z), ILO:**
+- `GET /availableconstraint/DF_GED_XLU1_SEX_HHT_CHL_RT/all/all/all` -> `500`,
+  back to ILO's normal documented baseline for this assertion (expected
+  `500`, not `200`; the cycle 742 flap was `403`).
+- `GET /dataflow/ILO/NONEXISTENT_XYZ_2026/latest` -> `404`, expected
+  baseline.
+- `GET /structure/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` -> `400`,
+  expected baseline.
+
+All three confirm ILO's contract probes are fully back to normal. No
+separate live recheck attempted for ABS's gateway metadata check: the
+failing check runs through this repository's own MCP gateway, not a
+plain HTTP endpoint this routine can curl directly, and three consecutive
+clean cycles (743, 744, 745) from the monitor itself is the same strength
+of evidence the fourteen prior ABS occurrences were closed on.
+
+**Classification:** both closures confirm the cycle 742 entry's own
+classification: ABS was `gateway_issue` (ours, empty-error-body flap,
+fifteenth occurrence, no code fix in scope for this routine) and ILO was
+`degraded` (theirs, contract-only 403 on two assertions, nothing to fix in
+our code). Neither reopened.
+
+**History:** ABS's empty-error-body flap has now resolved within one cycle
+on all fifteen occurrences to date. ILO's `constraint:availableconstraint`
++ `errors:missing_artefact` paired-403 shape has one occurrence on record
+(cycle 742, resolved by 743); no second occurrence yet, so the open item
+stays open for a future recurrence.
+
+**Recommended action:** none. Keep watching for a second occurrence of the
+ILO paired-403 shape and a sixteenth ABS empty-error-body occurrence, per
+the existing open items.
+
+**Could not determine:** the provider-side cause of either the ABS empty
+gateway-metadata error or ILO's transient `403` on `availableconstraint`,
+consistent with every prior occurrence of both patterns.
+
 ## 2026-09-25T00:44Z - cycle 742
 
 **Changed:** three endpoints moved since the last run (cycle 739):

@@ -4,6 +4,61 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-25T18:43Z - cycle 751
+
+**Changed:** two things, both already resolved by the time of this run.
+
+1. FBOS `gateway_issue` (flagged in the cycle 748 entry) -> `healthy`.
+2. ESTAT healthy -> `gateway_issue` -> `healthy`, a new flap that started
+   and resolved entirely between runs.
+
+**Cycle saw:**
+- Cycle 748 (2026-09-25T12:01:22Z): FBOS gateway metadata failed with the
+  empty `Error: ` body (already reported last run).
+- Cycle 749 (2026-09-25T14:01:22Z): FBOS fully healthy again (gateway
+  metadata 6513ms, gateway data 4314ms, all three direct checks passing).
+  Same cycle, ESTAT gateway metadata failed: `tool call list_dataflows
+  timed out after 60.0s`, 2 attempts. ESTAT gateway data and all direct
+  checks (metadata, data) stayed healthy; direct json is permanently
+  skipped for ESTAT (Eurostat returns 406 for SDMx-JSON, not a failure).
+- Cycles 750-751: all twelve endpoints healthy, ESTAT included. No other
+  endpoint changed status across 749-751. `/api/contracts` `changes` is
+  empty; the only non-`ok` verdict anywhere is the long-standing STATSNZ
+  `auth:listing` `capability_appeared` (open since cycle 60, unchanged, not
+  a new event). `stale` false, `gateway_up` true throughout.
+
+**Live recheck:** re-hit `/healthz` and `/api/status` directly (200, cycle
+751, all healthy) and tried the gateway host directly
+(`sdmx-mcp-gateway-production.up.railway.app`); still not in this
+environment's allowed network list, connection fails with no HTTP
+response, same as the cycle 748 entry. No live recheck of the FBOS or
+ESTAT gateway paths was possible from here, but both already show two and
+one consecutive healthy cycles respectively in the monitor's own data.
+
+**Classification:**
+- FBOS: was `gateway_issue` (ours per `monitor/derive.py`), now resolved.
+  Consistent with the ABS-style empty-error-body pattern, first time on
+  FBOS, resolved within one cycle exactly as all fifteen ABS occurrences
+  have.
+- ESTAT: `gateway_issue` (direct path OK, gateway path failing) -> ours,
+  but this specific shape (`list_dataflows` timing out at the monitor's
+  own 60s deadline) is the long-documented, expected pattern: "our own
+  call deadline firing, working as designed." This is the 36th recorded
+  occurrence (35th was cycle 739, resolved by 740).
+
+**History:** both new-since-last-run events, both already closed. FBOS
+gateway_issue lasted exactly one cycle (748 only). ESTAT gateway_issue
+lasted exactly one cycle (749 only).
+
+**Recommended action:** none. Both match well-established, self-resolving
+patterns; no code change needed from this read-only routine. Continue
+watching for a FBOS empty-error recurrence (to tell whether it is the same
+underlying bug as the ABS pattern) and for a 37th ESTAT timeout occurrence.
+
+**Could not determine:** whether the FBOS empty-error-body flap shares a
+root cause with the ABS pattern; the gateway was not reachable from this
+session to inspect either failure directly.
+
 ## 2026-09-25T12:42Z - cycle 748
 
 **Changed:** FBOS healthy -> `gateway_issue` (first occurrence for this

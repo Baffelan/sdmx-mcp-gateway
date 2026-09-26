@@ -4,6 +4,62 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-26T00:43Z - cycle 754
+
+**Changed:** ILO healthy -> `gateway_issue`.
+
+**Cycle saw:** cycle 754 (2026-09-26T00:01:22Z) gateway metadata failed
+with `HTTP 403 Forbidden for url
+https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` (2 attempts), gateway
+data failed with `probe status: error; HTTP 403 from provider` (2
+attempts). All three direct checks (metadata, data, json) stayed healthy
+and all twelve `references:*`/other ILO contract assertions stayed
+ok/ignored, matching their documented baseline. No other endpoint changed
+status across cycles 752-754; `/api/contracts` `changes` is empty; the
+only non-`ok` verdict anywhere is the long-standing STATSNZ `auth:listing`
+`capability_appeared` (open since cycle 60, unchanged). `stale` false,
+`gateway_up` true.
+
+**Live recheck:** direct `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` returns `200` right
+now, confirming direct access is fine, consistent with the monitor's own
+direct-path result. The gateway host
+(`sdmx-mcp-gateway-production.up.railway.app`) is not in this
+environment's allowed network list (`403`, connection refused before any
+HTTP response), so the gateway path itself could not be live-rechecked.
+Other providers (ECB, ABS) answered normally to sanity pings, ruling out a
+network-wide problem on this runner.
+
+**Classification:** `gateway_issue` (direct path OK, gateway path
+failing) -> ours, per `monitor/derive.py`. Both gateway checks hit the
+provider's `dataflow` listing path, which the gateway's `list_dataflows`
+tool builds as `/dataflow/{agency}/all/latest` (see `main_server.py:1313`
+and the equivalent construction exercised in
+`tests/unit/test_sdmx_client.py:144`). Since the direct call to the exact
+same URL succeeds, the 403 is specific to however the gateway makes the
+request (headers, auth, or rate treatment differ from the direct check).
+
+**History:** this exact combination (both gateway metadata and gateway
+data failing 403 together, direct fully healthy) was first seen at cycle
+384 (resolved by cycle 385) and has not recurred since, per the standing
+`open_items` note, through cycle 751 (confirmed by last run). This is the
+second occurrence of that specific shape, roughly 370 cycles later. It is
+distinct from the gateway-metadata-only 403 flap (three occurrences, most
+recently cycle 682) and the gateway-data-only 403 flap (four occurrences,
+most recently cycle 622), which each hit only one of the two checks.
+
+**Recommended action:** watch the next cycle before treating this as more
+than a repeat of the rare cycle-384 shape; if it persists past one cycle,
+it likely warrants inspecting the gateway's outbound request to ILO's
+`dataflow/ILO/all/latest` (headers/User-Agent/retry timing) against the
+direct check's request, since the provider accepts the identical URL from
+here.
+
+**Could not determine:** whether the gateway's failing request differs
+from the direct check in headers or timing, since the gateway host itself
+was not reachable from this session to inspect the actual outbound
+request.
+
 ## 2026-09-25T18:43Z - cycle 751
 
 **Changed:** two things, both already resolved by the time of this run.

@@ -4,6 +4,54 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-26T18:42Z - cycle 763
+
+**Changed:** FBOS healthy -> `gateway_issue` -> healthy, already resolved by
+the time of this run.
+
+**Cycle saw:** Cycle 761 (2026-09-26T14:01:22Z): FBOS gateway metadata
+failed with the same empty `Error: ` body shape as the cycle 748 flap (2
+attempts, 33854ms). Gateway data stayed healthy (4284ms, 5105 observations),
+and all three direct checks (metadata, data, json) passed throughout. All
+fourteen FBOS contract assertions stayed `ok`. Cycle 762
+(2026-09-26T16:01:22Z) and the current cycle 763 both show FBOS fully
+healthy again. No other endpoint changed status across cycles 760-763.
+`/api/contracts` `changes` is empty; no assertion anywhere reads `broken` or
+`capability_appeared` beyond the long-standing STATSNZ `auth:listing`
+`capability_appeared` (open since cycle 60, unchanged). `stale` false,
+`gateway_up` true throughout, `drift` empty.
+
+**Live recheck:** tried the gateway host directly
+(`sdmx-mcp-gateway-production.up.railway.app/healthz`); still not in this
+environment's allowed network list, connection fails with no HTTP response
+(curl exit, no status code), same limitation as every prior run. No live
+recheck of the FBOS gateway path was possible from here, but the monitor's
+own subsequent cycles (762, 763) already show two consecutive healthy
+readings.
+
+**Classification:** `gateway_issue` (ours per `monitor/derive.py`), now
+resolved. Same empty-error-body shape as the cycle 748 FBOS flap and the
+long-running ABS pattern on the same code path
+(`GatewayError`/`next_step` in `monitor/checks_gateway.py` swallowing the
+error message). Not provider-side.
+
+**History:** second occurrence of this exact shape on FBOS. First was cycle
+748 (2026-09-25T12:01:22Z), resolved by cycle 749; that one was flagged as
+"watch for a second occurrence." This is that second occurrence, again
+resolved within one cycle. FBOS's only other prior incident was the cycle
+50 DNS resolution flap, a different shape. Not yet chronic (two occurrences
+in roughly 30 hours), but recurring on the same code path warrants a closer
+look next time it does not self-resolve.
+
+**Recommended action:** no action this run (already resolved, code-change
+scope). If a third occurrence appears, the empty-error-body message itself
+is worth fixing in `monitor/checks_gateway.py` so the underlying gateway
+error is visible instead of blank.
+
+**Could not determine:** what the actual underlying gateway error was,
+since the message body is empty and the gateway host is unreachable from
+this environment to inspect directly.
+
 ## 2026-09-25T18:43Z - cycle 751
 
 **Changed:** two things, both already resolved by the time of this run.

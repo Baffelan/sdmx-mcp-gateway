@@ -4,6 +4,74 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-26T06:43Z - cycle 757
+
+**Changed:** two things, both already resolved by the time of this run.
+
+1. ILO `gateway_issue` (flagged as still open in the cycle 754 entry) ->
+   `healthy`.
+2. IMF healthy -> `gateway_issue` -> `healthy`, a new flap that started and
+   resolved entirely between runs.
+
+**Cycle saw:**
+- Cycle 754 (2026-09-26T00:01:22Z): ILO gateway metadata HTTP 403 on
+  `/dataflow/ILO/all/latest` and gateway data HTTP 403, both from the
+  provider; all three direct checks and every ILO contract assertion stayed
+  healthy/ok/ignored (already reported last run as still open).
+- Cycle 755 (2026-09-26T02:01:22Z): ILO fully healthy again. Confirmed
+  healthy through cycle 757 (three consecutive clean cycles).
+- Cycle 756 (2026-09-26T04:01:22Z): IMF gateway metadata failed: `tool call
+  list_dataflows timed out after 60.0s` (2 attempts). IMF gateway data and
+  the two direct checks (metadata, json; IMF has no separate direct-data
+  probe configured) stayed healthy.
+- Cycle 757: all twelve endpoints healthy, IMF included. No other endpoint
+  changed status across 754-757. `/api/contracts` `changes` is empty; the
+  only non-`ok` verdict anywhere is the long-standing STATSNZ `auth:listing`
+  `capability_appeared` (open since cycle 60, unchanged, not a new event).
+  `stale` false, `gateway_up` true throughout.
+
+**Live recheck:**
+- ILO: direct dataflow listing succeeds now (200), consistent with the
+  cycle 754 entry's live recheck. Gateway host itself
+  (`sdmx-mcp-gateway-production.up.railway.app`) remains outside this
+  environment's allowed network list, so the gateway path could not be
+  probed directly.
+- IMF: `curl` against `https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest`
+  returned 200 in 0.6s, payload 394KB. No sign of provider slowness right
+  now; consistent with a one-off deadline trip rather than a provider
+  outage.
+
+**Classification:**
+- ILO: was `gateway_issue` (ours per `monitor/derive.py`), now resolved.
+  Second occurrence of this exact gateway-metadata+gateway-data-403
+  combination (first was cycle 384, resolved by cycle 385); this one also
+  resolved within one cycle, ~370 cycles after the first. No cause
+  confirmed for either occurrence.
+- IMF: `gateway_issue` while open (ours per `monitor/derive.py`, since the
+  direct paths were fine), now resolved. Shape resembles the recurring
+  ESTAT `list_dataflows` 60s-deadline pattern (our own call deadline
+  firing under load, not a provider fault) but this is the **first time
+  this specific shape has occurred on IMF**.
+
+**History:** ILO: new as of cycle 754, resolved by cycle 755, healthy for
+the three cycles since; matches the usual one-cycle resolution seen in
+prior ILO gateway-403 episodes. IMF: new as of cycle 756 only, resolved by
+cycle 757; no prior IMF `gateway_issue` timeout of this shape found in the
+run history carried in `triage-state.json`'s open items (IMF's only two
+prior flaps were the cycle 419 `provider_down` episode and the cycle 161
+`references:*` 401 flap, both unrelated).
+
+**Recommended action:** none beyond watching. Neither flap persisted past
+one cycle. If IMF's `list_dataflows` timeout recurs, it would suggest the
+same standing fix already flagged for ESTAT (raise the deadline, stream the
+listing, or cache the parsed result in `monitor/checks_gateway.py`) should
+also cover IMF, but that is a code-change-scope decision, not something
+this read-only routine should act on.
+
+**Could not determine:** whether the ILO 403s and the IMF timeout share a
+root cause (both cleared within the same three-cycle window) or are purely
+coincidental; the gateway's own logs are not reachable from here to check.
+
 ## 2026-09-25T18:43Z - cycle 751
 
 **Changed:** two things, both already resolved by the time of this run.

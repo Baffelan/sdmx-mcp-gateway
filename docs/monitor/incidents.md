@@ -4,6 +4,100 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-27T00:44Z - cycle 766
+
+**Previous state source:** `claude/sleepy-dijkstra-undk42` (last_cycle_id
+763, 2026-09-26T18:42Z). `main` was still at cycle 751; that branch's PR had
+not merged, so this run adopted its `incidents.md` and `triage-state.json`
+as the base to avoid losing the cycle 752-763 history.
+
+**Changed:** UNICEF `healthy` -> `degraded` (direct json HTTP 429).
+
+**Cycle saw:** cycle 766 (2026-09-27T00:01:22Z), the current cycle, shows
+UNICEF `degraded`, `failing: direct json`. Only the direct json check
+failed (HTTP 429, 2 attempts, 359ms). Gateway metadata (617ms), gateway
+data (1037ms, 1 observation), direct metadata (277ms, HTTP 200), and direct
+data (247ms, 2 attempts, HTTP 200) all stayed healthy. All fourteen UNICEF
+contract assertions read `ok`. Cycles 763-765 show UNICEF fully healthy; no
+other endpoint changed status across 763-766. `/api/contracts` `changes` is
+empty; the only non-`ok` verdict anywhere is the long-standing STATSNZ
+`auth:listing` `capability_appeared` (open since cycle 60, unchanged).
+`stale` false, `gateway_up` true, `drift` empty.
+
+**Live recheck:** direct GET of UNICEF's pinned data query
+(`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`)
+with `Accept: application/vnd.sdmx.data+json;version=1.0.0`, twice: HTTP
+200 both times (0.50s, 0.29s). Disagrees with the cycle's HTTP 429; already
+recovered by the time of this recheck. Other providers (ECB direct
+metadata) answered normally in the same window, so this was not a
+network-side problem on this run's end.
+
+**Classification:** `degraded` (mixed, per `monitor/derive.py`; only one of
+five basic checks failing). Matches the standing UNICEF HTTP 429
+rate-limit pattern, provider-side, not a gateway bug.
+
+**History:** this is a new, narrower shape of the recurring UNICEF 429
+flap. All eleven prior documented occurrences (most recently cycle 718,
+2026-09-23T00:01:22Z) hit gateway data and both direct data and direct
+json together; this is the first time only direct json failed while
+gateway data and direct data both stayed healthy in the same cycle.
+
+**Recommended action:** watch the next cycle; the live recheck already
+shows recovery, consistent with every prior occurrence resolving within
+one cycle.
+
+**Could not determine:** why this occurrence hit only the json check
+instead of the usual three-check combination, since UNICEF's rate-limit
+behavior and window are not visible from outside.
+
+## 2026-09-26T18:42Z - cycle 763
+
+**Changed:** FBOS healthy -> `gateway_issue` -> healthy, already resolved by
+the time of this run.
+
+**Cycle saw:** Cycle 761 (2026-09-26T14:01:22Z): FBOS gateway metadata
+failed with the same empty `Error: ` body shape as the cycle 748 flap (2
+attempts, 33854ms). Gateway data stayed healthy (4284ms, 5105 observations),
+and all three direct checks (metadata, data, json) passed throughout. All
+fourteen FBOS contract assertions stayed `ok`. Cycle 762
+(2026-09-26T16:01:22Z) and the current cycle 763 both show FBOS fully
+healthy again. No other endpoint changed status across cycles 760-763.
+`/api/contracts` `changes` is empty; no assertion anywhere reads `broken` or
+`capability_appeared` beyond the long-standing STATSNZ `auth:listing`
+`capability_appeared` (open since cycle 60, unchanged). `stale` false,
+`gateway_up` true throughout, `drift` empty.
+
+**Live recheck:** tried the gateway host directly
+(`sdmx-mcp-gateway-production.up.railway.app/healthz`); still not in this
+environment's allowed network list, connection fails with no HTTP response
+(curl exit, no status code), same limitation as every prior run. No live
+recheck of the FBOS gateway path was possible from here, but the monitor's
+own subsequent cycles (762, 763) already show two consecutive healthy
+readings.
+
+**Classification:** `gateway_issue` (ours per `monitor/derive.py`), now
+resolved. Same empty-error-body shape as the cycle 748 FBOS flap and the
+long-running ABS pattern on the same code path
+(`GatewayError`/`next_step` in `monitor/checks_gateway.py` swallowing the
+error message). Not provider-side.
+
+**History:** second occurrence of this exact shape on FBOS. First was cycle
+748 (2026-09-25T12:01:22Z), resolved by cycle 749; that one was flagged as
+"watch for a second occurrence." This is that second occurrence, again
+resolved within one cycle. FBOS's only other prior incident was the cycle
+50 DNS resolution flap, a different shape. Not yet chronic (two occurrences
+in roughly 30 hours), but recurring on the same code path warrants a closer
+look next time it does not self-resolve.
+
+**Recommended action:** no action this run (already resolved, code-change
+scope). If a third occurrence appears, the empty-error-body message itself
+is worth fixing in `monitor/checks_gateway.py` so the underlying gateway
+error is visible instead of blank.
+
+**Could not determine:** what the actual underlying gateway error was,
+since the message body is empty and the gateway host is unreachable from
+this environment to inspect directly.
+
 ## 2026-09-25T18:43Z - cycle 751
 
 **Changed:** two things, both already resolved by the time of this run.

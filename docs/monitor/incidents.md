@@ -4,6 +4,105 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-27T18:43Z - cycle 775
+
+**Changed:** ILO `gateway_issue` -> healthy, already resolved by the time of
+this run.
+
+**Cycle saw:** cycle 772 (2026-09-27T12:01:22Z) showed ILO gateway metadata
+failing with HTTP 500 on the bulk `dataflow/ILO/all/latest` listing, direct
+path healthy throughout (reported in the 2026-09-27T12:43Z entry, which
+flagged it as still failing 42 minutes into that cycle and asked to watch
+the next cycle). Cycle 773 (2026-09-27T14:01:22Z) shows ILO fully healthy
+again, and it has stayed healthy through cycles 774 and 775
+(2026-09-27T18:01:22Z). No other endpoint changed status across cycles
+772-775, and `/api/contracts` `changes` is empty; the only non-`ok` verdict
+anywhere is the long-standing STATSNZ `auth:listing` `capability_appeared`
+(open since cycle 60, unchanged).
+
+**Live recheck:** hit the same bulk listing URL,
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`, directly at
+2026-09-27T18:43Z: `200` in 2.6s, agreeing with the monitor's own recovery.
+
+**Classification:** resolved `gateway_issue`. This is now the second
+occurrence of this exact shape (gateway metadata bulk-listing HTTP 500,
+direct path clean) to resolve on its own, after cycles 268-269. Unlike the
+previous run's live recheck (which still saw the 500 42 minutes into cycle
+772), this episode had cleared by the very next 2-hour cycle boundary
+(14:01Z), so it did not become the longest occurrence on record as the
+prior entry's watch condition considered.
+
+**History:** healthy for all twelve endpoints through cycles 773-775. No
+new flap of any other shape.
+
+**Recommended action:** none. Close out the cycle 772 open item; no further
+watch needed unless this shape recurs.
+
+**Could not determine:** nothing outstanding; `/healthz` answered, the
+monitor was not stale, and the gateway was reachable throughout this
+window.
+
+## 2026-09-27T12:43Z - cycle 772
+
+**Changed:** ILO healthy -> `gateway_issue`.
+
+**Cycle saw (cycle 772, 2026-09-27T12:01:22Z):** gateway metadata failed:
+`Error: Server error '500 Internal Server Error' for url
+'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`, 2 attempts, 1645ms.
+Gateway data and all three direct checks (metadata, data, json) stayed
+healthy. All twelve contract assertions for ILO stayed `ok`. Previous run's
+state (branch `claude/sleepy-dijkstra-9vnzob`, cycle 769) showed ILO
+`healthy`; the intervening cycles 770-771 were also healthy, so this
+appeared fresh at cycle 772.
+
+**Live recheck (2026-09-27T12:43Z, 42 minutes into the cycle):** hit the
+exact failing URL, `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`,
+directly: still `HTTP 500` after 1.9s. Agrees with the cycle's own
+observation, so this is not a one-shot transient that already cleared.
+The gateway's `list_dataflows` call (which the "gateway metadata" check
+exercises with `fresh=True`) evidently maps to this same bulk `all/latest`
+listing URL. The "direct metadata" check, by contrast, queries a single
+named dataflow (`DF_GED_XLU1_SEX_HHT_CHL_RT/latest` per
+`monitor/endpoints_config.py`), which is a materially different, lighter
+request and is why it stayed healthy while the bulk listing 500s.
+
+**Classification:** `gateway_issue` per `monitor/derive.py` (direct path
+OK, gateway path failing) -> ours per the vocabulary, but the live recheck
+shows the underlying HTTP 500 is coming from ILO's own bulk dataflow
+listing endpoint, not from anything the gateway itself is doing wrong to
+that request; the gateway is simply relaying ILO's failure on the `all`
+listing, distinct from any error in gateway code. Likely code site:
+`monitor/checks_gateway.py: gateway_metadata_check` (`list_dataflows`,
+`fresh=True`) and, on the gateway side, whatever handler builds the
+`/dataflow/{agency}/all/latest` request for ILO.
+
+**History:** this is only the second time this exact shape (gateway
+metadata bulk-listing HTTP 500, direct path clean) has been seen. The
+first was cycles 268-269 (gateway metadata HTTP 500 on `list_dataflows`,
+direct healthy throughout), resolved within one cycle back then. Every
+other ILO gateway/direct flap on record (see the accumulated `open_items`
+in `docs/monitor/triage-state.json`) has been HTTP 403, not 500, and none
+of the 403 shapes touched this bulk-listing path. Since the cycle 268-269
+episode this pattern has never recurred through cycle 771, a gap of over
+500 cycles. Unlike that episode, this one has not yet cleared: it is still
+failing 42 minutes into the current cycle at live recheck time, whereas
+cycle 268-269's episode resolved by the very next cycle.
+
+**Recommended action:** watch the next cycle (expected ~14:01Z). If it
+clears by then, this matches the historical one-cycle pattern and no
+further action is needed. If it persists past a second cycle, this becomes
+the longest occurrence of this shape on record and is worth escalating as
+a genuine ILO-side (or gateway-request-shape) problem with the bulk
+`all/latest` dataflow listing, separate from the well-documented 403
+flapping.
+
+**Could not determine:** whether ILO's bulk listing 500 is a provider-side
+regression, a rate limit / load response specific to unfiltered `all`
+queries, or something about the specific query shape the gateway's
+`list_dataflows` tool sends (`limit: 1, fresh: True`) that only manifests
+on the "all dataflows" path and not on requests for a single named
+dataflow.
+
 ## 2026-09-25T18:43Z - cycle 751
 
 **Changed:** two things, both already resolved by the time of this run.

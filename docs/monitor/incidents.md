@@ -4,6 +4,72 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-27T06:43Z - cycle 769
+
+**Changed:** two things, both already resolved by the time of this run
+(previous state compared was cycle 766, branch `claude/sleepy-dijkstra-3y17ty`).
+
+1. UNICEF `degraded` (open at cycle 766, the last state this run compared
+   against) -> `healthy` by cycle 767.
+2. ILO healthy -> `degraded` -> `healthy`, a new flap that started and
+   resolved entirely between runs.
+
+**Cycle saw:**
+- Cycle 766 (2026-09-27T00:01:22Z): UNICEF direct json HTTP 429, 2 attempts.
+  Gateway metadata, gateway data, and direct metadata/data all stayed
+  healthy. This was the twelfth occurrence of the recurring UNICEF 429
+  pattern per the prior run's open item, but a narrower shape than the
+  eleven earlier ones (those hit gateway data plus both direct data and
+  direct json together; this one hit direct json alone).
+- Cycle 767 (2026-09-27T02:01:22Z): UNICEF back to healthy, all checks
+  passing. Same cycle, ILO direct json failed with HTTP 403; ILO's other
+  four basic checks (gateway metadata, gateway data, direct metadata,
+  direct data) and all fourteen contract assertions stayed healthy/ok.
+- Cycles 768-769: all twelve endpoints healthy, no other status changes.
+  `/api/contracts` `changes` is empty; the only non-`ok` verdicts anywhere
+  are the long-standing BIS/ILO/IMF `references:contentconstraint`
+  `ignored` readings (architectural, expected) and the STATSNZ
+  `auth:listing` `capability_appeared` (open since cycle 60, unchanged).
+  `stale` false, `gateway_up` true throughout the window.
+
+**Live recheck:** hit the ILO direct json URL directly
+(`https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`,
+`Accept: application/vnd.sdmx.data+json;version=2.0.0`) at 06:43Z: HTTP 200
+in 1.5s, agreeing with the monitor's own cycle 768/769 healthy readings. Did
+not separately recheck UNICEF direct json since two consecutive monitor
+cycles (767, 768) already confirm recovery and the prior run's own live
+recheck at 00:44Z had already returned 200 twice. Other providers (ABS,
+ILO) answered normally throughout this session, so nothing here points to a
+network problem on this end.
+
+**Classification:**
+- UNICEF: `degraded` at cycle 766 (narrower single-check shape than the
+  prior eleven occurrences), resolved by cycle 767. Provider-side rate
+  limiting (HTTP 429), nothing to fix in our code.
+- ILO: `degraded` at cycle 767, single check (direct json HTTP 403),
+  resolved by cycle 768. No cause confirmed, consistent with ILO's long
+  history of transient single-cycle 403s on various check combinations
+  (see the open items list below); this specific "direct-json-only" shape
+  is not an exact match for any previously logged ILO flap and is being
+  logged as its own line for that reason.
+
+**History:**
+- UNICEF: new narrower shape as of cycle 766; twelfth overall occurrence of
+  the broader 429 pattern (prior: cycles 126, 178, 262, 305, 346, 430, 514,
+  598, 718, all resolved within one cycle).
+- ILO: new shape (direct-json-only 403) as of cycle 767; ILO has multiple
+  other distinct 403 flap shapes on record (gateway-metadata-only,
+  gateway-data-only, gateway-both, direct-path-basic, contract-only-403)
+  but none previously logged as direct-json-only specifically.
+
+**Recommended action:** none beyond watching. Both resolved within one
+cycle, matching the general pattern for both endpoints' known flakiness.
+
+**Could not determine:** whether ILO's direct-json-only shape has occurred
+before under a coarser label (e.g. folded into "direct-path 403 flap") in
+older history that has since aged out of the 48-hour window this run
+queried; treating it as new is the conservative reading.
+
 ## 2026-09-25T18:43Z - cycle 751
 
 **Changed:** two things, both already resolved by the time of this run.

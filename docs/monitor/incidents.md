@@ -4,6 +4,62 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-28T12:44Z - cycle 784
+
+**Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely
+between runs.
+
+**Previous state:** the last state found (branch `claude/sleepy-dijkstra-57gjcf`,
+cycle 781, 2026-09-28T06:01:22Z) had all twelve endpoints healthy. Note that
+`main` itself only carries report entries through cycle 751 (PR #242); the
+state file for cycle 781 was recovered from an unmerged run branch per the
+state-discovery step, so cycles 752-781 have no report entries here even
+though nothing in that range affected this comparison (all twelve endpoints
+were healthy at 781, matching this run's baseline).
+
+**Cycle saw (783, 2026-09-28T10:01:22+00:00):** gateway data check failed:
+`probe status: error; HTTP 500 from provider.` Direct metadata, direct data,
+direct json, and gateway metadata all stayed healthy in the same cycle, so
+only the gateway data channel was affected. Resolved by cycle 784
+(2026-09-28T12:01:22+00:00): all OECD checks passing again, no `broken` or
+`informational` contract rows for OECD.
+
+**Live recheck (2026-09-28T12:44Z):** direct data query
+(`/data/OECD.SDD.TPS,DSD_PRICES@DF_PRICES_HICP/FRA.M......?firstNObservations=1`)
+against `https://sdmx.oecd.org/public/rest` returned `200` with a normal
+`GenericData` payload (26s, on the slow side but successful), agreeing with
+the monitor's cycle 784 recovery.
+
+**Classification:** `gateway_issue` at cycle 783 (direct path succeeded,
+gateway path failed on the data channel). By the monitor's own vocabulary
+this is ours to account for, but the failure text itself says "HTTP 500 from
+provider", meaning the gateway relayed a provider-side 500 rather than
+failing on its own logic; the concurrent direct-path success shows OECD was
+not down wholesale at that moment, so this reads as OECD returning a
+transient 500 specifically on the request the gateway happened to send, not
+a bug in gateway code that a recheck can confirm either way, since the
+gateway host (`sdmx-mcp-gateway-production.up.railway.app`) is outside this
+environment's allowed network.
+
+**History:** new shape for OECD. Distinct from the three prior OECD episodes
+on record: the cycles 290-292 `gateway_issue` HTTP 403 episode (both gateway
+checks, not just data), the cycle 566 direct-data-only `ReadTimeout` flap,
+and the cycle 735 direct data+json `HTTP 500` flap (that one left both
+gateway checks healthy; this one is the mirror image). First `gateway_issue`
+recurrence since cycles 290-292, and the first time it has shown as `HTTP
+500` rather than `403`. Self-resolved within one cycle, consistent with
+every prior OECD episode.
+
+**Recommended action:** none, already resolved. Add to the open-items watch
+list as a fourth distinct OECD failure shape; escalate if this specific
+gateway-data-only `HTTP 500` combination recurs or if a future episode spans
+more than one cycle.
+
+**Could not determine:** the provider-side cause of the `HTTP 500` (OECD
+gives no detail in the response body); whether the gateway's own request
+differed in any way from the direct probe's request, since the gateway
+cannot be reached directly from this environment to inspect it.
+
 ## 2026-09-25T18:43Z - cycle 751
 
 **Changed:** two things, both already resolved by the time of this run.

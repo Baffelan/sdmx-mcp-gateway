@@ -4,6 +4,55 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-29T12:43Z - cycle 796
+
+**Changed:** OECD `healthy` -> `degraded` -> `healthy`, flapped entirely
+between runs.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-3pwk9u`, cycle
+793, 2026-09-29T06:43Z) had all twelve endpoints healthy.
+
+**Cycle saw (794, 2026-09-29T08:01:22+00:00):** `failing: ["direct json: HTTP
+500"]`. Direct metadata, direct data, gateway metadata, and gateway data all
+stayed healthy in the same cycle, so only the direct json channel was
+affected. Resolved by cycle 795 (2026-09-29T10:01:22+00:00), confirmed still
+healthy at cycle 796 (2026-09-29T12:01:22+00:00). No `broken` or
+`capability_appeared` contract rows for OECD; the one `/api/contracts`
+`changes` entry this run (ILO `encoding:structure_xml`, Content-Type
+parameter-order swap) is the known cosmetic flap and stayed `ok`.
+
+**Live recheck (2026-09-29T12:43Z):** the pinned data query
+(`/data/OECD.SDD.TPS,DSD_PRICES@DF_PRICES_HICP/FRA.M......?firstNObservations=1`)
+against `https://sdmx.oecd.org/public/rest` with the SDMx-JSON 2.0.0 Accept
+header returned `200` in 3.3s on a second attempt (the first attempt hit this
+environment's own 30s curl timeout with no response), agreeing with the
+monitor's cycle 795-796 recovery.
+
+**Classification:** `degraded` (monitor's own status word; only one of five
+basic checks failed, all others including both gateway checks stayed
+healthy). Reads as provider-side: the failure was isolated to OECD's own
+response to the JSON Accept header on the direct path, with the gateway path
+for the same underlying data unaffected, so there is no gateway-side bug to
+chase here.
+
+**History:** new as of cycle 794; healthy for at least 23 preceding cycles
+(cycle 786 onward, per the last report entry). Distinct from every prior
+OECD shape on record: the cycles 783/785 flaps hit the *gateway data* probe
+(`gateway_issue`), not direct json; the cycle 735 flap hit direct data *and*
+direct json together; the cycle 566 flap hit direct data alone with a
+`ReadTimeout`, not an HTTP 500. This is the first time direct json has
+failed alone with an HTTP 500.
+
+**Recommended action:** no code change; watch for a second occurrence of
+this specific shape (direct-json-only HTTP 500). Escalate for real if a
+future episode spans more than one cycle, which no prior OECD shape has
+done.
+
+**Could not determine:** whether OECD's 500 on cycle 794 came from the same
+underlying cause as the cycles 783/785 gateway-data 500s (both are
+provider-side 500s on the same dataflow, four hours apart) or is unrelated;
+the monitor does not expose the provider's error body for either shape.
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

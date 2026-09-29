@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 787,
-  "last_cycle_started_at": "2026-09-28T18:01:22+00:00",
-  "last_run": "2026-09-28T18:44Z",
+  "last_cycle_id": 793,
+  "last_cycle_started_at": "2026-09-29T06:01:22+00:00",
+  "last_run": "2026-09-29T06:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,6 +18,7 @@
     "UNICEF": "healthy"
   },
   "open_items": [
+    "ILO references:* contract-only 403, four-assertion subset (new shape): first occurrence, cycle 790 (2026-09-29T00:01:22Z). references:none, references:children, references:parents, and references:parentsandsiblings all flipped 200 -> 403, graded broken; references:all, references:descendants, and references:contentconstraint stayed ok (200) in the same cycle. All five basic ILO checks (gateway metadata, gateway data, direct metadata, direct data, direct json) stayed healthy throughout. See the 2026-09-29T00:44Z report entry. /api/history still shows cycle 790 as healthy with no failing entries, the known gap where contract-only degraded cycles do not fold into the history series (same gap first flagged for ABS on 2026-09-18). Live recheck at 00:44Z (44 minutes into the cycle) found all seven references= values returning 200 directly against ILO, already resolved. Distinct from every other ILO 403 shape on record: the cycle 418/490-493 blanket hit all seven references:* assertions together; the cycle 742 pair hit availableconstraint/errors:missing_artefact, not references:*; the cycle 703 standalone hit only references:contentconstraint. First time this specific four-assertion subset has failed together. Watch for a second occurrence of this combination, and escalate for real if a future episode spans more than one cycle, which no prior ILO 403 shape has done.",
     "OECD gateway_issue HTTP 500 flap (new shape): second occurrence, cycle 785 (2026-09-28T14:01:22Z), gateway data probe failed with HTTP 500 from provider; direct metadata/data/json and gateway metadata all stayed healthy in the same cycle, identical shape to the first occurrence. Resolved by cycle 786 (2026-09-28T16:01:22Z), confirmed healthy through cycle 787; see the 2026-09-28T18:44Z report entry. First occurrence was cycle 783 (2026-09-28T10:01:22Z), resolved by cycle 784, see the 2026-09-28T12:44Z report entry. Live recheck at 18:44Z confirmed the direct data query returns 200 in under a second; also checked ECB direct as a network sanity check (200). Two occurrences only 4 hours (2 cycles) apart, closer together than any other OECD shape has repeated. Distinct from the cycles 290-292 gateway_issue HTTP 403 episode (both gateway checks failed there, not just data), the cycle 566 direct-data-only ReadTimeout flap, and the cycle 735 direct data+json HTTP 500 flap (mirror image: that one left both gateway checks healthy). Watch for a third occurrence; escalate for real if one appears or if a future episode spans more than one cycle.",
     "ILO gateway metadata bulk-listing HTTP 500 (list_dataflows on dataflow/ILO/all/latest), direct path (single named dataflow) healthy throughout: occurred cycle 772 (2026-09-27T12:01:22Z). Endpoint status healthy -> gateway_issue -> healthy. See the 2026-09-27T12:43Z report entry (initial detection) and the 2026-09-27T18:43Z report entry (resolution). Resolved by cycle 773 (2026-09-27T14:01:22Z), confirmed healthy through cycle 778 (2026-09-28T00:01:22Z). Live recheck at 18:43Z hit the exact same bulk-listing URL directly and it returned 200, agreeing with the monitor's recovery. This time the episode cleared by the very next cycle boundary, unlike the live recheck at 12:43Z which still saw the 500 42 minutes into cycle 772; it did not become the longest occurrence of this shape. Second known occurrence overall, after cycles 268-269 (also resolved within one cycle). Watch for a third occurrence.",
     "ILO direct-json-only 403 flap (new shape): first occurrence, cycle 767 (2026-09-27T02:01:22Z), direct json HTTP 403 alone; the other four basic checks (gateway metadata, gateway data, direct metadata, direct data) and all fourteen contract assertions stayed healthy/ok. Resolved by cycle 768 (2026-09-27T04:01:22Z), confirmed healthy through cycle 778; see the 2026-09-27T06:43Z report entry. Live recheck at 06:43Z returned 200 in 1.5s, agreeing with the monitor's own recovery. Distinct from every other ILO 403 shape on record (gateway-metadata-only, gateway-data-only, gateway-both, direct-path-basic combinations, and the contract-only variants); none of those previously isolated direct json as the sole failing check. Watch for a second occurrence.",
@@ -56,5 +57,5 @@
     "IMF references:* 401 flap: first and only occurrence, cycle 161, resolved by cycle 162. No new occurrence through cycle 778. Watch for a second occurrence.",
     "ECB references:* 504 flap (cycles 182-183 pattern): first occurrence, cycles 182-183, resolved by cycle 184. No new occurrence through cycle 778. Watch for a second occurrence of this specific pattern."
   ],
-  "alerted": true
+  "alerted": false
 }

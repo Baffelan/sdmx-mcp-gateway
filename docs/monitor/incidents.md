@@ -4,6 +4,58 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-29T00:44Z - cycle 790
+
+**Changed:** ILO `healthy` -> `degraded`, contract-only (basic checks stayed
+healthy throughout).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-cupd26`, cycle
+787, 2026-09-28T18:44Z) had all twelve endpoints healthy.
+
+**Cycle saw (790, 2026-09-29T00:01:22+00:00):** four `references:*` contract
+assertions flipped from `200` to `403` in the same cycle: `references:none`,
+`references:children`, `references:parents`, `references:parentsandsiblings`,
+all graded `broken`. `references:all`, `references:descendants`, and
+`references:contentconstraint` stayed `ok` (200) in the same cycle, so this
+is a partial subset of ILO's `references:*` group, not the full seven-assertion
+blanket seen before. All five basic checks (gateway metadata, gateway data,
+direct metadata, direct data, direct json) stayed `ok` throughout; `/api/history`
+still shows cycle 790 as `healthy` with no failing entries, which is the
+known gap where the history series does not fold contract-only degraded
+cycles into per-cycle status (first flagged for ABS on 2026-09-18).
+
+**Live recheck (2026-09-29T00:44Z):** direct query against
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+with each of `references=none`, `children`, `parents`, `parentsandsiblings`,
+`descendants`, `all`, `contentconstraint` all returned `200`. Disagrees with
+the cycle's `403` readings, i.e. already resolved by the time of the recheck,
+44 minutes later.
+
+**Classification:** `degraded`, contract-only, provider-side (ILO returned
+403 on a subset of `references=` values it normally serves; nothing in our
+code changed between cycles).
+
+**History:** new as of cycle 790, first occurrence of this specific
+four-assertion combination. Distinct from every other ILO 403 shape on
+record: the cycle 418/490-493 contract-only blanket 403 hit all seven
+`references:*` assertions together; the cycle 742 contract-only pair hit
+`availableconstraint`/`errors:missing_artefact`, not `references:*`; the
+cycle 703 standalone hit only `references:contentconstraint`. This is the
+first time exactly these four have failed together while `all`,
+`descendants`, and `contentconstraint` stayed clean. Fits the broader
+pattern of ILO periodically 403'ing on a subset of its contract checks and
+self-resolving within a cycle or two, seen many times before under
+different subsets.
+
+**Recommended action:** none; self-resolved by recheck time, consistent with
+ILO's established flapping pattern. Watch for a second occurrence of this
+specific four-assertion combination, and for a third occurrence pushing past
+one cycle (none of ILO's prior 403 shapes have done that).
+
+**Could not determine:** why ILO 403s a specific subset of `references=`
+values rather than all seven or none; no cause has ever been confirmed for
+any ILO 403 episode.
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

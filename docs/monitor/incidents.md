@@ -4,6 +4,52 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-30T18:42Z - cycle 811
+
+**Changed:** UNICEF `degraded` -> `healthy`: the four-way 404 episode from
+cycle 808 is confirmed resolved.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-4ni51g`, cycle
+808, 2026-09-30T12:43Z) had UNICEF `degraded` with one item open: watch
+whether cycle 809 also read degraded. All other eleven endpoints were
+healthy. Cycle 808's failure was gateway data, direct data, and direct
+json all returning `HTTP 404` on the probe key
+`UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T`, plus the
+`constraint:availableconstraint` contract assertion flipping `broken`
+(expected `200`, observed `404`).
+
+**Cycle saw (811, 2026-09-30T18:01:22+00:00):** `/api/status` shows all
+twelve endpoints `healthy`, including UNICEF. `/api/history?hours=48`
+shows UNICEF back to `healthy` with no failing checks at cycles 809, 810,
+and 811, so the recovery held for three consecutive cycles, not just one.
+`/api/contracts` `changes` is empty; no assertion changed between cycles
+810 and 811. No `broken` verdicts anywhere in the current matrix. The only
+non-`ok` verdict present is the long-standing `STATSNZ auth:listing`
+`capability_appeared`, unchanged from prior runs and not a new event.
+
+**Live recheck (2026-09-30T18:42Z):** hit UNICEF directly against
+`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest`, independent of the
+monitor's own reading: dataflow metadata `200`, the exact cycle 808 probe
+key `200`, and `/availableconstraint/GLOBAL_DATAFLOW/all/all/all` `200`.
+All three agree with the monitor's recovery.
+
+**Classification:** provider-side, now fully resolved. No gateway
+involvement was indicated at any point (cycle 808 failed identically on
+gateway and direct paths).
+
+**History:** recovered by the very next cycle (809), the same
+one-cycle-to-resolve pattern as most flaps on this monitor. No recurrence
+of the `404 no data found` shape through cycle 811.
+
+**Recommended action:** none. Close this out; continue watching for a
+second occurrence of this specific four-way 404 combination as a distinct
+future event.
+
+**Could not determine:** still do not know why UNICEF returned "no data
+found" for the probe key at cycle 808, or whether it affected queries
+beyond the probe key and the wildcard `availableconstraint` call. Nothing
+new to add on this question this run.
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

@@ -4,6 +4,59 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-30T12:43Z - cycle 808
+
+**Changed:** UNICEF `healthy` -> `degraded`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-k1iy1k`, cycle
+805, 2026-09-30T06:44Z) had all twelve endpoints healthy. Cycles 806 and 807
+in between also read healthy for UNICEF, so this is new as of cycle 808, not
+a change that already resolved before this run looked.
+
+**Cycle saw (808, 2026-09-30T12:01:22+00:00):** gateway data failed
+(`probe status: empty; HTTP 404 — no data found for this query.`), direct
+data failed (`HTTP 404`), and direct json failed (`HTTP 404`), all against
+the same probe key (`UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T`). Gateway
+metadata and direct metadata both stayed healthy. Contract assertion
+`constraint:availableconstraint` also flipped `broken`: expected `200`,
+observed `404`, on `/availableconstraint/GLOBAL_DATAFLOW/all/all/all`. All
+other twelve UNICEF contract assertions stayed `ok`.
+
+**Live recheck (2026-09-30T12:43Z):** all four URLs hit directly against
+`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest` now return `200`:
+metadata, the exact data probe key (`ALB.CME_MRY0T4._T`, 2.2KB response
+body with one observation), the same query with the JSON `Accept` header,
+and `/availableconstraint/GLOBAL_DATAFLOW/all/all/all`. Disagrees with what
+the cycle saw, so this reads as transient, already resolved. The gateway
+path itself could not be rechecked; `sdmx-mcp-gateway-production.up.railway.app`
+remains outside this environment's allowed network, same gap noted in
+every prior UNICEF/FBOS entry.
+
+**Classification:** `degraded` (monitor's own status word; mixed failures).
+Both the gateway data path and the direct data path returned the identical
+`404 no data found` shape on the same query at the same cycle, and metadata
+stayed healthy on both paths, so this reads as provider-side: UNICEF failed
+to serve this one data slice for one cycle, not a gateway bug. Nothing here
+points at `gateway_issue`.
+
+**History:** UNICEF has one prior occurrence of the same `404 no data
+found` error text, cycle 197, direct-path only, resolved by the next cycle.
+This cycle 808 occurrence is wider: it also hit the gateway data path,
+direct json, and the `availableconstraint` contract check, which cycle 197
+did not. Distinct from the twelve-occurrence `HTTP 429` flap pattern (most
+recently cycle 766), which is a rate-limit shape, not a `404`. No other
+occurrence of this specific four-way combination on record. Not yet
+confirmed as resolved by a second monitor cycle, only by this run's live
+recheck.
+
+**Recommended action:** watch cycle 809 to confirm the monitor itself also
+shows recovery; no code action indicated since both paths failed
+identically.
+
+**Could not determine:** why UNICEF returned "no data found" for a key that
+normally has data, and whether it affected other UNICEF queries beyond the
+probe key and the wildcard `availableconstraint` call.
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

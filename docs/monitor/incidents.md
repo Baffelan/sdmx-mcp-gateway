@@ -4,6 +4,97 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-09-30T00:43Z - cycle 802
+
+**Changed:** ILO `healthy` -> `degraded`: six contract assertions flipped to
+`broken` in a single cycle, all observing `403` where a different status was
+expected: `auth:listing` (expected open, i.e. `200`; provider now demands
+credentials), `constraint:availableconstraint` (expected `500`, the
+endpoint's normal architectural non-conformance), `errors:missing_artefact`
+(expected `404`), and `references:descendants`, `references:parents`,
+`references:parentsandsiblings` (each expected `200`). `references:none`,
+`references:children`, `references:all`, and `references:contentconstraint`
+(still `ignored`, as expected) all stayed `ok` in the same cycle. All five
+basic ILO checks (gateway metadata, gateway data, direct metadata, direct
+data, direct json) stayed healthy throughout, so this is a contract-only
+degradation, invisible to `/api/history` (the known gap first flagged for
+ABS on 2026-09-18, then ILO cycle 790 on 2026-09-29: contract-only degraded
+cycles do not fold into the history series, which still shows cycle 802 as
+healthy with no failing entries).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-f0c7lc`, cycle
+799, 2026-09-29T18:42:52Z) had all twelve endpoints healthy, no open
+contract breakage.
+
+**Cycle saw (802, 2026-09-30T00:01:22+00:00):** `/api/contracts` `changes`
+(was cycle 801, now cycle 802) lists exactly these seven ILO rows, all
+flipping to `403`:
+
+- `auth:listing`: `200` -> `403`, verdict `broken`
+- `constraint:availableconstraint`: `500` -> `403`, verdict `broken`
+- `dialect:sdmx3`: `400` -> `403`, verdict `ok` (this assertion grades `ok`
+  on any non-200 response)
+- `errors:missing_artefact`: `404` -> `403`, verdict `broken`
+- `references:descendants`: `200` -> `403`, verdict `broken`
+- `references:parents`: `200` -> `403`, verdict `broken`
+- `references:parentsandsiblings`: `200` -> `403`, verdict `broken`
+
+**Live recheck (2026-09-30T00:43Z, 42 minutes into the cycle):** hit each
+URL directly against `https://sdmx.ilo.org/rest`.
+
+- `auth:listing` (unauthenticated GET on the bulk listing path): `200`,
+  recovered.
+- `errors:missing_artefact`: `404`, recovered, matches the documented
+  baseline.
+- `references=descendants`, `references=parents`,
+  `references=parentsandsiblings`: all `200`, recovered.
+- `references=none`, `references=children`, `references=all`: all `200`,
+  unaffected throughout, confirming these were never in scope.
+- `constraint:availableconstraint`: still `403`, not yet recovered to the
+  documented architectural `500`.
+
+**Classification:** provider-side. Five of the six assertions had already
+recovered by live recheck; the availableconstraint deviation (`403` instead
+of its normal `500`) is the one still open. Not `gateway_issue`: nothing
+here touches the gateway path, and all five basic checks passed throughout,
+so nothing in our own code is implicated.
+
+**History:** a new combination, distinct from every ILO 403 shape on
+record. It shares members with several past episodes but matches none of
+them exactly:
+
+- The cycle 790 four-assertion subset hit `references:none`,
+  `references:children`, `references:parents`,
+  `references:parentsandsiblings`; this episode leaves `none` and
+  `children` untouched but adds `auth:listing`,
+  `constraint:availableconstraint`, `errors:missing_artefact`, and
+  `references:descendants`.
+- The cycle 742 pair hit `constraint:availableconstraint` and
+  `errors:missing_artefact` together, nothing else.
+- The cycle 418/490-493 contract-only blanket hit all seven `references:*`
+  assertions, not this six-assertion mix, and never touched `auth:listing`.
+- The cycle 226 blanket-403 episode hit eight assertions plus both gateway
+  basic checks; this episode leaves the basic checks untouched.
+
+This is the first time `auth:listing` has ever been reported `broken` for
+ILO in this routine's history; every prior ILO 403 episode left listing
+access alone.
+
+**Recommended action:** watch for a second occurrence of this exact
+six-assertion combination, and specifically for `auth:listing` recurring,
+since a provider that starts demanding credentials for the bulk listing
+(even briefly) is a different kind of change from the previously
+well-documented `references:*` flapping. Also watch whether
+`constraint:availableconstraint` returns to its documented `500` baseline
+on the next cycle, since it is the one piece of this episode still open at
+recheck time.
+
+**Could not determine:** why this specific six-assertion combination
+occurred together, or whether `auth:listing`'s brief `403` reflects a
+genuine provider access-control change versus a transient blip; the
+pattern self-resolved too quickly (within 42 minutes of the cycle start) to
+say more than that it recovered.
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

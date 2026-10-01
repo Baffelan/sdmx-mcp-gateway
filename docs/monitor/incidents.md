@@ -4,6 +4,40 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-01T18:43Z - cycle 823
+
+**Changed:** IMF `healthy` -> `degraded` -> `healthy`, flapped entirely
+between runs. Previous run's last recorded cycle was 820 (healthy); this
+run's newest cycle is 823 (healthy), also all twelve endpoints healthy with
+no contract changes and no severe condition. Scanning the intermediate
+cycles in `/api/history?hours=48` found it: cycle 821 (2026-10-01T14:01:22Z)
+IMF read `degraded`, `failing: ["direct metadata: HTTP 503"]`. Cycle 820 and
+822 both show `failing: []` for IMF, so the episode is exactly one cycle
+wide.
+
+**Cycle saw:** direct metadata only (`https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest?detail=allstubs`)
+failed with HTTP 503. Gateway metadata, gateway data, and direct data all
+stayed healthy in the same cycle, per the `failing` list.
+
+**Live recheck:** direct metadata -> HTTP 200 in 0.5s now, cycle 821 over 4
+hours old. Agrees with the monitor's own cycle 822 recovery.
+
+**Classification:** `degraded` (one of five basic checks failing, the rest
+healthy). Provider-side; nothing to fix in our code.
+
+**History:** new shape. Distinct from the only two prior IMF episodes on
+record: the cycle 419 `provider_down` flap hit gateway metadata, gateway
+data, direct metadata, and direct data together (blanket 503/timeout); the
+cycle 161 flap was a contract-only `references:*` 401 issue, not a basic
+check. This is the first time direct metadata alone has failed for IMF.
+
+**Recommended action:** none beyond the standing watch; single-cycle
+self-resolving provider blip, no code change indicated. Watch for a second
+occurrence of this specific narrow shape.
+
+**Could not determine:** the cause of the 503 on IMF's side. No public IMF
+status page was checked.
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

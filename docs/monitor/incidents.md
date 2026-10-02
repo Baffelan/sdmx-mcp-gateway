@@ -4,6 +4,54 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-02T18:43Z - cycle 835
+
+**Changed:** ILO `healthy` -> `degraded`, direct metadata HTTP 403, new shape
+(direct-metadata-only; previously recorded ILO 403 flaps isolated direct json
+alone, both gateway checks together, or the direct path's basic checks as a
+group, but never direct metadata on its own).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-bawtjn`, cycle
+832, 2026-10-02T12:43Z) had all twelve endpoints healthy; `main` itself is
+still parked at cycle 787 because the intervening no-change runs' PRs have not
+merged, so this state was recovered by scanning `claude/*` branches per the
+skill's branch-discovery step, as designed.
+
+**Cycle saw (835, 2026-10-02T18:01:22+00:00):** `failing: ["direct metadata:
+HTTP 403"]` alone. Gateway metadata, gateway data, direct data, and direct
+json all stayed healthy in the same cycle. `/api/history` shows cycles 826
+through 834 (2026-10-02T00:01:22Z through 16:01:22Z) all healthy with no
+failing entries, so this is new as of cycle 835, not a continuation. No
+`broken` or `capability_appeared` contract rows for ILO or any other
+endpoint; `/api/contracts` `changes` is empty.
+
+**Live recheck (2026-10-02T18:43Z):** `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+(the exact pinned metadata URL) returned `200` twice in a row, about 40
+minutes into the cycle. The paired direct data URL also returned `200`.
+Checked ECB directly as a network sanity control (`200`), so this environment
+is not generally blocked from reaching SDMx providers; the disagreement
+between the cycle's 403 and the live 200 is informative on its own and points
+to a transient on ILO's side rather than a standing block.
+
+**Classification:** provider-side (`degraded`; gateway metadata and gateway
+data both stayed healthy throughout, so this is not a `gateway_issue`).
+
+**History:** new as of cycle 835; ILO logged healthy for at least the
+preceding nine cycles (826-834, 2026-10-02T00:01:22Z onward) and was healthy
+at the last run's snapshot (cycle 832). This specific direct-metadata-only
+403 shape has no prior occurrence among the many ILO 403 variants already on
+record (gateway-metadata-only, gateway-data-only, gateway-both, direct-json-only,
+and several contract-only `references:*`/`auth:listing` combinations).
+
+**Recommended action:** no code change; watch for a second occurrence of this
+exact direct-metadata-only shape. If it recurs or spans more than one cycle,
+escalate, since no ILO 403 episode on record has run longer than two cycles.
+
+**Could not determine:** the cause of the 403 (ILO gave no response body to
+inspect at recheck time; this is consistent with ILO's documented
+rate-limiting/WAF behavior on past 403 episodes but was not confirmed).
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

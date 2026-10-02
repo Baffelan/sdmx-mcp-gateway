@@ -3,6 +3,99 @@
 Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
+## 2026-10-02T00:43Z - cycle 826
+
+**Changed:** ILO `healthy` -> `degraded` -> (live recheck already shows recovery), contract-only.
+Previous run's last recorded cycle was 823 (all twelve endpoints healthy,
+branch `claude/sleepy-dijkstra-0grdy0`). This run's newest cycle is 826, all
+basic checks on all twelve endpoints healthy; `/api/history?hours=48` shows
+`healthy` with `failing: []` for every intermediate cycle, including 826
+itself, for every endpoint. That is the known history-series gap: a
+contract-only degraded cycle never folds into `/api/history` (first flagged
+for ABS on 2026-09-18, re-confirmed for ILO at cycle 790). `/api/status` and
+`/api/contracts` `changes`, read directly, are what actually shows this.
+
+**Cycle saw (826, 2026-10-02T00:01:22+00:00):** eight ILO contract
+assertions flipped to `broken`, all HTTP 403 in place of their documented
+baseline: `auth:listing` (200 -> 403), `constraint:availableconstraint`
+(500 -> 403), `errors:missing_artefact` (404 -> 403), `references:all`
+(200 -> 403), `references:contentconstraint` (200 -> 403),
+`references:descendants` (200 -> 403), `references:parents` (200 -> 403),
+`references:parentsandsiblings` (200 -> 403). `references:none`,
+`references:children`, and `dialect:sdmx3` stayed `ok` (the latter grades
+`ok` on any non-200, and it too read 403 instead of its usual 400, so the
+403 was blanket across everything probed except the two references values
+that were already untouched in every prior ILO episode). All five basic
+ILO checks (gateway metadata, gateway data, direct metadata, direct data,
+direct json) stayed healthy throughout, so endpoint status read `degraded`,
+not `gateway_issue`.
+
+**Live recheck (2026-10-02T00:43Z):** all four probe URLs hit directly
+against `sdmx.ilo.org` now answer their documented baselines: unauthenticated
+listing 200, `/availableconstraint/.../all/all/all` 500, the missing-artefact
+dataflow lookup 404, `?references=all` 200. Agrees with the monitor having
+already recovered; this was already resolved by the time of this run's recheck,
+roughly 40 minutes after the cycle started.
+
+**Classification:** provider-side, `degraded` (contract breakage only, all
+basic checks healthy throughout). Nothing to fix in our code.
+
+**History:** new shape, the widest ILO contract-403 combination on record.
+It is a superset of the cycle 802 six-assertion combination (`auth:listing`,
+`constraint:availableconstraint`, `errors:missing_artefact`,
+`references:descendants`, `references:parents`,
+`references:parentsandsiblings`, first seen 2026-10-01, resolved within one
+cycle) plus `references:all` and `references:contentconstraint`, which that
+combination had left untouched. Distinct from the cycle 418/490-493
+contract-only blanket-403 (that one hit all seven `references:*` assertions,
+including `none` and `children`, and never `auth:listing`), and from the
+cycle 742 pair (`constraint:availableconstraint` + `errors:missing_artefact`
+only). Fits the long-running pattern of ILO 403 flaps that self-resolve
+within one cycle; no ILO 403 episode on record has ever lasted past two
+cycles.
+
+**Recommended action:** none beyond the standing watch; single-cycle,
+self-resolving provider-side flap, consistent with every prior ILO 403
+shape. Watch for a second occurrence of this specific eight-assertion
+combination, and in particular whether `references:none`/`references:children`
+ever join a future episode (no ILO 403 episode has touched those two yet).
+
+**Could not determine:** the cause of the 403 on ILO's side for this
+30-80 minute window. No public ILO status page was checked.
+
+## 2026-10-01T18:43Z - cycle 823
+
+**Changed:** IMF `healthy` -> `degraded` -> `healthy`, flapped entirely
+between runs. Previous run's last recorded cycle was 820 (healthy); this
+run's newest cycle is 823 (healthy), also all twelve endpoints healthy with
+no contract changes and no severe condition. Scanning the intermediate
+cycles in `/api/history?hours=48` found it: cycle 821 (2026-10-01T14:01:22Z)
+IMF read `degraded`, `failing: ["direct metadata: HTTP 503"]`. Cycle 820 and
+822 both show `failing: []` for IMF, so the episode is exactly one cycle
+wide.
+
+**Cycle saw:** direct metadata only (`https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest?detail=allstubs`)
+failed with HTTP 503. Gateway metadata, gateway data, and direct data all
+stayed healthy in the same cycle, per the `failing` list.
+
+**Live recheck:** direct metadata -> HTTP 200 in 0.5s now, cycle 821 over 4
+hours old. Agrees with the monitor's own cycle 822 recovery.
+
+**Classification:** `degraded` (one of five basic checks failing, the rest
+healthy). Provider-side; nothing to fix in our code.
+
+**History:** new shape. Distinct from the only two prior IMF episodes on
+record: the cycle 419 `provider_down` flap hit gateway metadata, gateway
+data, direct metadata, and direct data together (blanket 503/timeout); the
+cycle 161 flap was a contract-only `references:*` 401 issue, not a basic
+check. This is the first time direct metadata alone has failed for IMF.
+
+**Recommended action:** none beyond the standing watch; single-cycle
+self-resolving provider blip, no code change indicated. Watch for a second
+occurrence of this specific narrow shape.
+
+**Could not determine:** the cause of the 503 on IMF's side. No public IMF
+status page was checked.
 
 ## 2026-09-28T18:44Z - cycle 787
 

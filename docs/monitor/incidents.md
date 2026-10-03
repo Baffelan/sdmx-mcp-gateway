@@ -4,6 +4,61 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-03T06:44Z - cycle 841
+
+**Changed:** ECB `healthy` -> `gateway_issue` (cycle 839) -> `healthy`,
+flapped entirely between runs.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-uvs6e5`, cycle
+838, 2026-10-03T00:44Z) had all twelve endpoints healthy.
+
+**Cycle saw (839, 2026-10-03T02:01:22+00:00):** `failing: ["gateway
+metadata: Error:"]`, an empty error body on the gateway metadata check only.
+Gateway data, direct metadata, direct data, and direct json all stayed
+healthy in the same cycle. Resolved by cycle 840 (2026-10-03T04:01:22+00:00):
+all ECB checks passing again, and still healthy at cycle 841
+(2026-10-03T06:01:22+00:00). `/api/contracts` `changes` for this window shows
+only one entry, a cosmetic ABS `encoding:structure_xml` Content-Type
+parameter-order flip (`verdict: ok` throughout, the known recurring pattern,
+not re-reported per standing guidance). No ECB contract row is `broken` or
+`capability_appeared`.
+
+**Live recheck (2026-10-03T06:44Z):** the gateway host
+(`sdmx-mcp-gateway-production.up.railway.app`) remains outside this
+environment's allowed network (agent proxy: `connect_rejected`, organization
+policy), so the gateway metadata path itself cannot be rechecked directly, as
+with every prior gateway-only episode. As a network and provider sanity
+check, direct GETs against ECB succeeded: `service` root `404` (expected,
+not a valid path) and `service/dataflow/ECB` `200` in 1.1s.
+
+**Classification:** `gateway_issue` (direct path succeeded, gateway path
+failed on the metadata channel) - ours to investigate in principle, but the
+empty error body gives no detail to act on, and the gateway host cannot be
+inspected from this environment.
+
+**History:** first occurrence of an empty-error-body gateway metadata flap
+on ECB specifically. The shape (`Error:` with no body) matches the
+long-running pattern already seen repeatedly on ABS (fifteen occurrences)
+and twice on FBOS, but this is the first time it has hit ECB. Distinct from
+every other ECB shape on record: the three-flap cluster at cycles 535/539/542
+(none involved an empty gateway error), the cycles 669-670 `gateway_issue` ->
+`degraded` two-cycle episode (that one carried an HTTP 504 and a broken
+contract assertion), the cycle 199 metadata-only 503, and the
+`references:*`/`availableconstraint` 504 flaps at cycles 182-183 and
+283-286. Resolved within one cycle, the usual pattern for this monitor's
+transient flaps.
+
+**Recommended action:** none yet; self-resolved within one cycle. If this
+empty-error-body shape recurs on ECB, or recurs again on ABS/FBOS, the
+underlying fix (surfacing the real error text in `GatewayError`/`next_step`
+in `monitor/checks_gateway.py`, already flagged for the ABS and FBOS
+occurrences) becomes worth doing for its own sake, not just this endpoint.
+
+**Could not determine:** the actual cause of the empty gateway error,
+since the message carries no detail and the gateway host cannot be reached
+directly from this environment to inspect the underlying request or
+response.
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

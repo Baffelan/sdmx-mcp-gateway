@@ -4,6 +4,109 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-03T00:44Z - cycle 838
+
+**Changed:** ILO `degraded` -> `healthy` (resolved)
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-npnmtk`, cycle
+835, 2026-10-02T18:43Z) recorded ILO in `degraded` after a direct-metadata-only
+HTTP 403, with its own live recheck already showing the pinned metadata URL
+back to 200 about 40 minutes into that cycle.
+
+**Cycle saw:** `/api/history?hours=48` shows ILO back to `healthy` at cycle
+836 (2026-10-02T20:01:22Z) and still `healthy` at cycles 837 and 838 (newest,
+started 2026-10-03T00:01:22Z), three consecutive clean cycles. `/api/status`
+at this run confirms all twelve endpoints `healthy`, `stale: false`,
+`gateway_up: true`. `/api/contracts` `changes` holds only the known cosmetic
+Content-Type parameter-order flip on `encoding:structure_xml` for ABS and
+ILO (`charset`/`version` ordering, verdict stays `ok`), not a new finding.
+The only non-`ok`, non-`ignored` contract verdict in the matrix is `STATSNZ
+auth:listing` still reading `capability_appeared`, unchanged since cycle 60,
+so not re-reported.
+
+**Live recheck (2026-10-03T00:44Z):** direct `GET` of
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+(the same pinned metadata URL from the cycle 835 entry) returned `200` twice
+in a row (about 1s each), consistent with the history series.
+
+**Classification:** resolved `degraded`. Confirms the cycle 835 entry's
+expectation that this direct-metadata-only 403 shape would clear within one
+to two cycles, matching every other ILO 403 variant on record.
+
+**History:** first and, so far, only occurrence of the direct-metadata-only
+403 shape; resolved within a single cycle, same as nearly every ILO 403
+episode on record. No root cause has been confirmed.
+
+**Recommended action:** none. Close out the open item from the cycle 835
+entry; watch for a second occurrence of this exact shape.
+
+**Could not determine:** root cause of the cycle 835 403. Separately, this
+cycle's `/api/contracts` matrix showed ECB's `auth:listing`,
+`errors:missing_artefact`, and `references:contentconstraint` probes all
+read `skipped` with a 30s `ReadTimeout`, while ECB's five basic checks and
+its other nine contract assertions stayed healthy/`ok` throughout, so
+endpoint status was unaffected. This is the designed behaviour for an
+unobservable probe (`monitor/contracts.py`, `_skip_reason`): a transport
+timeout is mapped to `skipped` rather than `broken` so it cannot flip a
+status card on pure noise, and it does not appear in `/api/contracts`
+`changes` (which only diffs `observed`, not `verdict`). A live recheck of
+the same three ECB URLs at 00:44Z returned quickly (1.1s, 1.1s, 0.66s), so
+this reads as transient slowness on this one cycle rather than a new,
+persistent problem. First time this specific trio of ECB contract probes has
+been seen skipped together; watch for recurrence, since a cluster of
+timeouts on one endpoint's contract probes is a shape with no precedent on
+this endpoint, even though it did not meet the bar to classify ECB as
+anything other than healthy this cycle.
+
+
+## 2026-10-02T18:43Z - cycle 835
+
+**Changed:** ILO `healthy` -> `degraded`, direct metadata HTTP 403, new shape
+(direct-metadata-only; previously recorded ILO 403 flaps isolated direct json
+alone, both gateway checks together, or the direct path's basic checks as a
+group, but never direct metadata on its own).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-bawtjn`, cycle
+832, 2026-10-02T12:43Z) had all twelve endpoints healthy; `main` itself is
+still parked at cycle 787 because the intervening no-change runs' PRs have not
+merged, so this state was recovered by scanning `claude/*` branches per the
+skill's branch-discovery step, as designed.
+
+**Cycle saw (835, 2026-10-02T18:01:22+00:00):** `failing: ["direct metadata:
+HTTP 403"]` alone. Gateway metadata, gateway data, direct data, and direct
+json all stayed healthy in the same cycle. `/api/history` shows cycles 826
+through 834 (2026-10-02T00:01:22Z through 16:01:22Z) all healthy with no
+failing entries, so this is new as of cycle 835, not a continuation. No
+`broken` or `capability_appeared` contract rows for ILO or any other
+endpoint; `/api/contracts` `changes` is empty.
+
+**Live recheck (2026-10-02T18:43Z):** `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+(the exact pinned metadata URL) returned `200` twice in a row, about 40
+minutes into the cycle. The paired direct data URL also returned `200`.
+Checked ECB directly as a network sanity control (`200`), so this environment
+is not generally blocked from reaching SDMx providers; the disagreement
+between the cycle's 403 and the live 200 is informative on its own and points
+to a transient on ILO's side rather than a standing block.
+
+**Classification:** provider-side (`degraded`; gateway metadata and gateway
+data both stayed healthy throughout, so this is not a `gateway_issue`).
+
+**History:** new as of cycle 835; ILO logged healthy for at least the
+preceding nine cycles (826-834, 2026-10-02T00:01:22Z onward) and was healthy
+at the last run's snapshot (cycle 832). This specific direct-metadata-only
+403 shape has no prior occurrence among the many ILO 403 variants already on
+record (gateway-metadata-only, gateway-data-only, gateway-both, direct-json-only,
+and several contract-only `references:*`/`auth:listing` combinations).
+
+**Recommended action:** no code change; watch for a second occurrence of this
+exact direct-metadata-only shape. If it recurs or spans more than one cycle,
+escalate, since no ILO 403 episode on record has run longer than two cycles.
+
+**Could not determine:** the cause of the 403 (ILO gave no response body to
+inspect at recheck time; this is consistent with ILO's documented
+rate-limiting/WAF behavior on past 403 episodes but was not confirmed).
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

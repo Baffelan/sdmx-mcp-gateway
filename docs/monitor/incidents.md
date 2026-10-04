@@ -4,6 +4,58 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-04T12:44Z - cycle 856
+
+**Changed:** ECB `healthy` -> `degraded` (and, separately, confirms the
+cycle 853 `gateway_issue` resolved).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-fytddz`, cycle
+853, 2026-10-04T06:43Z) had ECB in `gateway_issue` (fifth occurrence of the
+"gateway data: provider unreachable" shape). `/api/history` shows cycles
+854 and 855 both healthy, so that occurrence resolved by cycle 854 as
+expected, before this new failure appeared at 856.
+
+**Cycle saw (856, 2026-10-04T12:01:22+00:00):** `direct data: ReadTimeout:`
+(30.5s). Gateway metadata, gateway data, direct metadata, and direct json
+all stayed healthy. Three contract assertions also read `skipped` with a
+30s `ReadTimeout`: `dialect:sdmx3`, `encoding:structure_xml`, and
+`references:descendants`. The other nine ECB contract assertions stayed
+`ok`.
+
+**Live recheck (2026-10-04T12:44Z):** the same direct data URL
+(`https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`)
+returned `200` in 0.78s with a valid observation. Network sanity check:
+OECD, ILO, and IMF direct endpoints all answered `200` in under 1.4s from
+this environment in the same window, so this is not a general network
+problem on our side.
+
+**Classification:** `degraded`, direct path only; gateway path for the same
+provider stayed healthy throughout, which is the opposite shape from a
+`gateway_issue` and not a sign of a gateway bug. Reads as a transient
+slowdown or timeout on the provider's side for a subset of requests.
+
+**History:** new shape. ECB's recent flaps on record are all distinct from
+this one: the gateway-path "provider unreachable" family (cycles 839, 842,
+843, 847, 849, 853, every one resolved within one to two cycles) failed the
+*gateway* data check, never the direct one; the cycle 838 contract-probe
+`ReadTimeout` trio skipped `auth:listing`, `errors:missing_artefact`, and
+`references:contentconstraint` while leaving all basic checks healthy. This
+cycle is the first time a `ReadTimeout` has hit the direct data basic check
+itself (producing `degraded` rather than a contract-only blip), and the
+first time this particular trio of contract assertions
+(`dialect:sdmx3`/`encoding:structure_xml`/`references:descendants`) has
+skipped together. Single cycle so far; cycle 857 is not out yet.
+
+**Recommended action:** watch cycle 857 for resolution before escalating.
+If this exact direct-data-ReadTimeout shape recurs, it points at something
+specific to ECB's direct endpoint under load (distinct from the
+already-tracked gateway-path issue) rather than two symptoms of one cause.
+
+**Could not determine:** whether cycle 856 has already resolved, since this
+run's view stops at the current cycle; whether the three skipped contract
+assertions and the failing basic check share a root cause or are
+independent timeouts against the same slow host.
+
 ## 2026-10-04T00:43Z - cycle 850
 
 **Changed:** UNICEF `healthy` -> `degraded`.

@@ -4,6 +4,82 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-04T06:43Z - cycle 853
+
+**Changed:** ECB `healthy` -> `gateway_issue`.
+
+**Previous state:** last run (this same branch, cycle 850, 2026-10-04T00:43Z)
+had ECB healthy. `/api/history` shows cycles 850, 851, and 852 all healthy;
+the failure is new at cycle 853.
+
+**Cycle saw (853, 2026-10-04T06:01:22+00:00):** `gateway data: probe status:
+error; Network or transport error — provider unreachable`, the identical
+failing check and text as all four prior occurrences (cycles 842-843, 847,
+849). Gateway metadata and all three direct checks stayed healthy, as did
+all 14 ECB contract assertions.
+
+**Live recheck (2026-10-04T06:43Z):** direct path to ECB
+(`https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`)
+returned `200` in 0.92s, confirming ECB itself is reachable right now.
+Network sanity check: OECD, ILO, and IMF all answered `200` directly from
+this environment in the same window, so this is not a general network
+outage on our side. The gateway host
+(`sdmx-mcp-gateway-production.up.railway.app`) is still outside this
+environment's allowed network: the proxy CONNECT tunnel returns nothing
+(curl exit, `000`), same as every prior episode, so the gateway's outbound
+call to ECB still cannot be inspected directly.
+
+**Classification:** `gateway_issue` (direct path unaffected); ours to own.
+No code defect has been pinned down yet; this is the fifth occurrence of
+the same error text within roughly 40 hours (cycles 842-843, 847, 849, 853),
+every one clearing within one to two cycles so far.
+
+**History:** fifth occurrence of this exact shape. First spanned cycles
+842-843 (two consecutive cycles), resolved by 844; third at cycle 847,
+resolved by 848; fourth at cycle 849, resolved by 850; cycle 853 is this
+one and has not yet had a following cycle to confirm resolution.
+
+**Recommended action:** still worth a code-change-scope look at the
+gateway's outbound HTTP client timeout/retry behavior specifically for ECB,
+since five occurrences in under two days with an identical error string
+suggests something systematic (a connection pool timeout, a DNS cache
+expiry) rather than pure provider-side flakiness. Watch for a sixth
+occurrence; escalate if one lands without resolving within a cycle or two.
+
+**Could not determine:** whether cycle 853 has already resolved by the next
+cycle, since this run's view stops at the current cycle; the gateway's own
+outbound request/error, since the gateway host remains unreachable from
+this environment.
+
+## 2026-10-04T06:43Z - cycle 853
+
+**Changed:** UNICEF `degraded` -> `healthy` (confirms the cycle 850 blip
+resolved, as that entry anticipated).
+
+**Previous state:** last run (this same branch, cycle 850, 2026-10-04T00:43Z)
+had UNICEF in `degraded` after a single-cycle `HTTP 429` on gateway data,
+direct data, and direct json together, open as an item to watch for a
+second occurrence or extension.
+
+**Cycle saw:** `/api/history` shows cycle 851 (2026-10-04T02:01:22+00:00)
+already back to `healthy` with no failing checks, and cycles 852 and 853
+both healthy as well. The `429` did not recur or extend; it was exactly the
+single-cycle blip the prior entry's live recheck suggested.
+
+**Live recheck:** not separately needed; three consecutive healthy cycles
+(851, 852, 853) after the blip is itself the confirmation.
+
+**Classification:** provider-side, as before; resolved. No code defect, no
+open gateway-side question.
+
+**History:** closes out the cycle 850 open item. This was the thirteenth
+`HTTP 429` episode on record for UNICEF (most recently before this, cycle
+766); each has resolved within a cycle or two.
+
+**Recommended action:** none. Remove from open items.
+
+**Could not determine:** nothing outstanding on this item.
+
 ## 2026-10-04T00:43Z - cycle 850
 
 **Changed:** UNICEF `healthy` -> `degraded`.

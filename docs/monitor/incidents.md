@@ -4,6 +4,211 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-04T00:43Z - cycle 850
+
+**Changed:** UNICEF `healthy` -> `degraded`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-4bb2p9`, cycle
+847, 2026-10-03T18:44Z) had UNICEF healthy, and `/api/history` shows it
+healthy through cycles 848 and 849 as well.
+
+**Cycle saw (850, 2026-10-04T00:01:22+00:00):** gateway data, direct data,
+and direct json all failed with `HTTP 429` (`probe status: error; HTTP 429
+from provider.` on the gateway side). Gateway metadata and direct metadata
+stayed healthy, as did all 14 UNICEF contract assertions. `obs_count` was 0
+on the gateway data check and null elsewhere, consistent with the request
+being rejected before returning data.
+
+**Live recheck (2026-10-04T00:43Z):** the same direct data URL
+(`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`)
+returned `200` with a valid observation in 0.55s, and again in 0.36s three
+seconds later. No sign of continued rate limiting at recheck time.
+
+**Classification:** provider-side (`degraded`; both the gateway and direct
+paths hit an identical `429` on the same request shape, so this reads as the
+provider throttling, not a gateway-specific defect; metadata and all
+contract checks were unaffected throughout).
+
+**History:** new shape as of this cycle. UNICEF's prior flaps on record are
+an `HTTP 503` whole-provider blip at cycle 2, a `HTTP 404` direct-path "no
+data found" flap at cycle 197, and twelve `HTTP 429` episodes (most recently
+cycle 766), but every one of those twelve hit a different combination of
+checks (gateway data plus both direct checks together, or direct json
+alone); none previously left gateway metadata and direct metadata untouched
+while also taking gateway data as seen here, so the specific set of three
+failing checks is new, though `429` itself is a repeat status for this
+provider. Single cycle so far; cycle 851 is not out yet.
+
+**Recommended action:** no action yet. If `429` recurs or persists across
+multiple consecutive cycles, that would support the provider having lowered
+its rate-limit threshold; this single-cycle blip plus the clean live recheck
+is consistent with the same transient throttling UNICEF has shown before.
+
+**Could not determine:** whether this cycle's failure has already cleared
+(cycle 851 is not out yet at the time of this read); whether the gateway's
+retry/backoff on `429` differs from the direct path's, since both failed
+identically here.
+
+## 2026-10-04T00:43Z - cycle 850
+
+**Changed:** ECB `gateway_issue` -> `healthy` (recurrence, already resolved
+by the time this run observed it).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-4bb2p9`, cycle
+847, 2026-10-03T18:44Z) had ECB in `gateway_issue`, the third occurrence of
+the "Network or transport error" shape, open as an item to watch for a
+fourth occurrence.
+
+**Cycle saw:** `/api/history` shows cycle 848 (2026-10-03T20:01:22Z) healthy,
+then cycle 849 (2026-10-03T22:01:22Z) back in `gateway_issue` with the
+identical failing check and text as all three prior occurrences: `gateway
+data: probe status: error; Network or transport error — provider
+unreachable`. Gateway metadata and all three direct checks stayed healthy at
+cycle 849, same as every prior occurrence. Cycle 850 (current) is healthy
+again.
+
+**Live recheck:** not meaningful for cycle 849 itself since it had already
+resolved by the time this run started. As a network sanity check, the
+gateway host (`sdmx-mcp-gateway-production.up.railway.app`) is still outside
+this environment's allowed network: the agent proxy's CONNECT tunnel returns
+`403 Forbidden`, same as every prior ECB episode, so the gateway's outbound
+call to ECB still cannot be inspected directly.
+
+**Classification:** `gateway_issue` while active (direct path unaffected
+throughout); ours to own, same as the three prior occurrences, though still
+no code defect has been pinned down.
+
+**History:** this is the fourth occurrence of this exact "Network or
+transport error — provider unreachable" text on ECB's gateway data channel —
+the recurrence the cycle 847 report entry was explicitly watching for.
+First occurrence: cycles 842-843 (two consecutive cycles, resolved by 844).
+Third occurrence: cycle 847 (one cycle, resolved by 848). This fourth
+occurrence: cycle 849 only, resolved by 850. Every occurrence so far has
+cleared within one to two cycles.
+
+**Recommended action:** per the cycle 847 entry, a fourth occurrence was the
+threshold for escalating. It has now recurred four times in about 36 hours,
+always isolated to the gateway data check, always clearing within two
+cycles at most. Worth investigating the gateway's outbound HTTP client
+timeout/retry behavior for ECB's data endpoint specifically, as a
+code-change-scope follow-up; not actioned by this read-only routine.
+
+**Could not determine:** the root cause of the transport error, since the
+gateway host itself is outside this environment's allowed network and
+cannot be queried directly, same limitation as every prior occurrence.
+
+## 2026-10-03T18:44Z - cycle 847
+
+**Changed:** ECB `healthy` -> `gateway_issue`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-pks45h`, cycle
+844, 2026-10-03T12:45Z) had all twelve endpoints healthy, with cycles 845 and
+846 also healthy per `/api/history`.
+
+**Cycle saw (847, 2026-10-03T18:01:22+00:00):** gateway data check failed
+with the same text as the cycle 842-843 episode: `probe status: error;
+Network or transport error — provider unreachable`. Gateway metadata and all
+three direct checks (metadata, data, json) stayed healthy, so only the
+gateway data channel is affected. Only one cycle so far; not yet resolved as
+of this read (847 is the latest cycle). `/api/contracts` `changes` is empty.
+The only non-`ok` contract row across the matrix is the long-standing
+STATSNZ `auth:listing` `capability_appeared` (unchanged, first seen cycle
+60).
+
+**Live recheck (2026-10-03T18:44Z):** direct ECB data query
+(`https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A`) returned
+`200` in 1.47s, agreeing with the monitor's direct-path reading. The gateway
+host (`sdmx-mcp-gateway-production.up.railway.app`) remains outside this
+environment's allowed network (connection refused, exit 56), so the
+gateway's outbound request to ECB cannot be inspected directly, same
+limitation as every prior ECB episode.
+
+**Classification:** `gateway_issue` (direct path succeeded, gateway path
+failed on the data channel only) -> ours to own, though nothing points at a
+specific code defect yet: the error text is a transport failure rather than
+an HTTP status, and the live recheck of the direct path found no sign of a
+broader outage.
+
+**History:** this is the third occurrence of this exact "Network or
+transport error — provider unreachable" text on ECB's gateway data channel,
+and the recurrence the cycle 844 report entry was explicitly watching for.
+First occurrence was cycles 842-843 (two consecutive cycles, resolved by
+844). This occurrence is a single cycle so far. Not flapping in the sense of
+alternating rapidly; closer to an intermittent recurring fault on the same
+code path.
+
+**Recommended action:** if this resolves within the next cycle or two as the
+first episode did, no code change is indicated yet. If it spans two or more
+consecutive cycles again, or recurs a fourth time, it is worth investigating
+the gateway's outbound HTTP client configuration for ECB specifically
+(timeout/retry behavior on the data channel), since direct access from
+multiple vantage points has now been clean each time this has happened.
+
+**Could not determine:** whether this cycle's failure has already resolved
+(cycle 848 is not out yet at the time of this read) or whether it will
+extend to a second consecutive cycle as the first episode did; whether the
+transport failure originates on the gateway's network path or reflects
+something ECB-specific that only the gateway's exact request triggers,
+since the gateway host itself cannot be reached from this environment to
+inspect the outbound call.
+
+## 2026-10-03T12:45Z - cycle 844
+
+**Changed:** ECB `healthy` -> `gateway_issue` -> `healthy`, flapped entirely
+between runs, across two consecutive cycles.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-6ftd7k`, cycle
+841, 2026-10-03T06:44Z) had all twelve endpoints healthy.
+
+**Cycle saw (842, 2026-10-03T08:01:22+00:00 and 843, 2026-10-03T10:01:22+00:00):**
+gateway data check failed both cycles with the same text: `probe status:
+error; Network or transport error — provider unreachable`. Gateway metadata
+and all three direct checks (metadata, data, json) stayed healthy throughout,
+so only the gateway data channel was affected. Resolved by cycle 844
+(2026-10-03T12:01:22+00:00): all ECB checks passing again. `/api/contracts`
+`changes` is empty at cycle 844, and the only non-`ok` contract row across the
+matrix is the long-standing STATSNZ `auth:listing` `capability_appeared`
+(unchanged, first seen cycle 60).
+
+**Live recheck (2026-10-03T12:45Z):** first attempt against
+`https://data-api.ecb.europa.eu/service/dataflow/ECB` timed out after 30s
+with no response (curl exit 28). A second attempt immediately after returned
+`200` in 0.77s. In between, other providers (PacificData 200 in under 1s;
+OECD and ABS responded, both with their usual 403 without gateway headers)
+answered promptly, so this environment's own network was not broadly down;
+the ECB timeout looks transient and endpoint-specific, consistent with the
+disagreement between the cycle 842-843 readings and this recheck's second
+attempt. The gateway host itself
+(`sdmx-mcp-gateway-production.up.railway.app`) remains outside this
+environment's allowed network, so the gateway's outbound request to ECB
+cannot be inspected directly.
+
+**Classification:** `gateway_issue` (direct path succeeded both cycles,
+gateway path failed on the data channel only). The error text names a
+network/transport failure rather than an HTTP status from the provider,
+which is a new shape for this exact ECB flap pattern: distinct from the
+cycle 535/539/542 cluster, the cycle 669-670 gateway_issue/degraded episode
+(which read `HTTP 504`, not a transport error), the cycle 199 metadata-only
+503, the cycle 839 empty-error-body flap, and the references:*/
+availableconstraint 504 flaps at cycles 182-183 and 283-286.
+
+**History:** new as of cycle 842; ECB had been healthy for the preceding
+cycle (841) and for a long stretch before that (confirmed healthy through
+cycle 841 per the prior run). This is only the second ECB episode on record
+to span two consecutive cycles, after cycles 669-670; it did not reach a
+third.
+
+**Recommended action:** watch for a third cycle or a recurrence of this
+exact "Network or transport error" text on ECB or elsewhere; no code change
+indicated yet since the live recheck's own first attempt reproduced a
+transient timeout against the same provider from this environment.
+
+**Could not determine:** whether the two-cycle gateway data failure was
+caused by something transient on the provider side, on the gateway's
+outbound path, or shares a root cause with this environment's own transient
+ECB timeout on the first recheck attempt; the gateway host's own logs are
+not reachable from here to settle it.
+
 ## 2026-09-28T18:44Z - cycle 787
 
 **Changed:** OECD `healthy` -> `gateway_issue` -> `healthy`, flapped entirely

@@ -4,6 +4,54 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-05T12:45Z - cycle 868
+
+**Changed:** ECB `healthy` -> `degraded`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-053b5o`, cycle
+865, 2026-10-05T06:53Z) had ECB healthy, and `/api/history` shows it healthy
+through cycles 866 and 867 as well.
+
+**Cycle saw (868, 2026-10-05T12:01:22+00:00):** direct metadata and direct
+json both failed with `ReadTimeout` after 30s (2 attempts each). Gateway
+metadata, gateway data, and direct data (CSV) all passed, and all 12 ECB
+contract assertions stayed `ok`.
+
+**Live recheck (2026-10-05T12:45Z):** direct metadata recovered immediately
+(`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest?detail=allstubs`
+-> `200` in 1.2s). Direct json did not recover: the same data query with the
+SDMx-JSON `1.0.0-wd` Accept header returned ECB's own branded `504` error
+page after ~31s, rather than hanging past our client timeout as it did in
+the cycle. The CSV variant of the identical data query answered `200` in
+1.2s, and a sanity check against OECD answered normally, which rules out a
+network problem on this routine's side. So: metadata was transient, json is
+still broken, just with a different symptom.
+
+**Classification:** provider-side (`degraded`). Gateway's own metadata and
+data checks were unaffected throughout, so this is not a gateway defect; it
+is ECB's own backend being slow or erroring specifically on the SDMx-JSON
+content-negotiation path for this data query.
+
+**History:** ECB is one of the most frequently flapping endpoints this
+routine has ever tracked (see the many entries in this file from cycle 669
+through cycle 858), cycling between `gateway_issue` ("Network or transport
+error - provider unreachable" on the gateway's outbound call) and `degraded`
+(direct-path `ReadTimeout` on data or json). The most recent prior occurrence
+was cycle 858 (`gateway_issue`), clean through cycles 859-867, including the
+cycle 865 comparison point from the last run. Cycle 868 is a new occurrence
+in that same long-running pattern, with `json` again the channel that stays
+slow (also the sole failure at cycle 857).
+
+**Recommended action:** no code change yet; this matches the shape of prior
+ECB episodes, most of which resolved within 1-2 cycles without any gateway
+change. Worth a closer look if direct json keeps failing for three cycles
+running, since "metadata recovers on recheck but json does not" is a
+slightly new wrinkle compared to earlier episodes.
+
+**Could not determine:** whether this episode resolves by the next cycle
+like most of its predecessors, or marks a step change in ECB's JSON endpoint
+reliability. One cycle plus one live recheck is not enough to tell apart.
+
 ## 2026-10-04T00:43Z - cycle 850
 
 **Changed:** UNICEF `healthy` -> `degraded`.

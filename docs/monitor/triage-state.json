@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 850,
-  "last_cycle_started_at": "2026-10-04T00:01:22+00:00",
-  "last_run": "2026-10-04T00:43Z",
+  "last_cycle_id": 871,
+  "last_cycle_started_at": "2026-10-05T18:01:22+00:00",
+  "last_run": "2026-10-05T18:47Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -15,19 +15,14 @@
     "SBS": "healthy",
     "SPC": "healthy",
     "STATSNZ": "healthy",
-    "UNICEF": "degraded"
+    "UNICEF": "healthy"
   },
   "open_items": [
-    "UNICEF degraded (HTTP 429 on gateway data, direct data, direct json together): first occurrence of this exact three-check combination, cycle 850 (2026-10-04T00:01:22Z); gateway metadata, direct metadata, and all 14 contract assertions stayed healthy/ok. See the 2026-10-04T00:43Z report entry. Live recheck at 00:43Z: direct data query returned 200 twice in a row (0.55s, 0.36s), no sign of continued throttling. UNICEF has flapped with HTTP 429 twelve times before (most recently cycle 766), always in a different combination of failing checks; this is a new combination, though 429 itself is a repeat status for this provider. Single cycle so far, not yet confirmed resolved (cycle 851 not out yet). Watch for a second occurrence of this combination or for it extending past one cycle.",
-    "ECB gateway_issue 'Network or transport error - provider unreachable' on gateway data: fourth occurrence, cycle 849 (2026-10-03T22:01:22Z), already resolved by cycle 850; gateway metadata and all three direct checks stayed healthy throughout. See the 2026-10-04T00:43Z report entry. This is exactly the recurrence the cycle 847 entry was watching for. First occurrence spanned cycles 842-843 (two consecutive cycles), resolved by cycle 844; third occurrence cycle 847, resolved by cycle 848; cycle 848 was healthy before this fourth occurrence. Gateway host remains outside this environment's allowed network (proxy CONNECT returns 403), so the gateway's outbound call still cannot be inspected directly. Four occurrences in about 36 hours now, all clearing within one to two cycles; worth investigating the gateway's outbound HTTP client timeout/retry behavior for ECB specifically as a code-change-scope follow-up. Watch for a fifth occurrence.",
-    "ECB gateway metadata empty-error-body flap (new shape, first occurrence on ECB): cycle 839 (2026-10-03T02:01:22Z), gateway metadata Error: (empty body); gateway data and all three direct checks stayed healthy. Resolved by cycle 840 (2026-10-03T04:01:22Z), confirmed healthy through cycle 850. Live recheck of the gateway path itself remains impossible: sdmx-mcp-gateway-production.up.railway.app is still outside this environment's allowed network (agent proxy returns 403 on CONNECT, reconfirmed this run). Same empty-error-body shape already seen repeatedly on ABS (fifteen occurrences) and twice on FBOS. No second occurrence on ECB through cycle 850.",
-    "ECB contract-probe ReadTimeout trio (new shape): first occurrence, cycle 838 (2026-10-03T00:01:22Z). auth:listing, errors:missing_artefact, and references:contentconstraint all read skipped with a 30s ReadTimeout; the other nine ECB contract assertions and all five basic checks stayed ok/healthy, so endpoint status was unaffected. No second occurrence through cycle 850. Watch for recurrence; escalate only if it starts affecting the basic checks.",
-    "ILO eight-assertion contract-only 403 combination (new shape, widest ILO 403 combo on record): occurred cycle 826 (2026-10-02T00:01:22Z) only, resolved by the next cycle. No second occurrence through cycle 850. Watch for a second occurrence of this exact eight-assertion combination.",
-    "IMF direct-metadata-only HTTP 503 flap (new shape): first occurrence, cycle 821 (2026-10-01T14:01:22Z). Resolved by cycle 822, confirmed healthy through cycle 850. Watch for a second occurrence of this specific narrow shape.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 850: listing served without credentials. Still open, not re-reported since no new change.",
-    "Content-Type parameter order (charset vs version) on structure responses varies between requests. Cosmetic, verdict stays ok. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
-    "More than 20 claude/ triage branches have accumulated on origin (32 counted at this run, e.g. claude/sleepy-dijkstra-0grdy0 through -vn2ek4). Flagging per the skill's instruction so they can be pruned; not actioned by this read-only routine.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped). ESTAT list_dataflows 60s-deadline timeouts (our own call deadline, working as designed) remain a recurring, non-actionable pattern (36+ occurrences through cycle 749); none recurred recently."
+    "ECB degraded -> healthy, resolved. Degraded at cycle 868 (direct metadata + direct json ReadTimeout), recovered by cycle 869, clean through cycles 870 and 871. Live recheck at this run confirms both channels genuinely healthy (metadata 200/1.18s, json with the correct 1.0.0-wd Accept header 200/0.89s). See the 2026-10-05T18:47Z report entry. Closes the cycle 868 watch item; no further action.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 871: listing served without credentials. Still open, not re-reported since no new change.",
+    "Content-Type parameter order (charset vs version) on structure responses varies between requests; still ok verdict at cycle 871 (checked on ABS encoding:structure_xml). Cosmetic. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
+    "More than 20 claude/ triage branches have accumulated on origin (38 counted at this run, up from 37 at cycle 868). Flagging per the skill's instruction so they can be pruned; not actioned by this read-only routine.",
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped). ESTAT list_dataflows 60s-deadline timeouts (our own call deadline, working as designed) remain a recurring, non-actionable pattern; none recurred recently."
   ],
   "alerted": true
 }

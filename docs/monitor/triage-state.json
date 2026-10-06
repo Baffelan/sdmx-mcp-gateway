@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 874,
-  "last_cycle_started_at": "2026-10-06T00:01:22+00:00",
-  "last_run": "2026-10-06T00:44Z",
+  "last_cycle_id": 877,
+  "last_cycle_started_at": "2026-10-06T06:01:22+00:00",
+  "last_run": "2026-10-06T06:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "gateway_issue",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,12 +18,11 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO healthy -> gateway_issue at cycle 874 (2026-10-06T00:01:22Z): basic gateway data check failed with 'probe status: error; HTTP 403 from provider.', while direct metadata/data/json and all 12 contract assertions (including the chronic references:contentconstraint ignored) stayed clean. This is the inverse of every prior ILO 403 episode on record, which always hit contract probes while basic checks stayed healthy -- first time the opposite split has occurred. Live recheck at 00:44Z: direct data and direct metadata both 200, provider looks normal from here. Gateway host remains outside this environment's network, so the gateway's own outbound call could not be inspected. See the 2026-10-06T00:44Z report entry. Single cycle so far. Watch cycle 875: a second occurrence, or any contract breakage landing alongside a basic-check failure, would mean this is widening and should be escalated.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 874: listing served without credentials. Still open, not re-reported since no new change.",
-    "Content-Type parameter order (charset vs version) on structure responses varies between requests; still ok verdict at cycle 874. Cosmetic. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
-    "main has been stuck at cycle 850 since 2026-10-04T00:43Z: the step-8 merge-to-main has evidently been failing silently on every run since then (cycles 853 through 871 all exist only on their own unmerged claude/ branches, never reached main). This run found the true latest state (cycle 871) by scanning claude/ branches directly, per the skill's state-discovery step, so no data was lost, but main is not a reliable source of the last state on its own right now. Not actioned by this read-only routine beyond noting it; worth a human look at why the PR-create-and-merge step keeps failing.",
-    "More than 20 claude/ triage branches have accumulated on origin (39 counted at this run, up from 38 at cycle 871). Flagging per the skill's instruction so they can be pruned; not actioned by this read-only routine.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped). ESTAT list_dataflows 60s-deadline timeouts (our own call deadline, working as designed) remain a recurring, non-actionable pattern; none recurred recently."
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 877: listing served without credentials. Still open, not re-reported since no new change.",
+    "Content-Type parameter order (charset vs version) on structure responses varies between requests; still ok verdict at cycle 877. Cosmetic. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
+    "main caught up to cycle 874 as of this run (origin/main HEAD matches this branch's history); the earlier 'main stuck at cycle 850' concern from the cycle 874 run is resolved. Worth noting if main stalls again.",
+    "More than 20 claude/ triage branches have accumulated on origin (39 counted at this run, unchanged from cycle 874). Flagging per the skill's instruction so they can be pruned; not actioned by this read-only routine.",
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped). ESTAT list_dataflows 60s-deadline timeouts (our own call deadline, working as designed) remain a recurring, non-actionable pattern; none recurred recently. ILO's basic-check 403 at cycle 874 was a single cycle, resolved by cycle 875; no longer open."
   ],
   "alerted": true
 }

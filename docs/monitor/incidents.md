@@ -4,6 +4,50 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-06T06:44Z - cycle 877
+
+**Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).
+
+**Previous state:** last run (this same branch, `claude/sleepy-dijkstra-4j1c5m`,
+cycle 874, 2026-10-06T00:44Z) had ILO `gateway_issue`: the basic `gateway data`
+check failed with `probe status: error; HTTP 403 from provider.`, while direct
+metadata/data/json and all 12 contract assertions stayed clean. That entry
+flagged cycle 875 to watch for recurrence or widening.
+
+**Cycle saw (875-877, 2026-10-06T02:01Z through 06:01Z):** ILO shows `healthy`
+with an empty `failing` list in `/api/history` for all three cycles since the
+403 -- no recurrence, and nothing widened to the contract assertions. `/api/status`
+at cycle 877 confirms `healthy`, all checks passing, and no `broken` or
+`capability_appeared` entries in `/api/contracts` `changes` for this cycle.
+
+**Live recheck (2026-10-06T06:44Z):** direct ILO dataflow listing
+(`https://sdmx.ilo.org/rest/dataflow/ILO?detail=allstubs`) -> `200` in 1.9s,
+confirming the provider itself is answering normally, consistent with the
+monitor's own three clean cycles.
+
+**Classification:** resolved. This matches the single-cycle, self-resolving
+shape of every prior ILO 403 episode on record; the one notable difference
+from the previous entry (that this 403 landed on the basic check rather than
+only contract probes) did not recur or widen, so there is nothing left open
+here.
+
+**History:** gateway_issue for exactly one cycle (874), healthy for the three
+cycles since (875-877).
+
+**Recommended action:** none. Close the open item from the 874 entry; no
+further watch needed unless a 403 recurs.
+
+**Could not determine:** nothing outstanding; this closes the item that was
+open after the previous entry.
+
+**Also noted, not separately alerted:** `main` was reported stuck at cycle
+850 in the triage-state open items carried into this run; `origin/main` is
+now at cycle 874 (matches this branch's own history), so the merge-to-main
+step has caught up and that concern is resolved. The count of accumulated
+`claude/` triage branches on `origin` is unchanged at 39 (same as recorded at
+cycle 874); still worth pruning, not actioned by this read-only routine.
+
+
 ## 2026-10-06T00:44Z - cycle 874
 
 **Changed:** ILO `healthy` -> `gateway_issue` (direct path OK, gateway data

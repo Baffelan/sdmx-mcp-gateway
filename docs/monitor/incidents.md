@@ -4,6 +4,157 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-06T00:44Z - cycle 874
+
+**Changed:** ILO `healthy` -> `gateway_issue` (direct path OK, gateway data
+check failing).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-sf68us`, cycle
+871, 2026-10-05T18:47Z) had ILO healthy. `/api/history` shows ILO healthy and
+clean (no `failing` entries) through cycles 851-873, so the break is new
+exactly at the latest cycle, 874.
+
+**Cycle saw (874, 2026-10-06T00:01:22+00:00):** gateway metadata, direct
+metadata, direct data, and direct json all healthy. Only `gateway data`
+failed: `probe status: error; HTTP 403 from provider.` (2 attempts, both
+failed). All 12 ILO contract assertions read `ok` this cycle except the
+long-standing chronic `references:contentconstraint` (`ignored`, accepted
+and silently dropped) -- no contract breakage and no `changes` entries at
+all in `/api/contracts` this cycle.
+
+This is notably the inverse of ILO's established failure shape. Every prior
+ILO 403 episode on record (cycles 418, 703, 745, 826, 862, and others in this
+file) hit the *contract probes* while all five basic checks, including
+gateway data, stayed healthy. This is the first time the 403 has landed on
+the basic `gateway data` check itself while every contract assertion stayed
+clean -- the opposite split from the usual pattern.
+
+**Live recheck (2026-10-06T00:44Z):** direct data
+(`https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`)
+-> `200` in 1.4s, 23290 bytes. Direct metadata
+(`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`)
+-> `200`. The gateway itself (`sdmx-mcp-gateway-production.up.railway.app`)
+is outside this environment's allowed network, same as in prior entries, so
+the gateway's actual outbound request/response to ILO could not be inspected
+directly; only the provider side of the recheck could be confirmed, and it
+is clean.
+
+**Classification:** per `monitor/derive.py`, `gateway_issue` (direct path
+succeeded, gateway path failed) is attributed to the gateway's own code.
+Given ILO's long, well-documented history of intermittent provider-side 403
+clusters (always previously scoped to contract probes, never to the basic
+checks), and that the live recheck finds the provider itself answering
+normally, this reads as the same family of ILO-side intermittent 403 rather
+than a new gateway bug -- but it is reported plainly as `gateway_issue`
+because that is what the monitor computed, and because this is the first
+occurrence where it hit a basic check rather than only contracts, which is
+new enough to be worth a cycle of watching rather than dismissing outright.
+
+**History:** new as of cycle 874; healthy for the preceding 23 cycles (851
+through 873). No second occurrence yet; this is a single cycle so far.
+
+**Recommended action:** watch cycle 875 for recurrence. If the basic
+`gateway data` check fails with 403 again, or if contract assertions start
+breaking at the same time as a basic-check failure (a combination not seen
+before), escalate: that would mean ILO's provider-side flakiness is
+widening in scope, or there is a real gateway-side issue worth investigating
+(e.g. a header or retry difference between the gateway's outbound client and
+a plain direct GET).
+
+**Could not determine:** whether the 403 the gateway received was genuinely
+from ILO's edge/WAF (as all prior ILO 403 episodes have been) or something
+specific to the gateway's outbound request for this one probe call, since
+the gateway's own outbound traffic could not be inspected from this
+environment.
+
+
+## 2026-10-05T18:47Z - cycle 871
+
+**Changed:** ECB `degraded` -> `healthy` (recovery, confirmed clean).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-u5f3go`, cycle
+868, 2026-10-05T12:45Z) had ECB `degraded` (direct metadata and direct json
+both `ReadTimeout`), with an open item watching for whether direct json kept
+failing on its own for 3+ cycles.
+
+**Cycle saw (871, 2026-10-05T18:01:22+00:00):** all five ECB basic checks
+healthy, all 12 contract assertions `ok`. `/api/history` shows ECB already
+back to healthy at cycle 869 (2026-10-05T14:01:22+00:00) and clean through
+cycles 870 and 871, so the recovery happened one cycle after the degraded
+reading, before this run even started.
+
+**Live recheck (2026-10-05T18:47Z):** direct metadata
+(`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest?detail=allstubs`)
+-> `200` in 1.18s. Direct json, using the same `application/vnd.sdmx.data+json;
+version=1.0.0-wd` Accept header and data path the monitor uses
+(`/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`) -> `200` in 0.89s. Both
+channels are genuinely healthy now, not just timing out differently.
+
+**Classification:** provider-side episode, now resolved. No gateway defect
+was ever implicated (gateway metadata and gateway data stayed healthy
+throughout cycle 868 and after).
+
+**History:** part of ECB's long-running flapping pattern (cycles 669 through
+868, see prior entries in this file). This closes out the cycle 868 open
+item: direct json did not keep failing for 3+ cycles as that entry was
+watching for; it recovered at the very next cycle and has stayed clean for
+three cycles running (869, 870, 871).
+
+**Recommended action:** none. Resolved on its own within one cycle, matching
+the typical shape of prior ECB episodes.
+
+**Could not determine:** nothing outstanding; both the cycle data and the
+live recheck agree this is fully recovered.
+
+
+## 2026-10-05T12:45Z - cycle 868
+
+**Changed:** ECB `healthy` -> `degraded`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-053b5o`, cycle
+865, 2026-10-05T06:53Z) had ECB healthy, and `/api/history` shows it healthy
+through cycles 866 and 867 as well.
+
+**Cycle saw (868, 2026-10-05T12:01:22+00:00):** direct metadata and direct
+json both failed with `ReadTimeout` after 30s (2 attempts each). Gateway
+metadata, gateway data, and direct data (CSV) all passed, and all 12 ECB
+contract assertions stayed `ok`.
+
+**Live recheck (2026-10-05T12:45Z):** direct metadata recovered immediately
+(`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest?detail=allstubs`
+-> `200` in 1.2s). Direct json did not recover: the same data query with the
+SDMx-JSON `1.0.0-wd` Accept header returned ECB's own branded `504` error
+page after ~31s, rather than hanging past our client timeout as it did in
+the cycle. The CSV variant of the identical data query answered `200` in
+1.2s, and a sanity check against OECD answered normally, which rules out a
+network problem on this routine's side. So: metadata was transient, json is
+still broken, just with a different symptom.
+
+**Classification:** provider-side (`degraded`). Gateway's own metadata and
+data checks were unaffected throughout, so this is not a gateway defect; it
+is ECB's own backend being slow or erroring specifically on the SDMx-JSON
+content-negotiation path for this data query.
+
+**History:** ECB is one of the most frequently flapping endpoints this
+routine has ever tracked (see the many entries in this file from cycle 669
+through cycle 858), cycling between `gateway_issue` ("Network or transport
+error - provider unreachable" on the gateway's outbound call) and `degraded`
+(direct-path `ReadTimeout` on data or json). The most recent prior occurrence
+was cycle 858 (`gateway_issue`), clean through cycles 859-867, including the
+cycle 865 comparison point from the last run. Cycle 868 is a new occurrence
+in that same long-running pattern, with `json` again the channel that stays
+slow (also the sole failure at cycle 857).
+
+**Recommended action:** no code change yet; this matches the shape of prior
+ECB episodes, most of which resolved within 1-2 cycles without any gateway
+change. Worth a closer look if direct json keeps failing for three cycles
+running, since "metadata recovers on recheck but json does not" is a
+slightly new wrinkle compared to earlier episodes.
+
+**Could not determine:** whether this episode resolves by the next cycle
+like most of its predecessors, or marks a step change in ECB's JSON endpoint
+reliability. One cycle plus one live recheck is not enough to tell apart.
+
 ## 2026-10-04T00:43Z - cycle 850
 
 **Changed:** UNICEF `healthy` -> `degraded`.

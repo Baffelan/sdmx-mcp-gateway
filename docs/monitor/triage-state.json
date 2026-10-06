@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 877,
-  "last_cycle_started_at": "2026-10-06T06:01:22+00:00",
-  "last_run": "2026-10-06T06:44Z",
+  "last_cycle_id": 883,
+  "last_cycle_started_at": "2026-10-06T18:01:22+00:00",
+  "last_run": "2026-10-06T18:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,11 +18,13 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 877: listing served without credentials. Still open, not re-reported since no new change.",
-    "Content-Type parameter order (charset vs version) on structure responses varies between requests; still ok verdict at cycle 877. Cosmetic. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
-    "main caught up to cycle 874 as of this run (origin/main HEAD matches this branch's history); the earlier 'main stuck at cycle 850' concern from the cycle 874 run is resolved. Worth noting if main stalls again.",
-    "More than 20 claude/ triage branches have accumulated on origin (39 counted at this run, unchanged from cycle 874). Flagging per the skill's instruction so they can be pruned; not actioned by this read-only routine.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped). ESTAT list_dataflows 60s-deadline timeouts (our own call deadline, working as designed) remain a recurring, non-actionable pattern; none recurred recently. ILO's basic-check 403 at cycle 874 was a single cycle, resolved by cycle 875; no longer open."
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 883: listing served without credentials. Still open, not re-reported since no new change.",
+    "Content-Type parameter order (charset vs version) on structure responses varies between requests; still ok verdict at cycle 883. Cosmetic. Expected to keep flapping across multiple endpoints; do not re-report unless the verdict itself changes.",
+    "ECB flapped to gateway_issue at cycle 881 (gateway 504/500 against data-api.ecb.europa.eu), recovered by cycle 882. Single cycle, no recurrence since. Watch for a repeat; a second occurrence would be news given ECB's prior known issue (406) was a different shape and was fixed long ago.",
+    "ILO flapped to provider_down at cycle 882 (HTTP 522 on both gateway and direct dataflow listing), recovered by cycle 883. Single cycle, different shape from ILO's known chronic 403 flap. Watch for recurrence.",
+    "This branch's previous state (cycle 880) came from claude/sleepy-dijkstra-qtwdg9, not from this run's own starting branch; each run gets a fresh branch per the skill, so state must be discovered across branches every time.",
+    "More than 20 claude/ triage branches have accumulated on origin (40 counted at this run, up from 39 at cycle 880). Flagging per the skill's instruction so they can be pruned; not actioned by this read-only routine.",
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped). ESTAT list_dataflows 60s-deadline timeouts (our own call deadline, working as designed) remain a recurring, non-actionable pattern; none recurred this run."
   ],
   "alerted": true
 }

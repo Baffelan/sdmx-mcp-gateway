@@ -4,6 +4,75 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-06T18:42Z - cycle 883
+
+**Previous state:** `claude/sleepy-dijkstra-qtwdg9`, cycle 880, 2026-10-06T12:42Z,
+all 12 endpoints healthy.
+
+**Changed:** two separate flaps between runs, both already recovered by the
+current cycle. Neither was visible at the previous run's cycle (880) or the
+current one (883); both only show up by scanning the intermediate cycles in
+`/api/history`.
+
+### ECB: healthy -> `gateway_issue` -> healthy
+
+**Cycle saw (881, 2026-10-06T14:01Z):** `gateway metadata: Error: Server error
+'504 Gateway Time-out' for url 'https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest'`
+and `gateway data: probe status: error; HTTP 500 from provider.` Direct path
+was not in the failing list, which is what makes this `gateway_issue` rather
+than `provider_down`.
+**Recovered:** cycle 882 (2026-10-06T16:01Z) onward, `healthy`, empty `failing`.
+**Live recheck (2026-10-06T18:42Z):** `GET data-api.ecb.europa.eu/service/dataflow/ECB/all/latest`
+direct -> `200` in 1.2s.
+**Classification:** `gateway_issue` means ours per `monitor/derive.py`, but it
+self-resolved in one cycle (2 hours) with no recurrence since, and the
+proximate cause (`504`, then `500`) sits with ECB's provider infrastructure
+responding slowly under the gateway's request, not with a code change on our
+side -- no commits landed in this window. Noting it because `gateway_issue` is
+the one status this routine is told never to wave past, and because ECB's
+prior known failure (406 on `Accept: text/csv`, fixed via retry, resolved by
+cycle 43) is a different shape than this 504/500 pair, so this is not a
+recurrence of that old issue -- it is a new, so far single-cycle event.
+**History:** new; ECB has been healthy in every cycle on record since the
+406 fix except this one.
+**Could not determine:** whether the `504`/`500` came from ECB-side load,
+a transient network path issue between the gateway and ECB, or something in
+the gateway's own retry/timeout handling for this provider. One recovered
+cycle is not enough signal to localize it further.
+
+### ILO: healthy -> `provider_down` -> healthy
+
+**Cycle saw (882, 2026-10-06T16:01Z):** `gateway metadata: Error: Server
+error '522 <none>' for url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`
+and `direct metadata: HTTP 522`. Both gateway and direct paths failed, which
+is what makes this `provider_down` rather than `gateway_issue`.
+**Recovered:** cycle 883 (2026-10-06T18:01Z), `healthy`, empty `failing`.
+**Live recheck (2026-10-06T18:42Z):** `GET sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+direct -> `200` in 2.7s.
+**Classification:** `provider_down` -- theirs, nothing to fix in our code.
+HTTP 522 (Cloudflare connection-timed-out) is a different failure shape from
+ILO's previously recorded chronic flap (HTTP 403 on direct data/json, cycle
+32), so this is not that known pattern recurring; it is a new transient.
+**History:** new as of cycle 882; healthy for every cycle on record before
+and after it.
+**Could not determine:** whether the 522 originated at ILO's own
+infrastructure or at Cloudflare in front of it; one recovered cycle gives no
+further signal.
+
+**Network ruled out:** both flaps happened in different cycles (881 vs 882)
+and every other endpoint stayed `healthy` throughout 879-883, so this is not
+the monitor's own network being unreachable -- each is a genuine, isolated,
+already-resolved provider-side or gateway-side blip.
+
+**Contracts:** `/api/contracts` `changes` is empty at cycle 883; no assertion
+is `broken` or `capability_appeared`. The existing `informational` entries
+(BIS/ILO/IMF `references:contentconstraint`, STATSNZ `auth:listing`) are
+unchanged long-running facts, not new findings.
+
+**Branch count:** 40 `claude/sleepy-dijkstra-*` branches plus `main` counted
+at this run (up from 39 at cycle 880's run). Still well past the skill's
+20-branch flag; not actioned by this read-only routine.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

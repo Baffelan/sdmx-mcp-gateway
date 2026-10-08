@@ -4,6 +4,145 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-08T06:44Z - cycle 901
+
+**Changed:** three endpoints flapped and recovered since the last run (branch
+`claude/sleepy-dijkstra-zvpsay`, cycle 898, 2026-10-08T00:44Z): ILO
+`gateway_issue` -> `healthy`, ABS `healthy` -> `gateway_issue` -> `healthy`,
+UNICEF `healthy` -> `degraded` -> `healthy`. No contract assertion changed
+(`/api/contracts` `changes` is empty); `stale` is `false` and `gateway_up` is
+`true` at cycle 901.
+
+### ILO: gateway_issue (cycle 898) -> healthy
+
+**Previous state:** the cycle 898 entry already filed this (basic `gateway
+data` check failing with `HTTP 403 from provider`, direct path and all 12
+contract assertions clean) and flagged cycle 899 to watch for the expected
+recovery.
+
+**Cycle saw (899-901, 2026-10-08T02:01Z through 06:01Z):** `/api/history`
+shows ILO `healthy` with an empty `failing` list for all three cycles since
+the 403. `/api/status` at cycle 901 confirms `healthy`, all checks passing.
+
+**Live recheck (2026-10-08T06:44Z):** direct ILO dataflow listing -> `200`.
+
+**Classification:** resolved. Same single-cycle, self-resolving shape as the
+documented prior occurrences (418, 703, 745, 826, 862, 874, 898). Closing the
+open item from the 898 entry; no further watch needed unless a 403 recurs.
+
+**Recommended action:** none.
+
+**Could not determine:** nothing outstanding; this closes the ILO item left
+open by the 898 entry.
+
+### ABS: healthy -> gateway_issue (cycle 899) -> healthy (empty error body recurred)
+
+**Cycle saw (899, 2026-10-08T02:01:22Z):** `gateway metadata` check failed
+with `Error:` -- an empty error body, no status code or detail attached.
+Direct metadata/data/json were not reported failing at this cycle, so only
+the gateway path was affected. Recovered to `healthy` by cycle 900 and
+remained `healthy` through 901.
+
+**Live recheck (2026-10-08T06:44Z):** direct ABS dataflow listing
+(`https://data.api.abs.gov.au/rest/dataflow/ABS?detail=allstubs`) -> `200`
+in 16.7s (slow but successful). ECB checked as a network sanity control,
+also `200`, so this is not the network this routine runs on going dark.
+
+**Classification:** `gateway_issue` per `monitor/derive.py` (gateway path
+failing, direct path not failing) -> ours. This is the specific pattern the
+skill's known-flaps list calls out: an `ABS gateway metadata: Error:` with an
+empty body was previously seen once, at cycle 26, with the note "if this
+recurs, the empty message is itself the bug to report." It has now recurred,
+at cycle 899.
+
+**New or chronic:** the underlying ABS-403/empty-error shape is a known
+single prior occurrence (cycle 26), not a frequent flapper; this is its
+second appearance on record, roughly 870 cycles apart.
+
+**Recommended action:** the gateway's error handling on the ABS metadata
+path swallows whatever the underlying exception or provider response was and
+surfaces only the literal string `Error:`. Worth adding the actual status
+code/body to that failure path (likely in the ABS metadata fetch/exception
+handling in the gateway) so the next occurrence is diagnosable instead of
+being another content-free `Error:` line.
+
+**Could not determine:** the underlying cause of the cycle 899 ABS gateway
+metadata failure itself, since the logged message carries no detail and the
+endpoint had already recovered by the time this run looked at it.
+
+### UNICEF: healthy -> degraded (cycle 900, HTTP 429) -> healthy
+
+**Cycle saw (900, 2026-10-08T04:01:22Z):** `gateway data`, `direct data`, and
+`direct json` all failed with `HTTP 429 from provider`. `gateway metadata`
+and `direct metadata` were not reported failing. Recovered to `healthy` by
+cycle 901.
+
+**Live recheck (2026-10-08T06:44Z):** direct UNICEF dataflow listing -> `200`
+in 0.5s.
+
+**Classification:** provider-side rate limiting (`degraded`). Both the
+gateway path and the direct path failed identically with `429`, so this is
+the provider throttling request volume, not a gateway bug.
+
+**New or chronic:** not on the skill's known-flaps list (UNICEF's documented
+prior flap was an `HTTP 503` at cycle 2, a different shape). First `429`
+seen in the window checked (cycles 895-901).
+
+**Recommended action:** watch for recurrence. If `429`s become frequent, the
+monitor's own UNICEF check cadence, or the gateway's request volume to
+UNICEF, may need backoff.
+
+**Could not determine:** whether this was a one-off provider-side throttle
+or the start of a new pattern; only one cycle of data exists so far.
+
+
+## 2026-10-08T00:44Z - cycle 898
+
+**Changed:** ILO `healthy` -> `gateway_issue` (basic `gateway data` check 403).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-2utv7h`, cycle 895,
+2026-10-07T18:42Z) had all twelve endpoints healthy. `/api/history` shows ILO
+healthy through cycles 896 and 897 (2026-10-07T20:01Z, 22:01Z) with no other
+endpoint changing status in between.
+
+**Cycle saw (898, 2026-10-08T00:01:22Z):** gateway metadata check passing;
+gateway data check failing with `probe status: error; HTTP 403 from
+provider.`; direct metadata, direct data (119 observations, sample `8.973` at
+`2011`), and direct json all passing; all 12 ILO contract assertions read
+`ok`, including `references:contentconstraint` (`ignored`-but-`ok` as
+expected) and `constraint:availableconstraint` (`500`, matching the gateway's
+own assumption). Only the basic `gateway data` check is affected.
+
+**Live recheck (2026-10-08T00:44Z):** direct ILO dataflow listing
+(`https://sdmx.ilo.org/rest/dataflow/ILO?detail=allstubs`) -> `200` in 2.5s;
+the exact data URL the probe uses
+(`https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`)
+-> `200` in 1.8s regardless of `Accept` header or user agent tried. ECB
+checked as a sanity control and also answers `200`, so this is not the
+network this routine runs on going dark. The gateway's own outbound
+request/response to ILO could not be replayed from here: `sdmx-mcp-gateway-production.up.railway.app`
+is not on this environment's allowed host list, by design (this routine only
+talks to the monitor and the providers directly, never to the gateway under
+test).
+
+**Classification:** `gateway_issue` per `monitor/derive.py` (direct path OK,
+gateway path failing) -> ours, not ILO's, even though ILO's own edge is the
+proximate source of the `403`.
+
+**New or chronic:** chronic. This is the same documented ILO
+basic-check-403 pattern as cycle 874 (and its cited predecessors: 418, 703,
+745, 826, 862), recovering cleanly by cycle 877 that time. Same shape again
+here: only the `gateway data` probe fails with a `403`, direct paths and all
+contract assertions stay clean. Not new, not escalating.
+
+**Recommended action:** none beyond watching cycle 899 for the expected
+recovery, consistent with every prior occurrence of this pattern.
+
+**Could not determine:** the exact proximate cause on ILO's side (edge/WAF
+rate limiting vs. something specific to the gateway's outbound request),
+since the gateway's own request to ILO cannot be inspected from this
+environment. This is the same gap noted in every prior ILO-403 entry.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

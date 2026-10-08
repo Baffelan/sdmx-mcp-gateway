@@ -4,6 +4,53 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-08T00:44Z - cycle 898
+
+**Changed:** ILO `healthy` -> `gateway_issue` (basic `gateway data` check 403).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-2utv7h`, cycle 895,
+2026-10-07T18:42Z) had all twelve endpoints healthy. `/api/history` shows ILO
+healthy through cycles 896 and 897 (2026-10-07T20:01Z, 22:01Z) with no other
+endpoint changing status in between.
+
+**Cycle saw (898, 2026-10-08T00:01:22Z):** gateway metadata check passing;
+gateway data check failing with `probe status: error; HTTP 403 from
+provider.`; direct metadata, direct data (119 observations, sample `8.973` at
+`2011`), and direct json all passing; all 12 ILO contract assertions read
+`ok`, including `references:contentconstraint` (`ignored`-but-`ok` as
+expected) and `constraint:availableconstraint` (`500`, matching the gateway's
+own assumption). Only the basic `gateway data` check is affected.
+
+**Live recheck (2026-10-08T00:44Z):** direct ILO dataflow listing
+(`https://sdmx.ilo.org/rest/dataflow/ILO?detail=allstubs`) -> `200` in 2.5s;
+the exact data URL the probe uses
+(`https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`)
+-> `200` in 1.8s regardless of `Accept` header or user agent tried. ECB
+checked as a sanity control and also answers `200`, so this is not the
+network this routine runs on going dark. The gateway's own outbound
+request/response to ILO could not be replayed from here: `sdmx-mcp-gateway-production.up.railway.app`
+is not on this environment's allowed host list, by design (this routine only
+talks to the monitor and the providers directly, never to the gateway under
+test).
+
+**Classification:** `gateway_issue` per `monitor/derive.py` (direct path OK,
+gateway path failing) -> ours, not ILO's, even though ILO's own edge is the
+proximate source of the `403`.
+
+**New or chronic:** chronic. This is the same documented ILO
+basic-check-403 pattern as cycle 874 (and its cited predecessors: 418, 703,
+745, 826, 862), recovering cleanly by cycle 877 that time. Same shape again
+here: only the `gateway data` probe fails with a `403`, direct paths and all
+contract assertions stay clean. Not new, not escalating.
+
+**Recommended action:** none beyond watching cycle 899 for the expected
+recovery, consistent with every prior occurrence of this pattern.
+
+**Could not determine:** the exact proximate cause on ILO's side (edge/WAF
+rate limiting vs. something specific to the gateway's outbound request),
+since the gateway's own request to ILO cannot be inspected from this
+environment. This is the same gap noted in every prior ILO-403 entry.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

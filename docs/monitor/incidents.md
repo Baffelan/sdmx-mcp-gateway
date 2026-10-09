@@ -4,6 +4,49 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-09T00:44Z - cycle 910
+
+**Changed:** ILO `encoding:structure_xml` contract assertion, `observed`
+value only. Content-Type header on the structure XML response reordered its
+parameters: `charset=utf-8; version=2.1` (previous cycle) ->
+`version=2.1; charset=utf-8` (cycle 910). No endpoint changed status; all 12
+remained `healthy` at cycle 910, matching the previous run's baseline
+(cycle 907, also all healthy, from branch `claude/sleepy-dijkstra-yqalyk`).
+No cycle between 907 and 910 showed any status other than `healthy` for any
+endpoint.
+
+**Cycle saw:** `/api/contracts` `changes` array for cycle 910 lists exactly
+this one entry, `verdict: ok` both before and after; `spec_verdict: n/a`.
+
+**Live recheck (2026-10-09T00:43Z):** direct GET to
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest?detail=allstubs`
+-> `HTTP 200`, `content-type: application/vnd.sdmx.structure+xml; version=2.1; charset=utf-8`.
+Matches the monitor's cycle-910 "now" value, so this is not a single-request
+fluke on the monitor's side; the order really is what ILO (behind Cloudflare)
+is serving right now.
+
+**Classification:** no gateway assumption invalidated. The gateway's own
+check (`monitor/contracts.py::check_encoding`) only tests whether `"xml"`
+appears in the Content-Type string, so parameter order is irrelevant to it;
+verdict stayed `ok`. Not one of the documented architectural facts for ILO
+(`/availableconstraint/` 500, `references:contentconstraint` ignored), and
+not previously seen in this routine's history -- treating it as new,
+cosmetic, informational only.
+
+**History:** new as of cycle 910. No prior occurrence recorded; only one
+data point exists, so whether this flips back on a later cycle (e.g. two
+backend instances behind Cloudflare each ordering headers differently) is
+unknown.
+
+**Recommended action:** none required. Note for future runs: if this
+specific assertion's `observed` string keeps toggling between the two
+orderings cycle over cycle, it is a formatting quirk of ILO's front end, not
+a provider regression, and should be added to the architectural-facts list
+in the skill to stop it re-appearing in `changes`.
+
+**Could not determine:** whether this ordering is now stable or will flip
+back; only this one cycle's data was available.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

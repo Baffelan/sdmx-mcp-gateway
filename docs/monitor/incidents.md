@@ -4,6 +4,55 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-10T00:44Z - cycle 922
+
+**Changed:** UNICEF `healthy` -> `degraded`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-izeqwu`, cycle
+919, 2026-10-09T18:43Z) had all 12 endpoints healthy.
+
+**Cycle saw:** at cycle 921 (2026-10-09T22:01Z) `gateway data`, `direct data`,
+and `direct json` all started failing with `HTTP 404` / `probe status: empty;
+HTTP 404 -- no data found for this query.`; `direct metadata` and `gateway
+metadata` stayed `ok`. Still failing identically at cycle 922. The contract
+assertion `constraint:availableconstraint` is `broken`: expected `200`,
+observed `404`.
+
+**Live recheck (2026-10-10T00:44Z):** confirmed, same shape, and wider than
+the pinned sample series. The monitor's pinned probe is
+`/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1` -> `404`
+`No data for data query against the dataflow:
+urn:...Dataflow=UNICEF:GLOBAL_DATAFLOW(1.0)`. I also tried a full wildcard
+(`/data/UNICEF,GLOBAL_DATAFLOW/all`), a different indicator
+(`ALB.NT_ANT_WHZ_PO2._T`), and the query with no `firstNObservations` limit --
+all `404` with the same "no data" body. `/availableconstraint/GLOBAL_DATAFLOW
+/all/all/all` (the contract probe, which already uses a full wildcard) also
+returns `404` ("No Data for Query"). Metadata still lists `GLOBAL_DATAFLOW` in
+the dataflow listing. So this is not the pinned sample series going stale; the
+entire `GLOBAL_DATAFLOW` dataflow appears to return no data for any query
+shape right now, while its structure/metadata is still served.
+
+**Network ruled out:** ECB and IMF data endpoints both answered `200` within
+the same minute, so this is not the routine's network.
+
+**Classification:** `degraded`, provider-side. Gateway and direct paths fail
+identically (same 404, same body), so this is not a `gateway_issue` -- the
+gateway is faithfully relaying what UNICEF returns.
+
+**History:** new as of cycle 921; healthy for at least the preceding 20+
+cycles (back through cycle 899 in the 48h history window). Not flapping --
+two consecutive failing cycles so far, no recovery yet.
+
+**Recommended action:** watch the next cycle or two. If `GLOBAL_DATAFLOW`
+stays data-empty, this likely needs a config-level decision (point the
+UNICEF data probe at a different series, or treat an empty `GLOBAL_DATAFLOW`
+as UNICEF's new normal) rather than a gateway code fix, since the gateway
+is not misbehaving here.
+
+**Could not determine:** whether UNICEF is mid-deploy/mid-reindex on this
+dataflow, has retired `GLOBAL_DATAFLOW` in favor of something else, or has a
+transient backend data-serving gap. No ETA signal available from the API.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

@@ -4,6 +4,70 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-11T18:43Z - cycle 943
+
+**Changed:** UNICEF `degraded` -> `healthy` (recovery, chronic). ILO `healthy`
+-> `gateway_issue` -> `healthy` (flapped between runs, already resolved).
+
+**Previous state:** last run found on branch `claude/sleepy-dijkstra-ta2b9r`
+(cycle 940, 2026-10-11T12:43Z) had UNICEF `degraded` since cycle 921 (20
+consecutive cycles, no recovery, no widening), failing on gateway data, direct
+data, direct json, and contract `constraint:availableconstraint` (`broken`).
+ILO was `healthy`.
+
+**Cycle saw (941-943, from `/api/history?hours=48`):**
+- UNICEF: still `degraded` at cycle 941 with the same three failing checks
+  (`gateway data: probe status: empty; HTTP 404`, `direct data: HTTP 404`,
+  `direct json: HTTP 404`). Recovered to `healthy` with an empty `failing` list
+  at cycle 942, and still `healthy` at 943.
+- ILO: `healthy` through cycle 940, then `gateway_issue` for exactly one cycle
+  (941) with `failing: ["gateway data: probe status: error; HTTP 403 from
+  provider."]` -- direct metadata/data/json unaffected. Back to `healthy` with
+  an empty `failing` list at cycle 942, still `healthy` at 943. This whole
+  episode happened and resolved between scheduled runs; it was never seen live.
+
+**Live recheck (2026-10-11T18:43Z):** UNICEF direct data path
+(`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`)
+-> `200`, returning a valid StructureSpecificData payload, confirming the
+recovery is real and not a monitor-side quirk. ILO's failing check was on the
+`gateway` path (the gateway probing the provider on our behalf), which this
+routine cannot replay directly; two consecutive clean cycles (942, 943) from
+the monitor itself are the available confirmation.
+
+**Classification:**
+- UNICEF: provider-side resolution. The 404s were on the provider's own data
+  and json responses as well as the gateway path, so this is `degraded`
+  clearing, not a `gateway_issue` -- nothing to fix in our code.
+- ILO: `gateway_issue` for one cycle, meaning the gateway path failed (403)
+  while direct checks stayed clean -- that one cycle was ours to investigate,
+  but it self-resolved before this run could look at it live. Shape matches
+  the prior ILO 403 episodes on record (cycle 874 and others): single-cycle,
+  self-resolving, no widening to contract assertions.
+
+**History:** UNICEF chronic for cycles 921-941 (21 cycles), now healthy for
+942-943. ILO healthy for a long run before cycle 941, red for cycle 941 only,
+healthy since.
+
+**Recommended action:** close both open items. Watch UNICEF for one more
+cycle before fully retiring the memory of this chronic failure, since 404s
+that clear this cleanly on both direct and gateway paths at once are unusual
+for this endpoint's prior flapping history. No action needed for ILO; this
+matches its known transient-403 pattern.
+
+**Could not determine:** what changed on UNICEF's side between cycle 941 and
+942 to clear a 21-cycle-old 404 on both direct and gateway paths
+simultaneously -- no contract or structural change appeared in
+`/api/contracts` `changes` for this cycle to explain it.
+
+**Other notes (not incidents):** STATSNZ `auth:listing` stays
+`capability_appeared` (listing without credentials), unchanged since cycle 60,
+not re-reported. `/api/contracts` `changes` this cycle contained only two
+header-ordering differences in the `encoding:structure_xml` Content-Type
+string for ABS and ILO (charset/version order swapped), both `verdict: ok` --
+not reportable. 56 `claude/` triage branches counted on origin (up from 55 at
+cycle 940); flagging per the skill's instruction so they can be pruned, not
+actioned by this read-only routine.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

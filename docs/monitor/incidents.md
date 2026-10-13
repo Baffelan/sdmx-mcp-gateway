@@ -4,6 +4,24 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-13T12:45Z - cycle 964
+
+**Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy` (flap, already resolved by the time this run looked).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-xtb69l`, cycle 961, 2026-10-13T06:43Z) had all 12 endpoints healthy.
+
+**Cycle saw:** `/api/history?hours=48` shows ESTAT healthy at cycle 961 (06:01Z) and 962 (08:01Z), then `gateway_issue` at cycle 963 (10:01Z) with `failing: ["gateway metadata: tool call list_dataflows timed out after 60.0s"]`, then healthy again at cycle 964 (12:01Z, this run). `/api/status` at cycle 964 confirms ESTAT healthy, all checks passing, and `/api/contracts` shows zero entries in `changes` for this cycle.
+
+**Live recheck:** fetched ESTAT's dataflow listing directly (`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`) just now -> `200` in 27s for a 37MB response. That confirms the payload is large and slow by nature; under load a run of this call can plausibly cross the gateway's 60s deadline, consistent with the one-cycle timeout seen at 963.
+
+**Classification:** `gateway_issue` for cycle 963, our own call deadline firing under a slow/large listing, not a provider outage. This is the same pattern already on record for ESTAT (`list_dataflows` timing out at 60s under load, then recovering), recurring as a fresh single-cycle instance rather than a new failure mode.
+
+**History:** healthy for cycles 961-962, failed once at 963, healthy again at 964. No widening to direct path or to contract assertions.
+
+**Recommended action:** none. Matches the established, understood ESTAT timeout pattern; no code change indicated. Keep watching for this to recur more frequently or to start hitting the direct path too, which would indicate a real change on Eurostat's side rather than our deadline.
+
+**Could not determine:** nothing outstanding; this flap is closed as of cycle 964.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

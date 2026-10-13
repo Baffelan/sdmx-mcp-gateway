@@ -4,6 +4,46 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-13T18:44Z - cycle 967
+
+**Changed:** ILO `healthy` -> `provider_down` -> `healthy` (flap, already resolved).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-m1gqb6`, cycle
+964, 2026-10-13T12:45Z) had all 12 endpoints healthy.
+
+**Cycle saw:** `/api/history` shows ILO healthy through cycle 965
+(2026-10-13T14:01Z), `provider_down` at cycle 966 (2026-10-13T16:01Z) with
+`failing: ["gateway metadata: Error:", "direct metadata: ReadTimeout:",
+"direct data: ReadTimeout:"]`, then healthy again at cycle 967
+(2026-10-13T18:01Z, the current cycle). 21 clean cycles preceded it
+(944-965).
+
+**Live recheck (2026-10-13T18:44Z):** `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+-> `200` in 4.3s. Slower than the ~2s baseline elsewhere but answering, not
+timing out, consistent with the monitor's own recovery at cycle 967.
+
+**Classification:** `provider_down` (metadata failed on both gateway and
+direct paths at cycle 966; nothing to fix in our code). The gateway-side
+message was an empty `Error:` string with no body, the same shape noted for
+ABS at cycle 26 in the skill's known-flap list; worth watching if it recurs,
+but here both direct metadata and direct data also hit `ReadTimeout`, so the
+weight of evidence is a provider-side timeout, not a gateway bug masking a
+real response.
+
+**History:** new as of cycle 966, a single cycle, healthy for the 21 cycles
+before and the 1 cycle after. Different failure shape from the two ILO flaps
+already on record (403 at cycle 32, 403 at cycle 874) -- this one is a
+timeout rather than a 403 -- so it is reported as a new episode rather than a
+repeat of either.
+
+**Recommended action:** none beyond watching. One isolated timeout cycle
+matches the self-resolving pattern every prior ILO flap has shown; escalate
+only if `ReadTimeout` or the empty gateway error recurs.
+
+**Could not determine:** whether the ILO-side slowness at cycle 966 was a
+deploy, a load spike, or routine maintenance; the provider gives no status
+page to check against.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

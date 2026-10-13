@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 931,
-  "last_cycle_started_at": "2026-10-10T18:01:22+00:00",
-  "last_run": "2026-10-10T18:43Z",
+  "last_cycle_id": 967,
+  "last_cycle_started_at": "2026-10-13T18:01:22+00:00",
+  "last_run": "2026-10-13T18:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -15,13 +15,13 @@
     "SBS": "healthy",
     "SPC": "healthy",
     "STATSNZ": "healthy",
-    "UNICEF": "degraded"
+    "UNICEF": "healthy"
   },
   "open_items": [
-    "UNICEF degraded since cycle 921 (2026-10-09T22:01Z), still failing at cycle 931: gateway data, direct data, direct json, contract constraint:availableconstraint broken. No recovery and no widening across cycles 921-931 (11 consecutive cycles). Chronic, not re-reported since no new change.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 931: listing served without credentials. Still open, not re-reported since no new change.",
-    "More than 20 claude/ triage branches have accumulated on origin (53 counted at this run, unchanged from cycle 928). Flagging per the skill's instruction so they can be pruned; not actioned by this read-only routine.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped). ESTAT list_dataflows 60s-deadline timeouts (our own call deadline, working as designed) remain a recurring, non-actionable pattern; none recurred this run. /api/contracts changes this cycle held only the known cosmetic ILO encoding:structure_xml Content-Type parameter-order flap (charset/version ordering), verdict stayed ok, not re-reportable per standing guidance."
+    "ILO flapped healthy -> provider_down -> healthy at cycle 966 (gateway metadata: empty Error:, direct metadata: ReadTimeout, direct data: ReadTimeout), already resolved by cycle 967. Reported once in incidents.md as a new episode (different shape from the two prior ILO 403 flaps on record); closed as of this run, watch for recurrence of ReadTimeout or the empty gateway error.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 967: listing served without credentials. Still open, not re-reported since no new change.",
+    "More than 20 claude/ triage branches have accumulated on origin (64 counted at this run, up from 63 at cycle 964). Flagging per the skill's instruction so they can be pruned; not actioned by this read-only routine.",
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped). /api/contracts changes this cycle held only a cosmetic SBS encoding:structure_xml Content-Type parameter-order flap (charset/version ordering), verdict stayed ok, not re-reportable per standing guidance. No broken or capability_appeared verdicts outside the chronic STATSNZ one."
   ],
-  "alerted": false
+  "alerted": true
 }

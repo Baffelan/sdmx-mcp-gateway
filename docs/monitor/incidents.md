@@ -4,6 +4,110 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-14T06:43Z - cycle 973
+
+**Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).
+
+**Previous state:** last run's state (branch `claude/sleepy-dijkstra-1prz82`,
+cycle 970, 2026-10-14T00:44Z) had ILO `gateway_issue` from the 403-on-listing
+episode recorded in that entry, with an explicit note to watch cycle 971 for
+confirmed recovery.
+
+**Cycle saw (971-973, 2026-10-14T02:01Z through 06:01Z):** `/api/history`
+shows ILO `healthy` with an empty `failing` list for all three cycles since
+the 403 (971, 972, 973). `/api/status` at cycle 973 confirms `healthy`, all
+checks passing. `/api/contracts` `changes` for cycle 973 lists only one entry,
+ILO `encoding:structure_xml`, and it is the same cosmetic charset/version
+header-ordering flap seen before, verdict stayed `ok`. No `broken` verdicts
+anywhere in the current contracts matrix; the one `capability_appeared`
+present (STATSNZ `auth:listing`) is the long-standing, unchanged item open
+since cycle 60.
+
+**Live recheck (2026-10-14T06:43Z):** direct unauthenticated GETs to the same
+three URLs implicated in the cycle 970 entry -- the bulk `dataflow/ILO/all/latest`
+listing, the pinned single dataflow, and the nonexistent artefact -- returned
+their expected status (`200`, `200`, `404`). A control check against ECB in
+the same window also returned `200`, ruling out a network problem on this
+routine's end.
+
+**Classification:** resolved. Single-cycle `gateway_issue` (cycle 970 only),
+healthy for the three cycles since. No widening to the basic checks or to
+further contract assertions.
+
+**History:** `gateway_issue` for exactly cycle 970, `healthy` for cycles
+971-973. This closes the episode the cycle 970 entry flagged as ILO's third
+distinct flap shape in the preceding five days (403 at cycle 32, empty-`Error:`/
+`ReadTimeout` at cycle 966, this 403-on-listing at cycle 970). No fourth shape
+has appeared since.
+
+**Recommended action:** none. Close the open item from the cycle 970 entry;
+no further watch needed unless ILO flaps again.
+
+**Could not determine:** nothing outstanding; this closes the item left open
+after the previous entry.
+
+**Also noted, not separately alerted:** 66 `claude/` triage branches have now
+accumulated on origin (up from 65 at cycle 970), still above the skill's
+20-branch flag threshold; this is left for pruning, not actioned by this
+read-only routine. `origin/main` is still at cycle 931 (the last successful
+merge-to-main), so the step 8 PR merge has not kept pace with recent runs;
+this run's findings are committed and pushed on its own branch regardless,
+per the skill's fallback.
+
+## 2026-10-14T00:44Z - cycle 970
+
+**Changed:** ILO `healthy` -> `gateway_issue`, plus two contract assertions went
+`ok` -> `broken`.
+
+**Previous state:** last run's state (branch `claude/sleepy-dijkstra-ron7ze`,
+cycle 967, 2026-10-13T18:44Z) had ILO `healthy`. `/api/history` shows ILO
+healthy for cycles 967-969 too (through 2026-10-13T22:01Z).
+
+**Cycle saw (970, started 2026-10-14T00:01:22Z):** gateway metadata check
+failed with `Error: Client error '403 Forbidden' for url
+'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`; direct metadata/data/json
+all passed. `/api/contracts` `changes` for this cycle show ILO `auth:listing`
+went `200` -> `403` (verdict `broken`) and `errors:missing_artefact` went
+`404` -> `403` (verdict `broken`). Both of those contract probes query ILO
+unauthenticated (`listing_url`: the pinned single dataflow
+`DF_GED_XLU1_SEX_HHT_CHL_RT`, and a deliberately nonexistent dataflow). A third
+ILO change, `encoding:structure_xml`, was only a charset/version header
+reordering with verdict staying `ok`, matching the known SBS-style cosmetic
+flap pattern; not reportable on its own.
+
+**Live recheck (2026-10-14T00:44Z):** direct unauthenticated GETs to all three
+URLs implicated -- the bulk `dataflow/ILO/all/latest` the gateway's
+`list_dataflows` call used, the pinned single dataflow, and the nonexistent
+artefact -- all returned their expected status now (`200`, `200`, `404`).
+Disagreement with the cycle's own result: this confirms the 403s were transient
+on ILO's side and had already cleared by the time of this check, roughly 43
+minutes after the cycle ran. Other providers (ECB, OECD) answered normally in
+the same window, so this was not a network problem on the monitor's or this
+routine's end.
+
+**Classification:** provider-side (`gateway_issue` as reported, since the
+gateway path failed while direct passed; both paths actually hit the
+provider, so the 403 itself originated at ILO, not in gateway code). Not a
+code bug to fix in this repository.
+
+**History:** new as of cycle 970, no earlier cycle in the 967-969 window
+showed it. This is ILO's third distinct flap shape on record: HTTP 403 at
+cycle 32 (recovered), the empty-`Error:`/`ReadTimeout` episode at cycle 966
+(recovered by 967, and that entry's open item explicitly asked to watch for
+recurrence), and now this 403-on-listing episode four cycles later. Three
+different failure shapes within ~5 days from the same provider is worth
+tracking even though each one self-resolved.
+
+**Recommended action:** no code change. Watch the next cycle (971) to confirm
+ILO reports `healthy` with no `broken` contract verdicts, closing this
+episode; if a fourth distinct ILO flap shape appears soon after, that pattern
+itself becomes the finding.
+
+**Could not determine:** whether ILO's 403s and the prior cycle-966 timeouts
+share a root cause (e.g. ILO-side rate limiting or deploys) or are unrelated;
+ILO's NSI server identifies itself only as "v8.19.6.0" with no further
+diagnostics in the response.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

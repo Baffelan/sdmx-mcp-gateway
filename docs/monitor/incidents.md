@@ -4,6 +4,60 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-14T00:44Z - cycle 970
+
+**Changed:** ILO `healthy` -> `gateway_issue`, plus two contract assertions went
+`ok` -> `broken`.
+
+**Previous state:** last run's state (branch `claude/sleepy-dijkstra-ron7ze`,
+cycle 967, 2026-10-13T18:44Z) had ILO `healthy`. `/api/history` shows ILO
+healthy for cycles 967-969 too (through 2026-10-13T22:01Z).
+
+**Cycle saw (970, started 2026-10-14T00:01:22Z):** gateway metadata check
+failed with `Error: Client error '403 Forbidden' for url
+'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`; direct metadata/data/json
+all passed. `/api/contracts` `changes` for this cycle show ILO `auth:listing`
+went `200` -> `403` (verdict `broken`) and `errors:missing_artefact` went
+`404` -> `403` (verdict `broken`). Both of those contract probes query ILO
+unauthenticated (`listing_url`: the pinned single dataflow
+`DF_GED_XLU1_SEX_HHT_CHL_RT`, and a deliberately nonexistent dataflow). A third
+ILO change, `encoding:structure_xml`, was only a charset/version header
+reordering with verdict staying `ok`, matching the known SBS-style cosmetic
+flap pattern; not reportable on its own.
+
+**Live recheck (2026-10-14T00:44Z):** direct unauthenticated GETs to all three
+URLs implicated -- the bulk `dataflow/ILO/all/latest` the gateway's
+`list_dataflows` call used, the pinned single dataflow, and the nonexistent
+artefact -- all returned their expected status now (`200`, `200`, `404`).
+Disagreement with the cycle's own result: this confirms the 403s were transient
+on ILO's side and had already cleared by the time of this check, roughly 43
+minutes after the cycle ran. Other providers (ECB, OECD) answered normally in
+the same window, so this was not a network problem on the monitor's or this
+routine's end.
+
+**Classification:** provider-side (`gateway_issue` as reported, since the
+gateway path failed while direct passed; both paths actually hit the
+provider, so the 403 itself originated at ILO, not in gateway code). Not a
+code bug to fix in this repository.
+
+**History:** new as of cycle 970, no earlier cycle in the 967-969 window
+showed it. This is ILO's third distinct flap shape on record: HTTP 403 at
+cycle 32 (recovered), the empty-`Error:`/`ReadTimeout` episode at cycle 966
+(recovered by 967, and that entry's open item explicitly asked to watch for
+recurrence), and now this 403-on-listing episode four cycles later. Three
+different failure shapes within ~5 days from the same provider is worth
+tracking even though each one self-resolved.
+
+**Recommended action:** no code change. Watch the next cycle (971) to confirm
+ILO reports `healthy` with no `broken` contract verdicts, closing this
+episode; if a fourth distinct ILO flap shape appears soon after, that pattern
+itself becomes the finding.
+
+**Could not determine:** whether ILO's 403s and the prior cycle-966 timeouts
+share a root cause (e.g. ILO-side rate limiting or deploys) or are unrelated;
+ILO's NSI server identifies itself only as "v8.19.6.0" with no further
+diagnostics in the response.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

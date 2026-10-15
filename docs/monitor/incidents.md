@@ -4,6 +4,52 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-15T06:44Z - cycle 985
+
+**Changed:** ILO `gateway_issue` -> `degraded` (API contract broken: `auth:listing`, `errors:missing_artefact`).
+
+**Previous state:** best-known prior state (branch `claude/sleepy-dijkstra-780v5x`,
+cycle 982, 2026-10-15T00:47Z) had ILO `gateway_issue`: `gateway data` failed
+with `probe status: error; HTTP 403 from provider.`, direct path clean. History
+shows that resolved by cycle 983 (`healthy`), stayed `healthy` through cycle
+984, then at cycle 985 two contract probes broke instead.
+
+**Cycle saw (985, 2026-10-15T06:01:22Z):** all five basic checks (gateway
+metadata/data, direct metadata/data/json) passed cleanly. Two contract
+assertions broke: `auth:listing` expected `open`, observed `403`
+("provider now demands credentials"); `errors:missing_artefact` expected
+`404`, observed `403` ("error semantics changed from HTTP 404"). `dialect:sdmx3`
+also observed `403` (was `400`) but still scored `ok` since any 4xx satisfies
+that assertion; `encoding:structure_xml` was skipped as a side effect of the
+403. `/api/contracts` `changes` lists all four as was/now pairs for this cycle
+only, confirming this is new as of cycle 985, not carried from 982.
+
+**Live recheck (2026-10-15T06:44Z):** `GET https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+(unauthenticated, the `auth:listing` probe) -> `200`. `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/NONEXISTENT_XYZ_2026/latest` (the
+`errors:missing_artefact` probe) -> `404`. Both back to the expected values.
+ECB checked as a control -> `200`, so this was not a network problem on this
+routine's side either at cycle 985 or now.
+
+**Classification:** transient, provider-side. The cycle's 403s did not
+reproduce 40 minutes later; this is the same single-cycle, self-resolving
+403 shape ILO has shown at least thirteen times before (per the open items
+on cycle 982's state and the cycle-877 incident entry), just landing on the
+contract probes this time instead of the basic data check. Not a gateway
+bug: nothing here points at our code.
+
+**History:** new as of cycle 985; healthy (983-984) between this and the
+cycle-982 episode, which was itself one cycle long.
+
+**Recommended action:** none beyond watching. If a 403 lands on both the
+basic checks and the contract probes in the same cycle, or spans more than
+one cycle, that would be a step change in this pattern and worth escalating.
+
+**Could not determine:** whether ILO's intermittent 403s share one root
+cause (e.g. a WAF or rate limiter keyed on request volume) across the
+different check types they've now hit, since the monitor does not expose
+response headers for these probes.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

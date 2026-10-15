@@ -4,6 +4,82 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-15T00:47Z - cycle 982
+
+**Changed:** ILO `healthy` -> `gateway_issue` (gateway data check 403; direct
+path clean).
+
+**Previous state:** last run (this same branch, `claude/sleepy-dijkstra-780v5x`,
+cycle 979, 2026-10-14T18:42Z) had all 12 endpoints `healthy`, ILO included.
+
+**Cycle saw:** `/api/history?hours=48` shows ILO `healthy` with an empty
+`failing` list for cycles 980 and 981, then at cycle 982
+(2026-10-15T00:01:22Z) `failing: ["gateway data: probe status: error; HTTP
+403 from provider."]`. `/api/status` at cycle 982 confirms `gateway_issue`,
+reason "direct path OK; gateway path failing": gateway metadata ok, gateway
+data failed (403, 2 attempts), direct metadata/data/json all `200` (119 obs
+returned on direct data). All 12 ILO contract assertions read `ok` this
+cycle except the long-standing `references:contentconstraint` `ignored`
+case. `/api/contracts` `changes` lists two entries this cycle, both cosmetic
+and non-incident: ILO `encoding:structure_xml` is the same charset/version
+header-ordering flap seen before (verdict stayed `ok`), and STATSNZ
+`encoding:structure_xml` went from an error-shaped `was` value (`502`) back
+to a normal structure-XML content type (verdict `ok` now). No `broken`
+verdicts anywhere in the contracts matrix; the one `capability_appeared`
+present (STATSNZ `auth:listing`) is the unchanged item open since cycle 60.
+`gateway_up: true`, `stale: false`, no drift.
+
+**Live recheck (2026-10-15T00:47Z):** direct unauthenticated GETs from this
+routine to the same ILO data URL
+(`https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`)
+and the metadata URL
+(`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`)
+both returned `200` just now, consistent with the cycle's own direct-path
+observation. The gateway's own host is not on this session's permitted
+network list (only the monitor and the SDMx providers are), so the gateway
+side of the request -- the half that actually failed -- could not be
+rechecked live from here.
+
+**Classification:** adopted as-is from the monitor: `gateway_issue` (direct
+path succeeded, gateway path failed), which the monitor's vocabulary marks
+as ours to fix. In practice this specific shape -- a 403 that lands only on
+the gateway's outbound request and never on this routine's direct request --
+is ILO's long-documented recurring failure mode (recorded at cycles 874,
+877, 883, 898, 901, 910, 943, 963, 967, 970 and 973 among others, per prior
+entries in this file and in `/api/history`), previously attributed to
+provider-side edge/WAF blocking rather than a bug in gateway code. Nothing
+in this cycle's data contradicts that reading, but the classification itself
+is left as the monitor reports it rather than recomputed here.
+
+**History:** new as of cycle 982; healthy for the two preceding cycles
+(980, 981) and for cycle 979 at the last run. This is at least the twelfth
+occurrence of ILO gateway-side 403s in the visible history, each prior one
+resolving within 1-3 cycles.
+
+**Recommended action:** watch cycle 983-984 for recovery, as every prior
+occurrence has cleared within a few cycles; no code change indicated unless
+this widens to the direct path or persists past 2-3 more cycles.
+
+**Could not determine:** whether the gateway-side 403 is still happening at
+the moment of this write-up, since the gateway host itself is unreachable
+from this session; only the monitor's own next cycle can confirm recovery.
+
+**Also noted, not separately alerted:** 68 `claude/` triage branches remain
+on origin (unchanged from cycle 979), still well above the skill's 20-branch
+flag threshold. Separately, `docs/monitor/incidents.md` on `main` is still
+showing cycle 877 as its newest entry even though `triage-state.json` on
+`main` has advanced to cycle 979 (merged via PR #279): several runs'
+worth of real incident entries (at least cycles 883, 898, 901, 910, 922,
+943, 963, 967, 970 and 973, confirmed present on their own individual
+branches via `git log --all -- docs/monitor/incidents.md`) exist only on
+unmerged sibling branches and were never folded into any single branch's
+copy of this file, including this one's, because each run forks fresh from
+`main` for the file while the state-discovery step alone reaches across
+branches. This run leaves that reconciliation undone as out of scope for a
+single read-only triage cycle, and flags it here so a maintainer (or a
+dedicated cleanup run) can fold those branches' entries into `main` in
+cycle order before they age out of `git log --all` reach.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

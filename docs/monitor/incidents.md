@@ -4,6 +4,49 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-15T12:44Z - cycle 988
+
+**Changed:** ILO `degraded` -> `healthy` (recovery, confirmed clean).
+
+**Previous state:** best-known prior state (branch `claude/sleepy-dijkstra-3s9kjv`,
+cycle 985, 2026-10-15T06:44Z) had ILO `degraded`: contract assertions
+`auth:listing` and `errors:missing_artefact` both returned `403` instead of
+their expected `200`/`404`. That entry's own live recheck, run 40 minutes
+after the cycle, had already found both probes back to normal, and set an
+explicit watch: escalate only if a 403 landed on both basic checks and
+contract probes in the same cycle, or spanned more than one cycle.
+
+**Cycle saw (986-988, 2026-10-15T08:01Z through 12:01Z):** `/api/history`
+shows ILO `healthy` with an empty `failing` list for all three cycles since
+985. No recurrence, no widening to the basic checks. `/api/status` at cycle
+988 confirms `healthy`, all five basic checks and all twelve contract
+assertions passing (`contentconstraint` stays `ignored`, as expected).
+`/api/contracts` `changes` is empty for cycle 988.
+
+**Live recheck (2026-10-15T12:44Z):** `GET
+https://sdmx.ilo.org/rest/dataflow/ILO?detail=allstubs` (the `auth:listing`
+shape) -> `200`. `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/NONEXISTENT_XYZ_2026/latest` (the
+`errors:missing_artefact` probe) -> `404`. Both match expectations. ECB
+checked as a network control -> `400` (a normal rejection for the
+unparameterised query used, not a timeout or connection failure), confirming
+the provider is reachable and this run's network is not the cause.
+
+**Classification:** resolved. Matches the single-cycle, self-resolving 403
+shape ILO has shown repeatedly; the escalation condition set at cycle 985
+did not trigger at any point in 986-988.
+
+**History:** `degraded` for exactly one cycle (985), `healthy` for the three
+cycles since. Nothing left open here.
+
+**Recommended action:** none. Continue treating any future ILO 403 as the
+same known transient pattern unless it spans more than one cycle or hits
+basic checks and contract probes together.
+
+**Could not determine:** root cause of ILO's recurring, self-resolving 403s
+(same as every prior episode); the monitor does not expose response headers
+for these probes.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

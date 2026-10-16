@@ -4,6 +4,70 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-16T06:44Z - cycle 997
+
+**Changed:** ABS `healthy` -> `gateway_issue` -> `healthy` (flapped and recovered
+between runs).
+
+**Previous state:** last run's state (branch `claude/sleepy-dijkstra-hsbs1s`,
+cycle 994, 2026-10-16T00:43Z) had all 12 endpoints healthy.
+
+**Cycle saw:** `/api/history?hours=48` shows ABS `gateway_issue` at cycle 995
+(2026-10-16T02:01Z) with `failing: ["gateway metadata: Error:"]`, then
+`healthy` again at cycle 996 (04:01Z) and cycle 997 (06:01Z, this run), both
+with an empty `failing` list. `/api/status` at cycle 997 confirms ABS
+`healthy`, all checks passing, no broken contracts.
+
+**Live recheck:** not performed against the provider directly, since the
+monitor's own two subsequent clean cycles (996, 997) and the current
+`/api/status` already show ABS answering normally on both gateway and direct
+paths (metadata, data, json all `ok: true` at cycle 997).
+
+**Classification:** `gateway_issue` -> ours, not the provider's. The error
+text `gateway metadata: Error:` has an empty message body. This is the same
+defect the skill's known-flapping list already recorded for ABS at cycle 26.
+It traces to `tools/sdmx_tools.py:210` (`return {"error": str(e), ...}` in
+`list_dataflows`) feeding `main_server.py:477`
+(`next_step=f"Error: {result['error']}"`): when the caught exception `e`
+stringifies to `""` (an exception raised with no message, e.g. a bare
+timeout), the diagnostic carries zero information. This has now recurred
+after roughly three months, so the empty message itself is the recurring
+bug, not just a one-off.
+
+**History:** gateway_issue for exactly one cycle (995), healthy for the two
+cycles since (996-997) and for all tracked cycles before that back to at
+least cycle 990.
+
+**Recommended action:** low priority given the single-cycle, self-resolving
+shape, but worth fixing `str(e)` to fall back to `type(e).__name__` (or
+similar) when empty, so the next occurrence carries a diagnosable message
+instead of `Error:` with nothing after it.
+
+**Could not determine:** which exception type produced the empty message,
+since the monitor does not retain the underlying exception, only the
+formatted string.
+
+**Also noted (not an incident):** `/api/contracts` `changes` lists one entry:
+ILO `encoding:structure_xml` content-type header reordered its parameters
+(`version=2.1; charset=utf-8` -> `charset=utf-8; version=2.1`), verdict `ok`
+both before and after. Semantically identical MIME type; no gateway
+assumption is invalidated. Not alerted.
+
+**Open items carried forward:**
+- STATSNZ `auth:listing` stays `capability_appeared`: listing succeeds
+  without credentials, first seen cycle 60, still present at cycle 997.
+  Still open, not re-reported since there is no new change.
+- `claude/` triage branches on origin: 73 at this run (up from 72 at cycle
+  994). Flagging per the skill's instruction so they can be pruned; not
+  actioned by this read-only routine.
+- `origin/main`'s `triage-state.json` is at cycle 979, now 18 cycles behind
+  the cycle 997 found on sibling branches. The merge-to-main step should keep
+  closing this gap; flagging again in case it needs attention.
+- Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+  returns 500 (constraints come via `?references=all`); ESTAT has no
+  practical constraint support; BIS/ILO/IMF `references:contentconstraint`
+  reads `ignored` (accepted and silently dropped).
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

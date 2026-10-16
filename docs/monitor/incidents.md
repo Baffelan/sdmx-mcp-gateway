@@ -4,6 +4,64 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-16T18:43Z - cycle 1003
+
+**Changed:** FBOS healthy -> `provider_down`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-scgpeq`, cycle
+1000, 2026-10-16T12:45Z) recorded all twelve endpoints `healthy`, FBOS
+included.
+
+**Cycle saw (1001-1003, 2026-10-16T14:01Z through 18:01Z):** `/api/history`
+shows FBOS `healthy` at cycle 1001, then `provider_down` at cycles 1002 and
+1003, both with the identical failing set: gateway metadata `Error: [Errno -3]
+Temporary failure in name resolution`, gateway data `probe status: error;
+Network or transport error -- provider unreachable`, and all three direct
+checks (metadata, data, json) `ConnectError: [Errno -3] Temporary failure in
+name resolution`. All 14 FBOS contract assertions at cycle 1003 read
+`verdict: skipped` with the same DNS error, not `broken` -- the probes never
+got far enough to evaluate.
+
+**Live recheck (2026-10-16T18:43Z):** `getent hosts
+data-sdmx-disseminate.statsfiji.gov.fj` from this session fails to resolve.
+A direct HTTPS request through this session's own egress proxy to the same
+host returns a `502` on the CONNECT tunnel, which the proxy's own status
+endpoint reports ambiguously as "policy denial or upstream failure" -- it
+does not confirm a genuine DNS failure the way the monitor's own `Errno -3`
+message does. Two other provider hosts (ECB, IMF) tunneled through the same
+proxy without trouble in the same minute, so this session's network is not
+generally broken; the FBOS host specifically would not connect from here
+either way.
+
+**Classification:** `provider_down` per `monitor/derive.py` (metadata failing
+on both gateway and direct paths). The specific shape -- name resolution
+failure on the monitor's own egress -- is the DNS-failure pattern the skill
+already documents for FBOS at cycle 50, which was infrastructure-side there,
+not the provider itself being down. This occurrence differs from that one in
+duration: cycle 50 cleared within its own cycle, while this one has now held
+for two consecutive cycles (4 hours).
+
+**History:** new as of cycle 1002; FBOS was healthy for all 22 prior cycles
+in the available 48-hour window (980-1001). No other FBOS DNS failure is on
+record since cycle 50.
+
+**Recommended action:** watch the next cycle. If cycle 1004 clears, this
+matches the cycle-50 shape just running one cycle longer than usual. If it
+is still failing at 1004, the DNS failure has outlasted every precedent on
+record for this endpoint and stops being explainable as a transient blip.
+
+**Could not determine:** whether the name resolution failure originates at
+the monitor's DNS resolver, at statsfiji.gov.fj's own DNS hosting, or
+somewhere between -- this session's own ambiguous proxy response to the same
+host neither confirms nor rules out a genuine upstream DNS outage.
+
+**Also in this cycle, not re-reported:** `/api/contracts` `changes` shows one
+entry, ABS `encoding:structure_xml` Content-Type parameter order flipping
+(charset before version, now version before charset), verdict stays `ok` --
+this is the long-standing cosmetic flap already on record and not reported in
+detail each time it recurs. STATSNZ `auth:listing` still reads
+`capability_appeared`, unchanged since cycle 60 -- also not re-reporting.
+
 ## 2026-10-16T12:45Z - cycle 1000
 
 **Changed:** ECB contract assertions `auth:listing` and `references:parents`,

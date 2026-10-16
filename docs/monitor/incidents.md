@@ -4,6 +4,49 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-16T12:45Z - cycle 1000
+
+**Changed:** ECB contract assertions `auth:listing` and `references:parents`,
+`was: 504` -> `now: 200` in `/api/contracts` `changes`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-w03pzi`, cycle
+997, 2026-10-16T06:44Z) recorded all twelve endpoints `healthy`, ECB included,
+with no open contract issues for ECB.
+
+**Cycle saw (998-1000, 2026-10-16T08:01Z through 12:01Z):** `/api/history`
+shows ECB `healthy` with an empty `failing` list across all three cycles --
+the 504 never reached the level of an endpoint-status check, only a contract
+probe. By cycle 1000 both assertions read `verdict: ok`, `http_status: 200`.
+No endpoint in `/api/status` changed status over this window (all twelve
+still `healthy`), and the contracts matrix shows nothing else `broken` or
+newly `capability_appeared` (STATSNZ `auth:listing` `capability_appeared` is
+the pre-existing, already-open item, unchanged).
+
+**Live recheck (2026-10-16T12:51Z):** direct ECB dataflow listing
+(`https://data-api.ecb.europa.eu/service/dataflow/ECB`) -> `200` in 1.0s;
+`references=parents` on `EXR/latest` -> `200` in 0.9s. Both match the
+monitor's current cycle, so the provider is answering normally right now.
+
+**Classification:** transient, provider-side, already resolved. A single
+`504` on two contract probes that cleared by the next cycle, with the
+regular health checks never flagging it. This is the same shape as the
+flapping already catalogued for other endpoints (SPC 500, UNICEF 503, ILO
+403, all single-cycle and self-resolving); recording it here per the skill's
+note that ECB flapping is worth tracking given its history (406 episode
+through cycle 43).
+
+**History:** first (and only) occurrence of this exact 504 on these two ECB
+assertions in the window since cycle 997. No prior ECB contract failures on
+record since the 406 era closed.
+
+**Recommended action:** none. Watch for recurrence; a second ECB contract
+failure within a few cycles would be news per the skill's own rule that ECB
+is no longer a known failure.
+
+**Could not determine:** the exact cycle the 504 first appeared in (998 or
+999) -- the `changes` array only carries a was/now pair against the
+immediately preceding check, not a timestamp.
+
 ## 2026-10-06T06:44Z - cycle 877
 
 **Changed:** ILO `gateway_issue` -> `healthy` (recovery, confirmed clean).

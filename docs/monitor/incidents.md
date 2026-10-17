@@ -4,6 +4,40 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-17T06:43Z - cycle 1009
+
+**Changed:** ILO `provider_down` -> healthy, resolved.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-rgjd39`, cycle
+1006, 2026-10-17T00:43Z) saw ILO flip to `provider_down` at cycle 1006 (HTTP
+403 on gateway metadata, gateway data, and direct metadata) and flagged it as
+an open item to watch, expecting recovery by cycle 1007 based on the
+cycle-32 ILO-403 precedent.
+
+**Cycle saw:** `/api/history` shows ILO back to `healthy` with no failing
+checks at cycle 1007 (2026-10-17T02:01Z) and has stayed healthy through
+cycles 1008 and 1009 (2026-10-17T06:01Z). All other 11 endpoints stayed
+`healthy` across cycles 1004-1009, no flapping.
+
+**Live recheck:** direct `GET /rest/dataflow/ILO/all/latest` against
+`sdmx.ilo.org` now returns HTTP 200 in 2.7s, confirming the cycle-1009 result.
+
+**Classification:** provider-side, self-resolved (`provider_down` -> healthy);
+nothing to fix in our code. Matches the precedent of prior ILO 403 blips
+(cycles 32, 967, 973, 988) which have all self-resolved within 1-2 cycles.
+
+**History:** closed. No further action; the open item from the previous run
+is resolved.
+
+**Contracts:** one change in `/api/contracts`: ABS `encoding:structure_xml`
+Content-Type header parameter order flipped (`version=2.1; charset=utf-8` ->
+`charset=utf-8; version=2.1`), verdict stayed `ok`. This is the known
+cosmetic flip already recorded as an architectural fact in prior runs'
+open items, not a new finding.
+
+**Could not determine:** nothing outstanding; monitor and gateway were both
+reachable throughout this run.
+
 ## 2026-10-16T18:43Z - cycle 1003
 
 **Changed:** FBOS healthy -> `provider_down`.

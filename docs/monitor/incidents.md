@@ -4,6 +4,63 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-17T00:43Z - cycle 1006
+
+**Changed:** ILO healthy -> `provider_down`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-rgjd39`, cycle
+1003, 2026-10-16T18:43Z) recorded ILO `healthy`.
+
+**Cycle saw (1004-1006, 2026-10-16T20:01Z through 2026-10-17T00:01Z):**
+`/api/history` shows ILO `healthy` at cycles 1004 and 1005, then
+`provider_down` at cycle 1006 only, with: gateway metadata `Client error
+'403 Forbidden' for url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`,
+gateway data `probe status: error; HTTP 403 from provider`, direct metadata
+`HTTP 403`. `/api/contracts` shows seven ILO assertions changed in the same
+cycle: `constraint:availableconstraint` `500 -> 403` (verdict `broken`),
+`references:none`, `references:children`, `references:parents`,
+`references:parentsandsiblings`, and `references:contentconstraint` all
+`200 -> 403` (verdict `broken`), and `encoding:structure_xml` skipped once
+the probe stopped getting past the 403.
+
+**Live recheck (2026-10-17T00:43Z):** `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` direct from this session
+returns `200` with a well-formed structure message. Two other provider
+hosts (ECB, OECD) answered `200` in the same minute, so this session's
+network is not broken generally, and a second direct request to the same
+ILO URL also returned `200` immediately after the first. The cycle's 403
+and this recheck's 200 disagree.
+
+**Classification:** `provider_down` per `monitor/derive.py` (metadata
+failing on both gateway and direct paths) at the time of the cycle 1006
+probe. The disagreement with the live recheck points to a transient
+provider-side block rather than a lasting outage. This is not one of the
+documented ILO architectural facts (`/availableconstraint/` 500,
+`references:contentconstraint` reads `ignored`) -- a 403 on the base
+dataflow metadata call itself is a different failure shape. It does match
+the precedent already on record: "ILO: HTTP 403 on direct data and json at
+cycle 32, recovered."
+
+**History:** new as of cycle 1006; ILO was healthy for all 22 prior cycles
+in the available 48-hour window (984-1005). One other ILO 403 flap is on
+record, at cycle 32, which recovered.
+
+**Recommended action:** no action beyond watching cycle 1007. The live
+recheck already shows the provider answering normally minutes after the
+cycle; if 1007 also comes back healthy this is confirmed as a repeat of the
+cycle-32 shape.
+
+**Could not determine:** what caused ILO to return 403 specifically at
+00:01Z -- rate limiting, a transient WAF rule, or a brief provider-side
+outage are all consistent with a block that cleared within the hour.
+
+**Also in this cycle:** FBOS, reported `provider_down` as of the cycle 1003
+entry above, is `healthy` at cycles 1004, 1005, and 1006 -- it cleared at
+cycle 1004, one cycle after the 1003 entry was written. Total duration was
+two cycles (4 hours), longer than the single-cycle cycle-50 precedent but
+now resolved cleanly with no residual effect. No further action needed;
+recorded here so the resolution is not lost.
+
 ## 2026-10-16T18:43Z - cycle 1003
 
 **Changed:** FBOS healthy -> `provider_down`.

@@ -1,14 +1,14 @@
 {
-  "last_cycle_id": 1003,
-  "last_cycle_started_at": "2026-10-16T18:01:22+00:00",
-  "last_run": "2026-10-16T18:43Z",
+  "last_cycle_id": 1018,
+  "last_cycle_started_at": "2026-10-18T00:01:22+00:00",
+  "last_run": "2026-10-18T00:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
     "ECB": "healthy",
     "ESTAT": "healthy",
-    "FBOS": "provider_down",
+    "FBOS": "healthy",
     "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
@@ -18,10 +18,9 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "FBOS provider_down since cycle 1002 (DNS name resolution failure on the monitor's own egress), still failing at cycle 1003 (4 hours). Reported in incidents.md (cycle 1003 entry). This exceeds the single-cycle shape of the only prior FBOS DNS failure on record (cycle 50). Watch cycle 1004: if it clears, matches precedent just running longer; if not, it has outlasted every precedent and needs more than watching.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1003: listing served without credentials. Still open, not re-reported since no new change.",
-    "74 claude/ triage branches on origin, unchanged from cycle 1000. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1018: listing served without credentials. Still open, not re-reported since no new change.",
+    "78 claude/ triage branches on origin, up from 77 at cycle 1015. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
-  "alerted": true
+  "alerted": false
 }

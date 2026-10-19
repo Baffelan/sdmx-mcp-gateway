@@ -4,6 +4,61 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-19T12:44Z - cycle 1036
+
+**Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy`, a flap that
+started and resolved entirely between runs.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-vddapk`, cycle
+1033, 2026-10-19T06:44Z) recorded all twelve endpoints `healthy`, ESTAT
+included. `/api/history` confirms ESTAT `healthy` at cycles 1033 and
+unchanged back through 1030, so this is new as of cycle 1034, not a
+continuation of anything already flagged.
+
+**Cycle saw:** `/api/history` shows ESTAT at cycle 1034
+(2026-10-19T08:01:22Z): `gateway metadata: tool call list_dataflows timed
+out after 60.0s`. Gateway data and both direct checks (metadata, data)
+stayed healthy; direct json is permanently skipped for ESTAT (Eurostat
+returns 406 for SDMx-JSON, not a failure). Cycles 1035 and 1036
+(10:01:22Z, 12:01:22Z) both read back to fully healthy, no failing checks.
+No other endpoint changed status across 1034-1036. `/api/contracts`
+`changes` shows only the long-standing cosmetic ABS
+`encoding:structure_xml` charset/version parameter-order flip (verdict
+stays `ok`, already a documented architectural fact, not new). The only
+non-`ok` contract verdict anywhere is the long-standing STATSNZ
+`auth:listing` `capability_appeared` (open since cycle 60, unchanged,
+not a new event). `stale` false, `gateway_up` true throughout.
+
+**Live recheck:** direct `GET
+https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`
+just now took 28.9s and returned HTTP 200. The current cycle (1036) itself
+recorded the gateway metadata check for ESTAT at 54461ms, close to the 60s
+deadline again even though it passed. Both observations are consistent
+with the provider being genuinely slow to list dataflows under load right
+now, not with a hard failure.
+
+**Classification:** `gateway_issue` (direct path OK, gateway path failing)
+-> ours per `monitor/derive.py`, but this specific shape (`list_dataflows`
+timing out at the monitor's own 60s deadline) is the long-documented,
+expected pattern: "our own call deadline firing, working as designed."
+This is the 37th recorded occurrence (36th was cycle 749, resolved by 750,
+reported in the cycle 751 entry).
+
+**History:** new-since-last-run event, already closed. The `gateway_issue`
+lasted exactly one cycle (1034 only), then two consecutive healthy cycles
+(1035, 1036).
+
+**Recommended action:** none. Matches the well-established, self-resolving
+pattern; no code change needed from this read-only routine. Continue
+watching for a 38th occurrence, and for whether the metadata latency
+trend (54.5s at cycle 1036, close to the deadline on a cycle that still
+passed) means timeouts are becoming more frequent rather than isolated.
+
+**Could not determine:** the provider-side cause of the slow listing
+response (Eurostat gives no detail beyond the timeout); whether the
+near-miss latency at cycle 1036 is noise or an early sign of a shorter
+margin to the 60s deadline going forward.
+
 ## 2026-10-19T06:44Z - cycle 1033
 
 **Changed:** ILO `degraded` -> healthy (confirmed recovered).

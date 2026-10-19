@@ -4,6 +4,111 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-19T06:44Z - cycle 1033
+
+**Changed:** ILO `degraded` -> healthy (confirmed recovered).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-daytkc`, cycle
+1030, 2026-10-19T00:44Z) recorded ILO `degraded`, from a one-cycle burst of
+`HTTP 403` on the direct json check plus six contract assertions. That run's
+live recheck already found the provider answering normally again ~40
+minutes later and set a watch condition: if cycle 1031 (due ~02:01Z) read
+healthy, treat it as resolved with no further action.
+
+**Cycle saw:** `/api/history` shows ILO `healthy` with no failing checks at
+cycles 1031, 1032 and 1033 (02:01Z, 04:01Z, 06:01Z). The `403` at cycle 1030
+did not recur on any later cycle.
+
+**Live recheck:** current `/api/contracts` matrix for ILO (cycle 1033) shows
+all twelve assertions back to their long-standing baseline: `auth:listing`
+`ok`/200, `constraint:availableconstraint` `ok`/500 (the documented
+architectural fact, not a failure), `errors:missing_artefact` `ok`/404,
+`references:all`/`descendants`/`children`/`none`/`parents`/`parentsandsiblings`
+all `ok`/200, `references:contentconstraint` `ignored` (accepted and
+silently dropped, as always), `dialect:sdmx3` `ok`/400,
+`encoding:structure_xml` `ok`.
+
+**Classification:** confirms the prior run's read -- a transient edge/WAF
+block on the monitor's egress IP at ILO, not a provider policy change.
+Nothing on our side to fix; no gateway code implicated.
+
+**History:** resolved as of cycle 1031, two cycles ago; stable healthy
+since, through cycle 1033. Closing the open item from cycle 1030.
+
+**Recommended action:** none. The watch condition from the cycle 1030 entry
+is satisfied; no escalation needed.
+
+**Could not determine:** nothing outstanding on this item; the original
+entry's open question (whether the `403` was IP-specific WAF behavior at
+ILO or other edge infrastructure) remains unanswered but is now moot since
+the condition cleared and has not recurred.
+
+## 2026-10-19T00:44Z - cycle 1030
+
+**Changed:** ILO healthy -> `degraded`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-8z0kvf`, cycle
+1027, 2026-10-18T18:42Z) recorded all twelve endpoints `healthy`, ILO
+included. `/api/history` confirms ILO `healthy` at cycles 1027, 1028 and
+1029 too, with no failing checks in between -> this is new as of cycle 1030,
+not a continuation of anything already flagged for ILO.
+
+**Cycle saw (cycle 1030, started 2026-10-19T00:01:22Z):** direct json check
+failed with `HTTP 403` (2 attempts). Gateway metadata and gateway data both
+`ok: true`; direct metadata and direct data both `ok: true, http_status: 200`.
+Only the direct json channel failed on the check side. Separately,
+`/api/contracts` recorded six assertions for ILO flipping from their expected
+values to `403` and `verdict: broken` in the same cycle: `auth:listing` (was
+`200`, now `403`, "provider now demands credentials"), `constraint:availableconstraint`
+(was `500`, now `403`), `errors:missing_artefact` (was `404`, now `403`),
+`references:all`, `references:contentconstraint`, and `references:descendants`
+(all were `200`, now `403`). `dialect:sdmx3` also now reads `403` but keeps
+verdict `ok` since `403` and the expected `400` are both non-2xx failure
+codes for that check. `encoding:structure_xml` reads `verdict: skipped`
+because the `403` pre-empted the encoding judgment. Three other ILO
+assertions (`references:children`, `references:none`, `references:parents`,
+`references:parentsandsiblings`) stayed `200`/`ok` in the same cycle.
+
+**Live recheck (2026-10-19T00:44Z, roughly 40 minutes after the cycle):**
+every one of the six URLs the monitor hit returned the pre-existing expected
+result, not `403`: data query with the SDMx-JSON 2.0.0 Accept header -> `200`
+with a valid SDMx-JSON payload; plain metadata query -> `200` XML; CSV data
+query -> `200` CSV; `?references=all` -> `200`; `?references=contentconstraint`
+-> `200`; `/availableconstraint/...` -> `500` ("The method or operation is
+not implemented", the documented architectural fact, not a new failure);
+missing-artefact lookup -> `404` as expected. Every check that was `403` at
+cycle 1030 is back to its baseline value live. This disagreement is
+informative: the failure did not persist.
+
+**Classification:** `degraded` per `monitor/derive.py` (mixed: direct
+metadata/data ok, direct json failing, gateway unaffected). Whose problem:
+provider-side, not a gateway bug -- the gateway path for ILO (which does not
+go through the same direct-JSON/contract-probe requests) answered cleanly in
+the same cycle, and the live recheck shows the provider serving the normal
+responses again minutes later. The shape (a one-cycle burst of `403` across
+six unrelated direct-path requests, all clearing on the next check) looks
+like a transient edge/WAF block on the monitor's egress IP at ILO, not a
+genuine new auth requirement -- `auth:listing`'s own error string ("provider
+now demands credentials") is the probe's generic message for any `403`, not
+evidence ILO actually changed its auth policy.
+
+**History:** new as of cycle 1030; ILO had been healthy for the preceding
+~9 days of cycles checked here (1021-1029) and is not in the skill's known
+flapping list for this failure shape.
+
+**Recommended action:** watch the next cycle (due ~02:01Z). If ILO reads
+`healthy` there, treat this as a one-off transient block and take no
+further action. If `403` recurs on the same or a wider set of ILO checks,
+escalate: that would point to ILO actually rolling out credential
+requirements rather than a passing block.
+
+**Could not determine:** whether the `403` came from an ILO-side WAF/rate
+limit keyed on the monitor's Railway IP specifically, or from some other
+edge infrastructure in front of `sdmx.ilo.org`; this session's recheck ran
+from a different network than the monitor, so it cannot confirm what the
+monitor's own IP would see right now, only that the provider itself is
+serving normal responses to *some* clients.
+
 ## 2026-10-16T18:43Z - cycle 1003
 
 **Changed:** FBOS healthy -> `provider_down`.

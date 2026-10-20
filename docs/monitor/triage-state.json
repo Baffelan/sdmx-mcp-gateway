@@ -1,12 +1,12 @@
 {
-  "last_cycle_id": 1033,
-  "last_cycle_started_at": "2026-10-19T06:01:22+00:00",
-  "last_run": "2026-10-19T06:44Z",
+  "last_cycle_id": 1045,
+  "last_cycle_started_at": "2026-10-20T06:01:22+00:00",
+  "last_run": "2026-10-20T06:45Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
-    "ECB": "healthy",
+    "ECB": "degraded",
     "ESTAT": "healthy",
     "FBOS": "healthy",
     "ILO": "healthy",
@@ -18,8 +18,10 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1033: listing served without credentials. Still open, not re-reported since no new change.",
-    "81 claude/ triage branches on origin, up from 80 at cycle 1030. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "ECB intermittent 504/timeout pattern, now confirmed recurring across cycles 1042-1045 (degraded, then gateway_issue twice, then healthy-on-checks with errors:missing_artefact broken again). A different specific check or contract assertion fails each cycle; every failure has recovered on live recheck within the same or next cycle. Watching for either a non-recovering failure or a cycle where gateway and direct paths fail together, which would change the classification.",
+    "ESTAT list_dataflows gateway metadata latency: 48820ms at cycle 1045 (53810ms at 1042, 48036ms at 1039, 54461ms at 1036), still under the 60s deadline. No timeout since the 37th occurrence at cycle 1034, resolved by 1035. Keep watching the latency trend.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1045: listing served without credentials. Still open, not re-reported since no new change.",
+    "84 claude/ triage branches on origin, up from 83 at cycle 1042. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
   "alerted": true

@@ -4,6 +4,54 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-20T00:44Z - cycle 1042
+
+**Changed:** ECB healthy -> degraded.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-qhuqkq`, cycle
+1039, 2026-10-19T18:43Z) recorded all twelve endpoints healthy. `/api/history`
+confirms ECB was healthy with no failing checks across every cycle from 1019
+through 1041 (23 consecutive two-hour cycles).
+
+**Cycle saw:** at cycle 1042 (started 2026-10-20T00:01:22Z), ECB direct data
+failed with `HTTP 504` after 10828ms and 2 attempts. Two contract assertions
+flipped to `broken`: `errors:missing_artefact` (expected 404, observed 504,
+10175ms) and `references:none` (expected 200, observed 504, 10183ms). Several
+other ECB checks on the same cycle that did succeed show unusually high
+latency for this endpoint: gateway data 15596ms (2 attempts), direct
+metadata 942ms (2 attempts), `references:descendants` 15111ms,
+`references:parents` 12787ms. Gateway data, gateway metadata and direct
+metadata all stayed `ok`.
+
+**Live recheck:** ~40 minutes after the cycle, direct data returned
+`HTTP 200` in 1.18s, `errors:missing_artefact` returned `HTTP 404` in 0.87s
+(expected), and `references:none` returned `HTTP 200` in 0.88s (expected).
+All three now match the long-standing baseline. A sanity check against OECD's
+endpoint in the same run also returned promptly, ruling out a network problem
+on this routine's own egress.
+
+**Classification:** `degraded`, provider-side. The gateway's own data path
+succeeded (slowly, on retry), and only ECB's direct path timed out across
+several unrelated checks in the same cycle window; nothing points at a
+gateway bug. This is a different failure shape from the HTTP 406 issue noted
+as resolved in this file's history (that one was a content-negotiation
+mismatch, not a timeout), so it is new, not a recurrence of an old known
+issue.
+
+**History:** new as of cycle 1042; ECB had been healthy for the preceding 23
+cycles (1019-1041), and the skill's own notes say ECB has had no open known
+failure since the 406 issue was fixed. This is the first occurrence of this
+504/timeout shape seen by this routine.
+
+**Recommended action:** watch the next one or two cycles (due ~02:01Z and
+~04:01Z). A single isolated slow cycle at a major provider is not yet a
+pattern; if cycle 1043 or 1044 shows the same direct-path timeout, treat it
+as a real, recurring ECB-side slowdown rather than a one-off.
+
+**Could not determine:** whether the slowness at cycle 1042 was a brief
+provider-side blip (consistent with the live recheck recovering fully) or an
+early sign of a longer degradation that has not yet recurred.
+
 ## 2026-10-19T06:44Z - cycle 1033
 
 **Changed:** ILO `degraded` -> healthy (confirmed recovered).

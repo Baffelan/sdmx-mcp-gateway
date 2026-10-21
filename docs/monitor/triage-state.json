@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1033,
-  "last_cycle_started_at": "2026-10-19T06:01:22+00:00",
-  "last_run": "2026-10-19T06:44Z",
+  "last_cycle_id": 1054,
+  "last_cycle_started_at": "2026-10-21T00:01:22+00:00",
+  "last_run": "2026-10-21T00:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,9 +18,10 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1033: listing served without credentials. Still open, not re-reported since no new change.",
-    "81 claude/ triage branches on origin, up from 80 at cycle 1030. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "ESTAT list_dataflows gateway metadata latency: 48517ms at cycle 1054 (53824ms at 1051, 54599ms at 1048, 48820ms at 1045), still under the 60s deadline. Keep watching the latency trend.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1054: listing served without credentials. Still open, not re-reported since no new change.",
+    "87 claude/ triage branches on origin, up from 86 at cycle 1051. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
-  "alerted": true
+  "alerted": false
 }

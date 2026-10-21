@@ -4,6 +4,57 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-21T06:45Z - cycle 1057
+
+**Changed:** ESTAT healthy -> `gateway_issue` -> healthy (flapped between runs, already resolved).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-dagdkk`, cycle
+1054, 2026-10-21T00:42Z) recorded all 12 endpoints healthy. Its open items
+flagged ESTAT's gateway `list_dataflows` metadata latency climbing toward
+the 60s call deadline: 48517ms at cycle 1054, 53824ms at 1051, 54599ms at
+1048, 48820ms at 1045.
+
+**Cycle saw:** `/api/history` shows ESTAT `healthy` at cycles 1054 and 1055,
+then at cycle 1056 (04:01Z) status `gateway_issue` with the single failing
+check `gateway metadata: tool call list_dataflows timed out after 60.0s`.
+Cycle 1057 (06:01Z, the newest) is back to `healthy`, with the gateway
+metadata check succeeding at 47571ms.
+
+**Live recheck:** called the ESTAT provider directly (`GET
+.../dataflow/ESTAT/all/latest?references=none`, the same request
+`list_dataflows` makes) just now: HTTP 200 in 28.75s, ~37.7MB payload. The
+provider answers fine; the latency is simply large and variable for this
+full-catalog listing, consistent with the climbing trend already on watch.
+
+**Classification:** `gateway_issue` by the monitor's vocabulary (direct path
+within budget, gateway path exceeded its own deadline), but by cause this is
+our own 60s call deadline firing under provider-side load, the same
+mechanism already documented for ESTAT (cycles 54-55) as "working as
+designed." Not a code bug; the deadline did its job.
+
+**History:** first time this specific trend (climbing toward 60s since at
+least cycle 1045) actually crossed the deadline and timed out, rather than
+staying just under it. Recovered one cycle later with no further failures
+through 1057.
+
+**Recommended action:** keep watching the latency trend; this reporting
+threshold exists so a pattern of frequent timeouts (not just one) would be
+visible before deciding whether to raise the deadline or otherwise reduce
+ESTAT's full-listing cost.
+
+**Could not determine:** why this particular cycle's provider response was
+slow enough to cross 60s when the live recheck moments later returned in
+28.75s; ordinary provider-side load variance is the likely explanation but
+nothing distinguishes it from a one-off blip in the data available here.
+
+Other findings this cycle: none. `/api/contracts` reported zero `changes`.
+The one `capability_appeared` row present in the matrix (STATSNZ
+`auth:listing`) is the pre-existing one first seen at cycle 60, still open,
+not a new change. No `broken` assertions. `stale` is false, `gateway_up` is
+true. Branch count: 87 `claude/` branches on origin before this run's push
+(will become 88 after), still above the 20 the skill flags for pruning; not
+actioned by this read-only routine.
+
 ## 2026-10-19T06:44Z - cycle 1033
 
 **Changed:** ILO `degraded` -> healthy (confirmed recovered).

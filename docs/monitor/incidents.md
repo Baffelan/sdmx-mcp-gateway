@@ -4,6 +4,42 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-22T06:44Z - cycle 1069
+
+**Changed:** ILO `degraded` -> `healthy`, confirmed recovered.
+
+**Previous state:** this branch's own last run (cycle 1066, 2026-10-22T00:43Z)
+recorded ILO `degraded` on the `references:*` contract 403s and flagged it
+open, to watch and escalate only if still broken.
+
+**Cycle saw:** at cycle 1069 (started 2026-10-22T06:01:22Z) all seven
+`references:*` assertions against ILO read `ok`/`ignored` as expected
+(`references:all/children/descendants/none/parents/parentsandsiblings` ->
+`ok`, `references:contentconstraint` -> `ignored`, matching the long-standing
+architectural fact). `/api/contracts` `changes` is empty: no new transition
+this cycle. The intervening cycles (1067, 1068) also show ILO `healthy` in
+`/api/history`, and the contract 403s left no trace there either, since that
+series tracks health checks rather than contract assertions.
+
+**Live recheck:** called ILO directly just now (2026-10-22T06:44Z, about 43
+minutes after cycle 1069 finished) with the same `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT?references=<value>`
+shape for all seven values: every one came back `200`.
+
+**Classification:** recovered. Confirms the cycle-1066 read that this was a
+transient rejection (plausible Cloudflare rate-limit/bot-protection reaction
+to the probe's rapid seven-request burst), not ILO withdrawing
+`references=all` support. No gateway-side action needed.
+
+**History:** broken for one cycle only (1066); healthy/ok at every cycle
+before and since, through 1069.
+
+**Recommended action:** none. Close the open item from cycle 1066.
+
+**Could not determine:** the exact cause of the 403 burst at cycle 1066
+(ILO gives no error body distinguishing rate-limiting from other rejections),
+but it is now moot since the behaviour has not recurred.
+
 ## 2026-10-22T00:43Z - cycle 1066
 
 **Changed:** ILO `references:all/children/contentconstraint/descendants/none/parents/parentsandsiblings` ok -> `broken` (all seven `references` contract assertions, 200 -> 403).

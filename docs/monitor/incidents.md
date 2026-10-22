@@ -4,6 +4,58 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-22T00:43Z - cycle 1066
+
+**Changed:** ILO `references:all/children/contentconstraint/descendants/none/parents/parentsandsiblings` ok -> `broken` (all seven `references` contract assertions, 200 -> 403).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-0rczj7`, cycle
+1063, 2026-10-21T18:43Z) recorded all 12 endpoints healthy with no open
+contract breakage.
+
+**Cycle saw:** `/api/contracts` `changes` for cycle 1066 shows every
+`references:*` assertion against ILO flipping from `200` to `403`, including
+`references:none` which is the baseline probe itself. Latencies were low
+(290-410ms), consistent with a fast reject rather than a timeout. The
+endpoint's own health checks (gateway metadata/data, direct metadata/data/json)
+all stayed `ok: true` at cycle 1066 -- only the dedicated contract probe hit
+403s, which is why `/api/history`'s endpoint-status series shows ILO
+`healthy` throughout (that series tracks the health checks, not contract
+assertions). `/api/status` marks ILO `degraded` for this cycle on the
+contract breakage alone.
+
+**Live recheck:** called ILO directly just now with the same shape the probe
+uses (`GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest?references=<value>&detail=allstubs`,
+`Accept: application/vnd.sdmx.structure+xml;version=2.1`) for all seven
+`references` values: every one came back `200`, including `references=none`.
+The disagreement between the cycle's 403s and this recheck's clean 200s means
+transient, not a standing break.
+
+**Classification:** `broken` by the monitor's contract vocabulary for this
+cycle, but functionally transient: a burst of seven rapid same-shape requests
+against the same ILO dataflow in a few seconds (the `check_references` probe
+loop) most plausibly tripped a short-lived Cloudflare rate-limit or bot
+protection in front of ILO, rather than ILO withdrawing `references=all`
+support. This matters because the gateway's own `get_content_constraints`
+tool depends on `?references=all` for ILO (`config.py`'s `single_flow:
+"references_all"`, since ILO's `/availableconstraint/` returns 500) -- if
+this recurs and holds rather than clearing, it would be a `gateway_issue`-
+grade problem for ILO constraint lookups, not just a monitor artifact.
+
+**History:** new as of cycle 1066; no prior cycle in the last 48 hours shows
+this. The skill's known-flap list records ILO HTTP 403 on direct data/json at
+cycle 32 (recovered), a different check but the same symptom (ILO + 403 +
+recovery) and the same plausible Cloudflare-adjacent cause.
+
+**Recommended action:** no code change. Watch the next cycle; if
+`references:*` is still `broken` against ILO then, escalate to `gateway_issue`
+since that would start affecting `get_content_constraints` for real.
+
+**Could not determine:** whether Cloudflare rate-limiting is in fact the
+cause (no response body or `cf-ray` from the failing cycle was captured by
+the monitor to compare against this recheck's headers); only inferred from
+the request burst shape and the clean live recheck.
+
 ## 2026-10-21T06:45Z - cycle 1057
 
 **Changed:** ESTAT healthy -> `gateway_issue` -> healthy (flapped between runs, already resolved).

@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1066,
-  "last_cycle_started_at": "2026-10-22T00:01:22+00:00",
-  "last_run": "2026-10-22T00:43Z",
+  "last_cycle_id": 1072,
+  "last_cycle_started_at": "2026-10-22T12:01:22+00:00",
+  "last_run": "2026-10-22T12:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "degraded",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,11 +18,10 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO references:* contract assertions (all/children/contentconstraint/descendants/none/parents/parentsandsiblings) read broken (200 -> 403) at cycle 1066, status degraded. Live recheck at 2026-10-22T00:43Z against the same URL shape came back clean 200 on all seven, so this looks transient (plausible Cloudflare rate-limit/bot-protection reaction to the probe's rapid 7-request burst), not ILO withdrawing support. Watch the next cycle: if still broken, escalate -- the gateway's get_content_constraints depends on ILO ?references=all.",
-    "ESTAT list_dataflows gateway metadata latency: 48754ms at cycle 1066, steady with the prior trend (48156ms at 1063, 48042ms at 1060, 47571ms at 1057). Still well under the 60s deadline. Keep watching; escalate if timeouts recur.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1066: listing served without credentials. Still open, not re-reported since no new change.",
-    "88 claude/ triage branches on origin before this run's push. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS and ILO encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
+    "ESTAT list_dataflows gateway metadata latency: 48599ms at cycle 1072, steady with the prior trend (49443ms at 1069, 48754ms at 1066, 48156ms at 1063). Still well under the 60s deadline. Keep watching; escalate if timeouts recur.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1072: listing served without credentials. Still open, not re-reported since no new change.",
+    "89 claude/ triage branches on origin before this run's push. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS and ILO encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok (seen again on ABS at cycle 1072)."
   ],
-  "alerted": true
+  "alerted": false
 }

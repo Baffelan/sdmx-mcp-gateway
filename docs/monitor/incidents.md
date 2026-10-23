@@ -4,6 +4,55 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-23T06:43Z - cycle 1081
+
+**Changed:** ILO `gateway_issue` -> `healthy` (resolved).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-t7iz49`, cycle
+1078, 2026-10-23T00:43Z) recorded ILO `gateway_issue` at cycle 1078: gateway
+metadata and gateway data checks hit HTTP 403 from
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`, with the direct path and
+all 12 contract rows clean the same cycle, and a live recheck 5/5 clean right
+after. That run judged it transient (same shape as cycle 32 and the cycle
+1066 `references:*` 403 burst, both of which recovered) and recommended
+watching the next cycle.
+
+**Cycle saw (this run):** `/api/history?hours=48` for ILO shows
+`gateway_issue` only at cycle 1078 (00:01Z); cycles 1079 (02:01Z), 1080
+(04:01Z) and 1081 (06:01Z, current) are all `healthy` with an empty `failing`
+list. No other endpoint in `series` showed a non-healthy status at any cycle
+from 1078 through 1081.
+
+**Live recheck:** `/api/status` at cycle 1081 shows ILO `healthy`, "all checks
+passing", gateway metadata 639 ms-class latency, no errors. Confirms the
+history series.
+
+**Classification:** provider-side and transient, as predicted -- the 403
+cleared on its own within one cycle (by 02:01Z) and has held clean for two
+further cycles since. Nothing in our code needed to change.
+
+**History:** new as of cycle 1078, resolved as of cycle 1079; no further
+flapping through 1081. Same shape as the ILO entries already logged at cycle
+32 and cycle 1066.
+
+**Other checks this run:** `/healthz` 200, `stale: false`, `gateway_up:
+true`. `/api/contracts` `changes` array empty; no assertion anywhere in the
+matrix carries `verdict: broken`. STATSNZ `auth:listing` still shows
+`capability_appeared` (listing succeeds without credentials), unchanged since
+cycle 60 and already on record -- not re-alerting on it. ESTAT
+`list_dataflows` gateway metadata latency 49993 ms at cycle 1081, in line
+with the existing ~49-50s trend and still under the 60s deadline. All 12
+`references:*`/`availableconstraint`/`dialect`/`encoding`/`errors` contract
+rows across every endpoint matched their known architectural baseline (ILO
+`availableconstraint` 500, BIS/ILO/IMF `references:contentconstraint`
+`ignored`, etc).
+
+**Recommended action:** none. Treat the cycle-1078 403 as closed.
+
+**Could not determine:** the exact proximate cause of the 403 at ILO's end
+(rate limiting vs. transient edge/WAF block); the monitor gives no body or
+header detail beyond the error string, and ILO's side is opaque to us here.
+
 ## 2026-10-22T00:43Z - cycle 1066
 
 **Changed:** ILO `references:all/children/contentconstraint/descendants/none/parents/parentsandsiblings` ok -> `broken` (all seven `references` contract assertions, 200 -> 403).

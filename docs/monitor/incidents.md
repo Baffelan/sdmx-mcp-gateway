@@ -4,6 +4,60 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-23T18:43Z - cycle 1087
+
+**Changed:** ABS `gateway_issue` -> `healthy` (resolved).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-1bqtoe`, cycle
+1084, 2026-10-23T12:45Z) recorded ABS `gateway_issue` at cycle 1084: gateway
+metadata check failing with `Error: ` (empty message), direct path and all
+contract rows clean. That run flagged the empty error message as the bug to
+report if it recurred, named `tools/sdmx_tools.py:210` (bare except returning
+`str(e)` when empty) surfaced via `main_server.py:477`, and recommended
+watching the next cycle.
+
+**Cycle saw (this run):** `/api/history?hours=48` for ABS shows
+`gateway_issue` with `failing: ["gateway metadata: Error: "]` at cycles 1083
+(10:01Z), 1084 (12:01Z, previously reported) and 1085 (14:01Z) -> three
+consecutive cycles, 4 hours. Cycle 1086 (16:01Z) and cycle 1087 (18:01Z,
+current) are both `healthy` with an empty `failing` list. No other endpoint
+in `series` showed a non-healthy status at any cycle from 1082 through 1087.
+
+**Live recheck:** `/api/status` at cycle 1087 (finished 18:02:16Z, run read
+at 18:42Z) shows ABS `healthy`, "all checks passing", gateway metadata
+latency 1038ms, gateway data 2619ms, no errors on any of the five checks.
+The gateway host itself is not on this environment's allowed network list,
+so the gateway path could not be re-probed independently; the monitor's own
+cycle, less than 45 minutes old, is the recheck.
+
+**Classification:** provider/gateway-side and transient -- same failure
+signature as cycle 1083, cleared on its own by cycle 1086 and has held clean
+for two further cycles since. The empty-error-message bug at
+`tools/sdmx_tools.py:210` did not recur with a non-empty message this time
+either, so there is still nothing new to fix in our code beyond the standing
+recommendation to make that except clause report the actual error type when
+`str(e)` is empty.
+
+**History:** new as of cycle 1083 (first seen last run), resolved as of
+cycle 1086; no further flapping through 1087.
+
+**Other checks this run:** `/healthz` 200, `stale: false`, `gateway_up:
+true`. `/api/contracts` `changes` array empty; no assertion anywhere in the
+matrix carries `verdict: broken`. BIS/ILO/IMF `references:contentconstraint`
+still read `ignored` (architectural fact, not an incident). STATSNZ
+`auth:listing` still shows `capability_appeared` (unchanged since cycle 60,
+not re-reported). ESTAT `list_dataflows` gateway metadata latency is
+48794ms at cycle 1087, down from 53895ms at cycle 1084 (and close to the
+48599-50031ms range seen at cycles 1072-1081) -- fluctuating, not a
+sustained climb toward the 60s deadline; still worth watching but not an
+incident. 92 `claude/` triage branches on origin before this run's push, up
+from 91 last run; still above the 20 the skill flags for pruning, not
+actioned by this read-only routine.
+
+**Could not determine:** nothing withheld this run; the monitor answered
+every call and the finding above is fully confirmed by two independent
+sources (history series and a sub-hour-old live cycle).
+
 ## 2026-10-23T06:43Z - cycle 1081
 
 **Changed:** ILO `gateway_issue` -> `healthy` (resolved).

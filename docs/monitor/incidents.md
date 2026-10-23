@@ -4,6 +4,65 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-23T00:43Z - cycle 1078
+
+**Changed:** ILO healthy -> `gateway_issue` (gateway metadata and gateway data checks both failing; direct path OK).
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-t7iz49`, cycle
+1075, 2026-10-22T18:42Z) recorded all 12 endpoints healthy.
+
+**Cycle saw:** at cycle 1078 (started 2026-10-23T00:01:22Z), ILO's gateway
+metadata check failed with `Client error '403 Forbidden' for url
+'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'` (1108ms, 2 attempts),
+and the gateway data check failed with `probe status: error; HTTP 403 from
+provider.` (912ms, 2 attempts, 0 observations). The three direct-path checks
+(metadata, data, json) all returned `ok: true` / HTTP 200 at the same cycle.
+All 12 ILO contract-assertion rows for this cycle (`auth:listing`,
+`references:*`, `encoding:structure_xml`, `dialect:sdmx3`,
+`errors:missing_artefact`, `constraint:availableconstraint`) read `ok` or the
+already-known `ignored`/`deviates` verdicts, with no 403s among them.
+
+**Live recheck:** called `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+directly just now, the same URL the failing gateway check hit, 5 times in a
+row (plain, with the gateway's `Accept:
+application/vnd.sdmx.structure+xml;version=2.1` header, and 3 bare retries):
+every call came back HTTP 200. The disagreement between the cycle's 403s and
+this recheck's clean 200s means transient.
+
+**Classification:** `gateway_issue` by the monitor's vocabulary for this
+cycle (direct path OK, gateway path failing), which would normally mean ours
+to fix. But only the two ILO gateway health checks hit 403, not the 12
+contract-assertion rows against the same provider in the same cycle, and the
+live recheck is clean now. That pattern -- a narrow, fast-clearing 403 against
+one or two specific calls while sibling checks against the same provider in
+the same cycle stay clean -- matches the provider-side rate-limit/bot-
+protection shape already seen for ILO: HTTP 403 on direct data/json at cycle
+32 (recovered), and all seven `references:*` contract assertions 200 -> 403
+and back at cycle 1066 (recorded 2026-10-22T00:43Z, also judged transient).
+This is very likely the same thing again, not a new gateway bug, but it is
+reported here rather than suppressed because the monitor's own classifier
+still says `gateway_issue` for this cycle and the rule in this skill is to
+adopt that classification, not recompute it.
+
+**History:** new as of cycle 1078 (the newest cycle available); every cycle
+1055-1077 in the last 48 hours shows ILO `healthy`. No subsequent cycle
+exists yet to confirm recovery on the monitor's own schedule; the live
+recheck is the only recovery evidence so far.
+
+**Recommended action:** no code change. If cycle 1078's 403 is still present
+or recurs at the next cycle (expected ~02:01Z), escalate: that would mean the
+gateway's `ILO/all/latest` listing call is hitting something load-bearing
+(e.g. a Cloudflare rule keyed on request pattern) that the direct-path checks
+and contract probes don't trigger, which would start to look like a real
+`gateway_issue` rather than a passing rate-limit blip.
+
+**Could not determine:** the exact trigger for the 403 (no response body or
+`cf-ray`/rate-limit headers from the failing cycle were captured by the
+monitor to compare against this recheck's headers); whether the gateway's
+retry-on-403 behavior (if any) for this call path differs from its behavior
+for the `references:*` contract probes, which is why the contract rows stayed
+clean while the two gateway health checks didn't.
+
 ## 2026-10-22T00:43Z - cycle 1066
 
 **Changed:** ILO `references:all/children/contentconstraint/descendants/none/parents/parentsandsiblings` ok -> `broken` (all seven `references` contract assertions, 200 -> 403).

@@ -4,6 +4,81 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-23T12:45Z - cycle 1084
+
+**Changed:** ABS `healthy` -> `gateway_issue` (ongoing). ECB contract
+`references:none` and `references:parents` went `ok` -> `broken` (already
+cleared by live recheck).
+
+**Previous state:** last run (this same branch, cycle 1081, 2026-10-23T06:43Z)
+recorded all 12 endpoints `healthy`, no broken contracts.
+
+**Cycle saw (ABS):** `/api/history?hours=48` shows ABS `gateway_issue` first
+at cycle 1083 (10:01Z) and still `gateway_issue` at cycle 1084 (12:01Z,
+current) -- two consecutive cycles. The failing check both times is
+`gateway metadata: Error: ` -- the error string after "Error: " is empty.
+Direct path (metadata/data/json) and all 14 ABS contract rows are clean both
+cycles; gateway data check also passes. `/api/status` reason: "direct path
+OK; gateway path failing."
+
+**Live recheck (ABS):** the gateway host
+(`sdmx-mcp-gateway-production.up.railway.app`) is not on this environment's
+allowed network list, so the gateway path itself cannot be re-probed directly
+from here -- that is a configuration gap in this routine, not evidence either
+way about ABS. Direct provider recheck: `GET
+https://data.api.abs.gov.au/rest/dataflow/ABS/all/latest?references=none&detail=allstubs`
+returned 200 in 16.8s (slower than the ~300ms seen in-cycle, but still well
+inside timeout and still a success). The provider side is not the problem.
+
+**Classification:** `gateway_issue` -- ours, not the provider's. Likely code
+site: `tools/sdmx_tools.py` `list_dataflows_impl`, the bare `except Exception
+as e: return {"error": str(e), ...}` at line 210, surfaced by
+`main_server.py:477` as `next_step=f"Error: {result['error']}"`. When the
+caught exception's `str()` is empty, the message comes out as just "Error: ".
+This is exactly the failure mode already on record (cycle 26, see the
+skill's architectural notes): "If this recurs, the empty message is itself
+the bug to report." It has recurred, and this time it has held for two
+cycles instead of clearing within one.
+
+**History:** new as of cycle 1083; not flapping (no healthy cycle in
+between); first seen for ABS specifically, though the empty-error shape is a
+known recurring bug class.
+
+**Cycle saw (ECB):** `/api/contracts` `changes` for cycle 1084: ECB
+`auth:listing` 200 -> 504, `references:none` 200 -> 504 (`broken`),
+`references:parents` 200 -> 504 (`broken`). `/api/status` marks ECB
+`degraded`: "API contract broken: references:none, references:parents."
+Note `/api/history`'s per-cycle endpoint-status series still shows ECB
+`healthy` with an empty `failing` list at cycle 1084 -- the basic
+gateway/direct health checks passed; only the separate contract sweep hit the
+504s.
+
+**Live recheck (ECB):** `GET
+https://data-api.ecb.europa.eu/service/dataflow/ECB/EXR/latest?references=none&detail=allstubs`
+-> 200 in 0.93s. Same URL with `references=parents` -> 200 in 1.01s. Both
+clean, well under any timeout. Disagrees with the cycle-time 504s: this was
+transient, already cleared.
+
+**Classification:** provider-side and transient. ECB is not back to being a
+known failure (per the skill note that ECB stopped being one after the 406
+fix); this was a one-cycle timeout burst that cleared on its own.
+
+**Rule out network:** OECD direct (`sdmx.oecd.org`) answered 200 in 0.7s and
+ABS direct answered 200 (slow but fine) during the same recheck window, so
+this routine's own network path is not the common cause of either finding.
+
+**Could not determine:** whether ABS's empty-error gateway failure will
+clear on the next cycle like the ILO 403 did, or will persist like a real
+regression; whether the ECB 504 burst was ECB-side load or a gateway-side
+timeout under the gateway's own call budget, since the gateway path itself
+could not be re-probed from this environment.
+
+**Recommended action:** watch ABS gateway metadata through the next 1-2
+cycles. If "Error: " (empty) keeps recurring, it is worth adding a non-empty
+fallback message at `tools/sdmx_tools.py:210` (e.g. `str(e) or
+repr(e)`) so the next occurrence is diagnosable without a live recheck. No
+action needed for ECB; already resolved.
+
 ## 2026-10-23T06:43Z - cycle 1081
 
 **Changed:** ILO `gateway_issue` -> `healthy` (resolved).

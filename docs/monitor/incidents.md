@@ -4,6 +4,43 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-24T18:43Z - cycle 1099
+
+**Changed:** IMF `provider_down` -> `healthy` (recovered).
+
+**Previous state:** last run (this same branch, cycle 1096, 2026-10-24T12:43Z)
+recorded IMF `provider_down` since cycle 1094, open item to watch and escalate
+if still failing past 24h from onset (by 2026-10-25T08:01Z).
+
+**Cycle saw:** `/api/history?hours=48` shows IMF `provider_down` through cycle
+1096 (12:01Z) and `healthy` with empty `failing` from cycle 1097 (14:01Z)
+onward, including 1098 (16:01Z) and 1099 (18:01Z, current). Failure window was
+1094-1096 (08:01Z-12:01Z), three consecutive cycles, about 6 hours.
+
+**Live recheck:** direct `GET
+https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest` now returns
+HTTP 200, confirming the recovery the monitor already reported.
+
+**Classification:** provider-side throughout (both gateway and direct paths
+failed identically with 503, and both now pass identically) - nothing in our
+code caused or fixed this.
+
+**History:** recovered well inside the 24h escalation window set last run (due
+2026-10-25T08:01Z). The open item from cycle 1096 is closed; no escalation
+needed.
+
+**Recommended action:** none. Close the open item.
+
+**Could not determine:** nothing outstanding on this item - the monitor's own
+check and a live recheck agree IMF is healthy now.
+
+Other changes checked and found to be known, chronic, non-incidents, not
+re-reported: ABS `encoding:structure_xml` Content-Type parameter order flipped
+cosmetically again (verdict stayed `ok`, same as every prior occurrence);
+STATSNZ `auth:listing` remains `capability_appeared` (open since cycle 60, no
+change from last run). 96 `claude/` triage branches still on origin, above the
+20-branch pruning threshold, not actioned by this read-only routine.
+
 ## 2026-10-24T12:43Z - cycle 1096
 
 **Changed:** IMF `healthy` -> `provider_down`.

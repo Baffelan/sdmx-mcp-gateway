@@ -4,6 +4,53 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-24T12:43Z - cycle 1096
+
+**Changed:** IMF `healthy` -> `provider_down`.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-apzuj4`, cycle
+1093, 2026-10-24T06:43Z) recorded all 12 endpoints healthy, IMF included.
+
+**Cycle saw:** `/api/history?hours=48` shows IMF healthy with empty `failing`
+through cycle 1093 (06:01Z), then `provider_down` starting at cycle 1094
+(08:01Z) and continuing through 1095 (10:01Z) and 1096 (12:01Z, current) -
+three consecutive cycles, 6 hours. All three cycles show the same failure
+list: gateway metadata `Server error '503 Service Unavailable'` from
+`https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest`, gateway
+data probe error with HTTP 503, direct metadata HTTP 503, direct data HTTP
+503.
+
+**Live recheck:** direct `GET
+https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest` returned
+HTTP 503 with body `no healthy upstream`, matching the cycle exactly. A
+simultaneous check against ECB (`data-api.ecb.europa.eu`) returned HTTP 200,
+so this is not a network problem on our side - other providers answer fine.
+
+**Classification:** `provider_down` - both the gateway path and the direct
+path fail identically, so this is IMF's own infrastructure (the "no healthy
+upstream" body suggests a backend/load-balancer problem on IMF's side), not
+a gateway bug. Nothing to fix in our code.
+
+**History:** new as of cycle 1094 (2026-10-24T08:01Z). No prior IMF failure
+is recorded in this log or in the known-flapping list, so this is a fresh
+failure, not a repeat. Not flapping so far - failing continuously since
+onset, no recovery cycle in between.
+
+**Recommended action:** watch the next cycle or two; if it clears on its own
+this matches the shape of other transient provider outages already logged
+(ILO, SPC, UNICEF). If it persists past 24 hours it is worth escalating as a
+sustained IMF outage.
+
+**Other checks this run:** `/healthz` 200, `stale: false`, `gateway_up:
+true`, no drift. `/api/contracts` `changes` array empty; no assertion
+carries `verdict: broken` or `capability_appeared`. All other 11 endpoints
+(ABS, BIS, ECB, ESTAT, FBOS, ILO, OECD, SBS, SPC, STATSNZ, UNICEF) healthy
+with no status change from the previous run.
+
+**Could not determine:** whether IMF's 503 reflects a scheduled maintenance
+window, a deploy, or an unannounced outage - IMF publishes no status page
+this routine has access to.
+
 ## 2026-10-23T06:43Z - cycle 1081
 
 **Changed:** ILO `gateway_issue` -> `healthy` (resolved).

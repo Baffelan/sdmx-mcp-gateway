@@ -4,6 +4,56 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-25T00:43Z - cycle 1102
+
+**Changed:** ILO `healthy` -> `degraded` (failing: direct metadata, direct json).
+
+**Previous state:** last run (this same branch, cycle 1099, 2026-10-24T18:43Z)
+recorded all 12 endpoints healthy, ILO included.
+
+**Cycle saw:** `/api/history?hours=48` shows ILO healthy with empty `failing`
+through cycles 1099 (18:01Z), 1100 (20:01Z), and 1101 (22:01Z), then
+`degraded` at cycle 1102 (00:01Z, current), with `failing: ['direct metadata:
+HTTP 403', 'direct json: HTTP 403']`. Direct data and both gateway checks
+(metadata, data) passed at cycle 1102. New as of this cycle; no prior cycles
+in the 48h window show this pattern.
+
+**Live recheck:** direct `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` and
+direct `GET
+https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`
+with `Accept: application/vnd.sdmx.data+json;version=2.0.0` both now return
+HTTP 200 - already recovered by the time of this recheck, about 40 minutes
+after the cycle ran. Direct data (plain SDMX-ML) also returns 200. A sanity
+check against ECB direct also returned 200, ruling out a network-side problem
+on this routine's side.
+
+**Classification:** provider-side (`degraded`; gateway metadata and gateway
+data both passed, so this is not a `gateway_issue` - nothing in our code is
+implicated). Matches the known flapping shape documented for ILO ("HTTP 403
+on direct data and json at cycle 32, recovered"), this time hitting metadata
+and json instead of data and json.
+
+**History:** single-cycle blip, already resolved. Not new as a failure mode
+for this endpoint, but new as of cycle 1102 in this 48h window.
+
+**Recommended action:** none. Treat as resolved; re-open only if ILO direct
+403s recur in a later cycle.
+
+**Could not determine:** what triggered the 403 on ILO's side (rate limiting,
+bot protection, or a brief maintenance window) - ILO gives no error body to
+distinguish these, and the live recheck came too late to catch it in the act.
+
+Other changes checked and found to be known, chronic, non-incidents, not
+re-reported: ABS `encoding:structure_xml` Content-Type parameter order
+flipped cosmetically again (verdict stayed `ok`, same as every prior
+occurrence); STATSNZ `auth:listing` remains `capability_appeared` (open since
+cycle 60, no change from last run). ESTAT gateway metadata latency jumped to
+48134ms this cycle (from 5414ms last run), still under the 60s deadline and
+still `ok`, but worth continued watching since the margin narrowed sharply. 95
+`claude/` triage branches still on origin, above the 20-branch pruning
+threshold, not actioned by this read-only routine.
+
 ## 2026-10-24T18:43Z - cycle 1099
 
 **Changed:** IMF `provider_down` -> `healthy` (recovered).

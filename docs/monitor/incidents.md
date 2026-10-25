@@ -4,6 +4,72 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-25T18:43Z - cycle 1111
+
+**Changed:** nothing in status terms (SBS stays `provider_down`, ILO is back to
+`healthy`), but SBS has now crossed the threshold the previous run set for
+calling this a real outage rather than a transient DNS blip.
+
+**Previous state:** last run (this branch, `claude/sleepy-dijkstra-oaqzpr`,
+cycle 1108, 2026-10-25T12:44Z) recorded SBS `provider_down` and ILO
+`degraded`, with all other ten endpoints healthy.
+
+**SBS - cycle saw:** `/api/history?hours=48` shows SBS `provider_down`
+continuously from cycle 1107 (10:01Z) through the current cycle 1111
+(18:01Z) - five consecutive cycles, 8 hours. All five checks (gateway
+metadata, gateway data, direct metadata, direct data, direct json) still
+fail with `[Errno -5] No address associated with hostname` / `ConnectError`,
+unchanged in shape from cycle 1107.
+
+**SBS - live recheck:** could not perform, same as last run. A direct
+`curl` to `https://data-sdmx-disseminate.sbs.gov.ws/` from this session
+failed at the agent proxy's CONNECT step with `502` ("policy denial or
+upstream failure"), while a control request to another provider (ECB)
+succeeded over the same proxy. That rules out a network-wide problem on
+this session's side, but says nothing about whether SBS itself is
+reachable, since this session's own network policy excludes the SBS host
+regardless of the provider's real state (see `.claude/skills/monitor-triage`
+network access list). No independent confirmation of SBS's live state was
+possible, same gap as the previous run.
+
+**SBS - classification:** `provider_down` per the monitor's own
+classification. The previous run explicitly flagged "if still
+`provider_down` at cycle 1109+, treat as a real outage rather than transient
+DNS." That threshold is now crossed: cycles 1109, 1110, and 1111 all show
+the identical DNS failure, three cycles past the recovery point and far
+beyond the one-cycle FBOS DNS precedent.
+
+**SBS - history:** failing continuously since cycle 1107 (2026-10-25T10:01Z),
+now 5 cycles / 8 hours with no recovery in between. Not flapping - a flat
+continuous failure.
+
+**SBS - recommended action:** stop treating this as a candidate transient
+blip. Escalate to a real SBS-side outage (or an infrastructure DNS problem
+specific to the monitor's resolver, per the FBOS precedent's category, but
+now far outside that precedent's one-cycle duration). Worth a human check of
+whether `data-sdmx-disseminate.sbs.gov.ws` resolves from outside the
+Railway environment.
+
+**SBS - could not determine:** whether the DNS failure sits with SBS's
+authoritative nameserver, with a resolver specific to the monitor's Railway
+environment, or elsewhere in between. This session still cannot test the
+provider's DNS directly (its own network policy excludes the host), so the
+question stays open.
+
+**ILO - status:** back to `healthy` at cycles 1109, 1110, and 1111. This is
+the same single-cycle blip (direct metadata HTTP 503 at cycle 1108) already
+investigated, live-rechecked, and reported as resolved in the previous
+entry below. Not re-reported as a new finding; no further action needed
+unless it recurs.
+
+**Other open items, unchanged:** ESTAT gateway metadata latency continues
+climbing - 55119ms at cycle 1111, up from 52965ms at cycle 1108 and 48573ms
+at cycle 1105, still under the 60s deadline but closer to it each cycle.
+STATSNZ `auth:listing` stays `capability_appeared` (listing served without
+credentials), unchanged since first seen at cycle 60. 96 `claude/` triage
+branches on origin, same count as last run, still above the 20 the skill
+flags for pruning; not actioned by this read-only routine.
+
 ## 2026-10-25T12:44Z - cycle 1108
 
 **Changed:** SBS `healthy` -> `provider_down` (DNS resolution failure, both paths).

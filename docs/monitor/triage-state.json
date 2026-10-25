@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1108,
-  "last_cycle_started_at": "2026-10-25T12:01:22+00:00",
-  "last_run": "2026-10-25T12:44Z",
+  "last_cycle_id": 1111,
+  "last_cycle_started_at": "2026-10-25T18:01:22+00:00",
+  "last_run": "2026-10-25T18:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "degraded",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "provider_down",
@@ -18,11 +18,11 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "SBS provider_down since cycle 1107 (2026-10-25T10:01Z), still provider_down at cycle 1108: DNS resolution failure ('No address associated with hostname') on all five checks, both gateway and direct paths. Two consecutive cycles (4h), longer than the one-cycle FBOS DNS precedent. Live recheck not possible: this session's own network policy denies outbound to data-sdmx-disseminate.sbs.gov.ws. Watch next cycle; if still provider_down at cycle 1109+, treat as a real outage rather than transient DNS.",
-    "ILO degraded at cycle 1108 (2026-10-25T12:01Z): direct metadata HTTP 503, gateway metadata/data and direct data/json all ok. Live recheck immediately after showed direct metadata back to 200. Treated as resolved, single-cycle blip matching known ILO direct-path flapping pattern (403 at cycle 1102, 403 at cycle 32). Re-open only if it recurs.",
-    "ESTAT gateway metadata latency: 52965ms at cycle 1108, up from 48573ms at cycle 1105 and 48134ms at cycle 1102 (was 5414ms at cycle 1099), still under the 60s deadline but now within ~7s of it. Keep watching closely; escalate if it crosses 60s and starts timing out.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1108: listing served without credentials. Still open, not re-reported since no new change.",
-    "96 claude/ triage branches on origin as of last fetch (up from 95 last run; includes feat/multi-user-robustness, non-triage). Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "SBS provider_down continuously from cycle 1107 (2026-10-25T10:01Z) through cycle 1111 (2026-10-25T18:01Z): 5 consecutive cycles, 8 hours, same DNS resolution failure ('No address associated with hostname') on all five checks, both gateway and direct paths, no recovery in between. This has now crossed the escalation threshold set by the previous run (cycle 1109+); treated as a real outage rather than transient DNS as of this run. Live recheck still not possible: this session's own network policy denies outbound to data-sdmx-disseminate.sbs.gov.ws (agent proxy returns 502 on CONNECT), confirmed against a working control request to ECB over the same proxy. Keep watching; report recovery when it happens, and reconsider severity if it passes 24h.",
+    "ILO degraded at cycle 1108 only, recovered by cycle 1109 and healthy through cycle 1111. Fully resolved, already reported in the cycle 1108 and cycle 1111 entries. Re-open only if it recurs.",
+    "ESTAT gateway metadata latency: 55119ms at cycle 1111, up from 52965ms at cycle 1108, 48573ms at cycle 1105, and 48134ms at cycle 1102 (was 5414ms at cycle 1099), still under the 60s deadline but closer to it each cycle. Keep watching closely; escalate if it crosses 60s and starts timing out.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1111: listing served without credentials. Still open, not re-reported since no new change.",
+    "96 claude/ triage branches on origin as of last fetch, same count as last run. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
   "alerted": true

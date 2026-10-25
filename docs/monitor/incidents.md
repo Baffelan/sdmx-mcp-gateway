@@ -4,6 +4,89 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-25T12:44Z - cycle 1108
+
+**Changed:** SBS `healthy` -> `provider_down` (DNS resolution failure, both paths).
+Also: ILO `healthy` -> `degraded` (direct metadata HTTP 503), already recovered.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-1upvuj`, cycle
+1105, 2026-10-25T06:44Z) recorded all 12 endpoints healthy.
+
+**SBS - cycle saw:** `/api/history?hours=48` shows SBS healthy through cycle
+1106 (08:01Z), then `provider_down` at cycle 1107 (10:01Z) and still
+`provider_down` at cycle 1108 (12:01Z, current). All five checks (gateway
+metadata, gateway data, direct metadata, direct data, direct json) fail with
+`[Errno -5] No address associated with hostname` / `ConnectError`. This has
+now held for two consecutive cycles (4 hours), not a single-cycle blip.
+
+**SBS - live recheck:** could not perform. This triage session's own outbound
+network policy denied the CONNECT to `data-sdmx-disseminate.sbs.gov.ws`
+(agent proxy returned `502`, "policy denial or upstream failure"), and a
+local `getent hosts` lookup for the same name also failed. Neither result is
+evidence about the provider's actual DNS, since this session's network
+configuration is independent of the Railway monitor's. No independent
+confirmation of SBS's live state was possible.
+
+**SBS - classification:** `provider_down` per the monitor's own
+classification (metadata fails on both gateway and direct paths). This is
+new: SBS has no prior DNS-resolution failures in the known flapping list, and
+the one documented DNS precedent (FBOS at cycle 50, recorded as
+infrastructure rather than a provider outage) was a single cycle and already
+recovered by the next check, unlike this one.
+
+**SBS - history:** new as of cycle 1107; not previously seen for this
+endpoint. Currently still failing at the most recent cycle.
+
+**SBS - recommended action:** watch the next cycle. If `provider_down`
+persists past cycle 1109, treat as a real SBS-side outage rather than a
+transient DNS blip, since the FBOS precedent for "DNS error = infrastructure,
+not provider down" was a one-cycle event and this has already exceeded that.
+
+**SBS - could not determine:** whether the DNS failure is on SBS's
+authoritative nameserver, on a resolver specific to the monitor's Railway
+environment, or something in between. This session could not test the
+provider's DNS directly, so the question stays open rather than being
+resolved either way.
+
+**ILO - cycle saw:** healthy through cycles 1103-1107, then `degraded` at
+cycle 1108 (current) with `failing: ['direct metadata: HTTP 503']`. Gateway
+metadata and gateway data both passed; direct data and direct json also
+passed. Only direct metadata failed.
+
+**ILO - live recheck:** `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+returns HTTP 200, confirmed on two separate requests. Already recovered by
+the time of this recheck.
+
+**ILO - classification:** provider-side (`degraded`; gateway metadata and
+gateway data both passed, so not a `gateway_issue`). Matches the known
+flapping shape for this endpoint (HTTP 403 on direct metadata/json at cycle
+1102, HTTP 403 on direct data/json at cycle 32), this time a 503 on direct
+metadata alone.
+
+**ILO - history:** single-cycle blip, already resolved by live recheck. Not a
+new failure mode for this endpoint (direct-path 4xx/5xx flapping is
+established), but new as of cycle 1108 in this window.
+
+**ILO - recommended action:** none. Treat as resolved; re-open only if ILO
+direct metadata fails again on a later cycle.
+
+**Other endpoints:** ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SPC, STATSNZ,
+UNICEF all healthy across cycles 1103-1108, no flapping observed in the
+48h window.
+
+**Contracts:** `/api/contracts` reports zero entries in `changes`. No
+assertion moved to `broken` or `capability_appeared` this run.
+
+**Carried-forward open items:** ESTAT gateway metadata latency continues
+climbing (5414ms at cycle 1099 -> 48134ms at cycle 1102 -> 48573ms at cycle
+1105 -> 52965ms at cycle 1108), still under the 60s deadline but worth
+watching more closely now that it is within ~7s of the timeout. STATSNZ
+`auth:listing` `capability_appeared` (first seen cycle 60) is still present,
+unchanged, not re-reported as new. 96 `claude/` branches now exist on
+origin (was 95 last run), still above the 20 the skill flags for pruning;
+not actioned by this read-only routine.
+
 ## 2026-10-25T00:43Z - cycle 1102
 
 **Changed:** ILO `healthy` -> `degraded` (failing: direct metadata, direct json).

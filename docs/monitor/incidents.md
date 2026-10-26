@@ -4,6 +4,83 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-26T06:44Z - cycle 1117
+
+**Changed:** ILO `provider_down` -> `healthy`. SBS stays `provider_down`,
+unchanged in status but now 11 consecutive cycles / ~20 hours.
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-almm69`, cycle
+1114, 2026-10-26T00:44Z) recorded ILO newly `provider_down` (all five checks
+HTTP 403, Cloudflare edge block) and SBS `provider_down` since cycle 1107.
+All other ten endpoints healthy.
+
+**ILO - cycle saw:** `/api/history?hours=48` shows ILO back to `healthy` at
+cycles 1115 (02:01Z) and 1116 (04:01Z), and still `healthy` at the current
+cycle 1117 (06:01Z) - all checks passing, no `failing` entries.
+
+**ILO - live recheck:** `curl` to `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+now returns HTTP 200, confirming the recovery live.
+
+**ILO - classification:** resolved. This confirms the previous run's
+prediction: the cycle 1114 block was a transient Cloudflare edge challenge
+(403 with `cf-mbm` cookie signature), not a lasting provider or gateway
+problem. It recovered within one cycle (by 1115), well inside the "2-3
+cycles" window the previous run set before treating it like SBS.
+
+**ILO - history:** new failure at cycle 1114, resolved by cycle 1115. One
+cycle of downtime. Distinct from ILO's earlier partial flaps at cycles 1102
+and 1108 (both single-cycle `degraded` states); this was the first full
+`provider_down` for ILO, and it still cleared in one cycle.
+
+**ILO - recommended action:** none. Treat as closed unless it recurs.
+
+**SBS - cycle saw:** `provider_down` continuously from cycle 1107
+(2026-10-25T10:01Z) through cycle 1117 (2026-10-26T06:01Z) - 11 consecutive
+cycles, ~20 hours. Error signature at the two most recent cycles (1115,
+1116, 1117) is a mix of `ConnectTimeout` on the direct paths and, at 1117,
+"Network or transport error - provider unreachable" on the gateway data
+check.
+
+**SBS - live recheck:** `curl -v` to
+`https://data-sdmx-disseminate.sbs.gov.ws/rest/dataflow/SBS/all/latest`
+completed the proxy CONNECT tunnel (`200 Connection Established`) and
+started a TLS handshake, which then failed with "Recv failure: Connection
+reset by peer" after about 13 seconds - the same shape as the previous
+run's recheck. A control request to ECB (`data-api.ecb.europa.eu`) over the
+same proxy succeeded with HTTP 200 in under a second, ruling out a
+session-side network problem.
+
+**SBS - classification:** `provider_down` per the monitor. Still
+provider-side: the proxy reaches the host and begins a TLS handshake, which
+the remote end then resets, consistent with the monitor's own
+`ConnectTimeout` findings rather than a DNS or local network fault.
+
+**SBS - history:** unbroken `provider_down` since cycle 1107, now 11 cycles
+/ 20 hours. Not flapping - flat continuous failure. The previous run set an
+escalation checkpoint at 24 hours (around cycle 1119, ~2026-10-26T10:01Z);
+that point has not yet been reached.
+
+**SBS - recommended action:** no new action this run; already escalated as
+a real outage in the cycle 1111 entry. Re-check at or after cycle 1119. If
+still down at 24h+, this is a multi-day SBS-side outage worth a human
+decision on whether to keep probing it at full frequency.
+
+**SBS - could not determine:** whether the TLS reset originates at the SBS
+origin server or at an intermediate edge/CDN in front of
+`data-sdmx-disseminate.sbs.gov.ws`; this session has no way to inspect SBS's
+own infrastructure.
+
+**Contracts:** one `changes` entry, ILO `encoding:structure_xml` Content-Type
+parameter order flipped (`charset` and `version` swapped), verdict stays
+`ok` on both sides - this is the known cosmetic flip already listed as an
+architectural fact, not a new incident. STATSNZ `auth:listing` remains
+`capability_appeared` (first seen cycle 60), still open, not re-reported.
+No assertion is `broken`.
+
+**Could not determine:** nothing beyond the SBS TLS-reset origin noted
+above. All other ten endpoints are confirmed healthy both by the monitor
+and, for ILO, by live recheck.
+
 ## 2026-10-25T18:43Z - cycle 1111
 
 **Changed:** nothing in status terms (SBS stays `provider_down`, ILO is back to

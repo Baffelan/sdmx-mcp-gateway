@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1111,
-  "last_cycle_started_at": "2026-10-25T18:01:22+00:00",
-  "last_run": "2026-10-25T18:43Z",
+  "last_cycle_id": 1114,
+  "last_cycle_started_at": "2026-10-26T00:01:22+00:00",
+  "last_run": "2026-10-26T00:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "healthy",
+    "ILO": "provider_down",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "provider_down",
@@ -18,12 +18,13 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "SBS provider_down continuously from cycle 1107 (2026-10-25T10:01Z) through cycle 1111 (2026-10-25T18:01Z): 5 consecutive cycles, 8 hours, same DNS resolution failure ('No address associated with hostname') on all five checks, both gateway and direct paths, no recovery in between. This has now crossed the escalation threshold set by the previous run (cycle 1109+); treated as a real outage rather than transient DNS as of this run. Live recheck still not possible: this session's own network policy denies outbound to data-sdmx-disseminate.sbs.gov.ws (agent proxy returns 502 on CONNECT), confirmed against a working control request to ECB over the same proxy. Keep watching; report recovery when it happens, and reconsider severity if it passes 24h.",
-    "ILO degraded at cycle 1108 only, recovered by cycle 1109 and healthy through cycle 1111. Fully resolved, already reported in the cycle 1108 and cycle 1111 entries. Re-open only if it recurs.",
-    "ESTAT gateway metadata latency: 55119ms at cycle 1111, up from 52965ms at cycle 1108, 48573ms at cycle 1105, and 48134ms at cycle 1102 (was 5414ms at cycle 1099), still under the 60s deadline but closer to it each cycle. Keep watching closely; escalate if it crosses 60s and starts timing out.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1111: listing served without credentials. Still open, not re-reported since no new change.",
+    "ILO healthy -> provider_down at cycle 1114 (2026-10-26T00:01Z): all five checks failing with HTTP 403, confirmed live as a Cloudflare edge block (server: cloudflare, __cf_bm cookie), not a gateway-side bug. New as of this cycle; ILO's two prior flaps (cycle 1102, 1108) were partial degraded states that recovered in one cycle. This one is full provider_down including the gateway path. Watch next cycle: recovery means transient Cloudflare challenge, persistence past 2-3 cycles means escalate like SBS.",
+    "SBS provider_down continuously from cycle 1107 (2026-10-25T10:01Z) through cycle 1114 (2026-10-26T00:01Z): 8 consecutive cycles, 16 hours, no recovery. Error signature shifted from DNS resolution failure (cycles 1107-1112) to ConnectTimeout (cycles 1113-1114). Live recheck this run got past this session's proxy (CONNECT succeeded, unlike the 502 policy denial on the last two runs) but the TLS handshake to data-sdmx-disseminate.sbs.gov.ws reset after ~13s, consistent with the monitor's own ConnectTimeout shift and confirming this is provider-side, not our network policy. Already past the previous run's real-outage threshold. Re-escalate if it passes 24h (around cycle 1119, 2026-10-26T10:01Z).",
+    "ILO degraded at cycle 1102 (direct metadata+json 403) and cycle 1108 (direct metadata 503): both resolved within one cycle, already reported in their own entries. Superseded by the cycle 1114 provider_down entry above; re-open only if cycle 1114 also turns out to be a one-cycle blip, otherwise fold into the new incident.",
+    "ESTAT gateway metadata latency flap resolved as predicted: climbed 48134ms (cycle 1102) -> 48573ms (1105) -> 52965ms (1108) -> 55119ms (1111), then crossed the 60s deadline at cycle 1113 (gateway_issue, list_dataflows timed out), then recovered at cycle 1114 to 5018ms on a successful retry (attempts=2). Treated as the known 'ESTAT under load' flap, working as designed; not re-alerted. Watch for a repeat climb.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1114: listing served without credentials. Still open, not re-reported since no new change.",
     "96 claude/ triage branches on origin as of last fetch, same count as last run. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all; currently moot while ILO is provider_down); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
   "alerted": true
 }

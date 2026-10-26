@@ -4,6 +4,106 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-26T00:44Z - cycle 1114
+
+**Changed:** ILO healthy -> `provider_down` (new at cycle 1114). SBS stays
+`provider_down`, now 8 cycles / 16 hours, with a shift in the underlying
+error worth noting. All other ten endpoints healthy, unchanged.
+
+**Previous state:** last run (this branch, cycle 1111, 2026-10-25T18:43Z)
+recorded SBS `provider_down` and all other eleven endpoints healthy,
+including ILO.
+
+**ILO - cycle saw:** at cycle 1114 (started 2026-10-26T00:01:22Z), all five
+checks fail: gateway metadata `403 Forbidden` from
+`sdmx.ilo.org/rest/dataflow/ILO/all/latest`, gateway data `HTTP 403 from
+provider`, direct metadata/data/json all `HTTP 403`. `/api/contracts`
+`changes` confirms it: all twelve ILO contract assertions flipped to `403`
+this cycle (`auth:listing`, `references:*`, `dialect:sdmx3`,
+`errors:missing_artefact`, `encoding:structure_xml`,
+`constraint:availableconstraint`), every one marked `broken` or `skipped`.
+This is a full site block, not one check among many.
+
+**ILO - live recheck:** reproduced live. `curl -D -` to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` returns `HTTP/2 403`
+with `server: cloudflare` and an ILO `__cf_bm` cookie, i.e. a Cloudflare bot/WAF
+block at the edge, not a timeout or DNS failure. A control request to ECB
+over the same proxy returned `200`, so this is not this session's network
+policy.
+
+**ILO - classification:** `provider_down` per the monitor (metadata fails
+on both gateway and direct paths). Confirmed theirs, not ours: the gateway
+code did nothing differently this cycle, the provider's edge is rejecting
+the requests outright.
+
+**ILO - new or chronic:** new as of this cycle. ILO has flapped twice in
+the preceding days (`degraded` at cycle 1102: direct metadata+json only,
+403, recovered next cycle; `degraded` at cycle 1108: direct metadata only,
+503, recovered next cycle) but both were partial and one-cycle. This is the
+first time every path including gateway has gone down together, and the
+block looks like a Cloudflare challenge rather than an application error.
+
+**ILO - recommended action:** watch the next cycle. If it clears on its own
+like the two recent degraded blips, this was a transient Cloudflare
+challenge; if it persists past 2-3 cycles, treat it the same way SBS was
+escalated (sustained failure, not noise).
+
+**ILO - could not determine:** whether the block is IP-based (affecting
+this gateway's egress specifically) or a broader rate limit/WAF rule change
+on ILO's side; whether it will clear on the next cycle.
+
+**SBS - cycle saw:** `/api/history?hours=48` shows SBS `provider_down`
+continuously from cycle 1107 (10:01Z) through cycle 1114 (00:01Z on
+2026-10-26) - 8 consecutive cycles, 16 hours. The failure *shape* changed
+partway through: cycles 1107-1112 showed `[Errno -5] No address associated
+with hostname` (DNS failure) on all five checks; cycles 1113 and 1114 show
+`ConnectTimeout` / a gateway probe timing out at 60s instead. Same overall
+`provider_down` status, but the underlying error moved from DNS resolution
+to a connection timeout.
+
+**SBS - live recheck:** this time a live check was possible, unlike the
+last two runs. `curl -v` to
+`https://data-sdmx-disseminate.sbs.gov.ws/rest/dataflow` now gets past this
+session's proxy (`CONNECT` succeeds, `200 Connection Established`,
+previously a `502` policy denial) and reaches a TLS handshake, which then
+resets after about 13 seconds (`Recv failure: Connection reset by peer`).
+This lines up with the monitor's own shift to `ConnectTimeout` at cycles
+1113-1114 and confirms the host is reachable from this network now but not
+answering - consistent with a genuine provider-side outage, not a network
+policy gap on our end anymore.
+
+**SBS - classification:** still `provider_down`, still theirs. The
+previous run's escalation (treat as real outage past cycle 1109) stands and
+is now at 8 cycles / 16 hours.
+
+**SBS - new or chronic:** chronic, unresolved since cycle 1107, with the
+error signature evolving from DNS failure to TLS/connect timeout. No
+recovery yet.
+
+**SBS - recommended action:** keep watching; no action possible from this
+routine (read-only, and `/api/refresh` is never called). Re-escalate if it
+passes 24h (would be cycle ~1119, 2026-10-26T10:01Z).
+
+**SBS - could not determine:** the ultimate cause (DNS outage that evolved
+into a server-side hang, versus two separate unrelated faults); whether
+sbs.gov.ws infrastructure is undergoing maintenance.
+
+**ESTAT - noted, not alerted:** cycle 1113 showed `gateway_issue`
+(`list_dataflows timed out after 60.0s`), recovered by cycle 1114
+(`healthy`, gateway metadata latency back down to 5018ms on a successful
+retry, attempts=2). This is the known "ESTAT list_dataflows under load"
+flap the skill documents as working-as-designed, and it also confirms the
+climbing-latency open item from the last three runs (48134ms -> 48573ms ->
+52965ms -> 55119ms) was heading toward exactly this outcome. Treated as
+resolved on arrival, per the flapping rule; not re-alerted.
+
+**Everything else:** all other nine endpoints (ABS, BIS, ECB, FBOS, IMF,
+OECD, SPC, STATSNZ, UNICEF) healthy and unchanged from cycle 1111. STATSNZ
+`auth:listing` `capability_appeared` is still present, no new change.
+Architectural facts (ILO `/availableconstraint/` 500 outside this incident,
+ESTAT no constraint support, BIS/ILO/IMF `references:contentconstraint`
+`ignored`) unchanged and not re-reported.
+
 ## 2026-10-25T18:43Z - cycle 1111
 
 **Changed:** nothing in status terms (SBS stays `provider_down`, ILO is back to

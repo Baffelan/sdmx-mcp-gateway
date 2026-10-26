@@ -4,6 +4,132 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-26T18:43Z - cycle 1123
+
+**Changed:** ECB flapped and recovered between runs: `healthy` -> `provider_down`
+at cycle 1121 (2026-10-26T14:01:22Z) -> `healthy` again at cycle 1122
+(2026-10-26T16:01:22Z), confirmed healthy through the current cycle 1123
+(2026-10-26T18:01:22Z). SBS stays `provider_down`, unchanged and not
+re-alerted this run (see below); all other ten endpoints held `healthy`
+throughout.
+
+**Previous state:** newest state found across branches was on
+`claude/sleepy-dijkstra-owuqqu`, cycle 1120 (2026-10-26T12:53Z). It recorded
+all twelve endpoints in the same status they held today except that ECB's
+cycle-1121 blip happened after that run and had not yet been seen.
+
+**ECB - cycle saw:** at cycle 1121, both checks that matter failed:
+`gateway metadata: Error:` (empty error message) and
+`direct metadata: ReadTimeout:`. By cycle 1122 both were passing again, and
+cycle 1123 shows "all checks passing".
+
+**ECB - live recheck:** `curl --max-time 30` against
+`https://data-api.ecb.europa.eu/service/dataflow/ECB` now returns `200` in
+about 1.0s, consistent with the monitor's own cycle 1122/1123 readings.
+Already resolved by the time this run looked.
+
+**ECB - classification:** `provider_down` per the monitor's own
+classification at cycle 1121 only (metadata failed on both the gateway and
+direct paths); back to `healthy` since. This is a single-cycle flap, not a
+sustained outage.
+
+**ECB - history:** new. ECB has been healthy on every cycle since it learned
+to retry `text/csv` for the SDMx-CSV 406 case (last known failure was the
+`HTTP 406 from provider` run that ended at cycle 43). This is the first ECB
+blip since then, and it is a different failure shape (empty-message gateway
+error plus a direct ReadTimeout, not a 406), so it is not a return of the
+old known issue.
+
+**ECB - recommended action:** none yet; watch for recurrence. The empty
+`gateway metadata: Error:` message is the same shape previously flagged for
+ABS at cycle 26 ("if this recurs, the empty message is itself the bug to
+report") - this is a second, independent occurrence of that same
+empty-error-message pattern, on a different endpoint. Worth tightening the
+gateway's error reporting so a future occurrence carries an actual message,
+but not urgent on its own since the cycle recovered on its own one cycle
+later.
+
+**ECB - could not determine:** whether the cycle-1121 failure was a
+transient provider hiccup, a brief gateway-side issue, or a symptom of
+whatever produces the empty-message `Error:` string. One data point is not
+enough to say.
+
+**SBS - status:** still `provider_down`, continuously from cycle 1107
+(2026-10-25T10:01Z) through cycle 1123 (2026-10-26T18:01Z) - 17 consecutive
+cycles, about 32 hours. Same failure shape as every prior cycle (gateway
+metadata `Error:` empty, gateway data timeout, direct metadata/data/json all
+`ConnectTimeout:`). This has not crossed the previous run's 48h
+re-escalation threshold and the shape has not changed, so per that run's own
+plan this is not re-alerted this cycle; it stays open as a known, unresolved
+outage.
+
+**Could not determine:** the root cause of either the ECB blip or the
+ongoing SBS outage on the provider side - this session can only observe
+connection and response behaviour, not what changed on their infrastructure.
+
+## 2026-10-26T12:53Z - cycle 1120
+
+**Changed:** nothing in status terms (all twelve endpoints hold the same
+status they held last run: SBS `provider_down`, everyone else `healthy`),
+but SBS has now crossed the 24-hour escalation checkpoint that the previous
+run explicitly set.
+
+**Previous state:** the newest state found across branches was on
+`claude/sleepy-dijkstra-l8uwdb`, cycle 1117 (2026-10-26T06:44Z), not yet
+merged into `main` (main's own `docs/monitor/triage-state.json` still sits
+at cycle 1111). That state recorded SBS `provider_down` and all other eleven
+endpoints `healthy`, with an open item: "escalation checkpoint set at 24h,
+around cycle 1119; not yet reached." It also recorded an ILO `provider_down`
+blip (Cloudflare 403 block) at cycle 1114, resolved by cycle 1115 and
+confirmed healthy since - already closed by that run, not re-reported here.
+
+**SBS - cycle saw:** `/api/history?hours=48` shows SBS `provider_down`
+continuously from cycle 1107 (2026-10-25T10:01:22Z) through the current
+cycle 1120 (2026-10-26T12:01:22Z) - 14 consecutive cycles, exactly 26 hours,
+no recovery at any point in between (checked cycles 1111 through 1120
+individually). All five checks still fail: gateway metadata `Error:`
+(empty), gateway data `tool call probe_data_url timed out after 60.0s`,
+direct metadata/data/json all `ConnectTimeout:`. Same failure shape as every
+prior cycle in this run of outages.
+
+**SBS - live recheck:** `curl --max-time 20` directly against
+`https://data-sdmx-disseminate.sbs.gov.ws/rest` from this session connected
+to the host (unlike the cycle 1111 run, which got a 502 from the proxy's
+CONNECT step) but the TLS/connection attempt itself failed after ~13.6s with
+no HTTP response (`http_code=000`). A control request to ECB over the same
+path returned promptly (`404` in 1.2s, expected for a bare path with no
+query). That rules out a session-wide network problem and confirms the
+failure sits with SBS, consistent with the monitor's own `ConnectTimeout`
+findings.
+
+**SBS - classification:** `provider_down` per the monitor's own
+classification, unchanged. No contract assertions ran this cycle for SBS
+(all twelve show `verdict: skipped`, correctly - nothing to adopt there.
+
+**SBS - history:** not flapping. A flat, continuous outage since cycle 1107.
+The previous run's own escalation plan ("if still down past 24h, treat as a
+multi-day SBS-side outage worth a human decision") set cycle ~1119
+(2026-10-26T10:01Z, the 24h mark) as the checkpoint. That checkpoint has now
+passed: the outage is at 26 hours and counting, two cycles past the trigger.
+
+**SBS - recommended action:** this is no longer a "watch and see" item. Per
+the previous run's own plan, this now warrants a human decision: whether to
+treat `data-sdmx-disseminate.sbs.gov.ws` as down indefinitely, contact SBS,
+or consider this provider degraded in the gateway's own configuration until
+it recovers.
+
+**SBS - could not determine:** the root cause on SBS's side (server outage,
+TLS misconfiguration, firewall change, etc.) - this session can only observe
+that connections do not complete, not why.
+
+**Other endpoints:** all eleven others (ABS, BIS, ECB, ESTAT, FBOS, ILO,
+IMF, OECD, SPC, STATSNZ, UNICEF) stayed `healthy` across every cycle from
+1111 through 1120, matching the state recorded at cycle 1117. No new
+flapping observed in the intervening cycles (1118, 1119).
+
+**Contracts:** `/api/contracts` reports zero entries in `changes`. No
+assertion verdict moved to `broken` or `capability_appeared` this cycle.
+
 ## 2026-10-25T18:43Z - cycle 1111
 
 **Changed:** nothing in status terms (SBS stays `provider_down`, ILO is back to

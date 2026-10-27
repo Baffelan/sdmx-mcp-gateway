@@ -4,6 +4,58 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-27T12:49Z - cycle 1132
+
+**Changed:** ESTAT healthy -> gateway_issue -> healthy (already resolved by
+the time this run looked)
+
+**Previous state:** last run (branch `claude/sleepy-dijkstra-jngwiu`, cycle
+1129, 2026-10-27T06:44Z) recorded all twelve endpoints healthy.
+
+**Cycle saw:** `/api/history?hours=48` shows ESTAT healthy at cycle 1130
+(08:01Z), `gateway_issue` at cycle 1131 (10:01Z) with failing check
+`gateway metadata: Error:` (empty error body, direct path not in the
+failing list so presumed to have passed), then healthy again at cycle 1132
+(12:01Z, the current cycle). One cycle wide, already recovered.
+
+**Live recheck:** ESTAT provider is healthy now: a direct `curl` to
+`ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT` returned
+200. It took 28.9s, and a control request to ECB over the same path took
+29.9s for the same 200 - both suspiciously close to this session's 30s
+curl timeout, suggesting elevated latency from this session's network to
+these hosts right now rather than anything ESTAT-specific. Could not
+recheck the gateway's own `list_dataflows` call directly: the gateway host
+(`sdmx-mcp-gateway-production.up.railway.app`) is not in this routine's
+allowed host list, only the monitor and provider hosts are.
+
+**Classification:** `gateway_issue` per the monitor - direct path passing,
+gateway path failing, so this is ours, not ESTAT's, if it recurs.
+
+**New or chronic:** Within the same 48h window, ESTAT also hit
+`gateway_issue` at cycle 1113 (2026-10-25T22:01Z) with
+`gateway metadata: tool call list_dataflows timed out after 60.0s` - the
+known "ESTAT list_dataflows times out under load" pattern already
+documented as expected behaviour. Cycle 1131's failure has the same
+endpoint and same check (`gateway metadata`) but a different, empty error
+message instead of a timeout string. That empty-message shape is new for
+ESTAT; the skill's existing note about ABS says an empty error message is
+itself the bug worth reporting if it recurs. Flagging it here for the same
+reason, one occurrence so far.
+
+**Recommended action:** no code change yet - one occurrence, already
+resolved, and plausibly explained by this run's own elevated-latency
+conditions to the region. Watch for the empty-message shape recurring on
+ESTAT across future runs; if it does, treat it as a gap in the gateway's
+`list_dataflows` error handling (something is failing without populating
+an error message) distinct from the already-understood timeout case.
+
+**Could not determine:** whether cycle 1131's empty error was a genuine
+gateway-side exception swallowed without a message, or a slow response
+that the gateway's error path renders as empty instead of as a timeout
+string. Could not independently probe the gateway's `list_dataflows` call
+itself to tell those apart, since its host is outside this routine's
+allowed network.
+
 ## 2026-10-25T18:43Z - cycle 1111
 
 **Changed:** nothing in status terms (SBS stays `provider_down`, ILO is back to

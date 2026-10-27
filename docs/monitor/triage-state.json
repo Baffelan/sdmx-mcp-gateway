@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1111,
-  "last_cycle_started_at": "2026-10-25T18:01:22+00:00",
-  "last_run": "2026-10-25T18:43Z",
+  "last_cycle_id": 1126,
+  "last_cycle_started_at": "2026-10-27T00:01:22+00:00",
+  "last_run": "2026-10-27T00:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -12,17 +12,19 @@
     "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
-    "SBS": "provider_down",
+    "SBS": "healthy",
     "SPC": "healthy",
     "STATSNZ": "healthy",
     "UNICEF": "healthy"
   },
   "open_items": [
-    "SBS provider_down continuously from cycle 1107 (2026-10-25T10:01Z) through cycle 1111 (2026-10-25T18:01Z): 5 consecutive cycles, 8 hours, same DNS resolution failure ('No address associated with hostname') on all five checks, both gateway and direct paths, no recovery in between. This has now crossed the escalation threshold set by the previous run (cycle 1109+); treated as a real outage rather than transient DNS as of this run. Live recheck still not possible: this session's own network policy denies outbound to data-sdmx-disseminate.sbs.gov.ws (agent proxy returns 502 on CONNECT), confirmed against a working control request to ECB over the same proxy. Keep watching; report recovery when it happens, and reconsider severity if it passes 24h.",
-    "ILO degraded at cycle 1108 only, recovered by cycle 1109 and healthy through cycle 1111. Fully resolved, already reported in the cycle 1108 and cycle 1111 entries. Re-open only if it recurs.",
-    "ESTAT gateway metadata latency: 55119ms at cycle 1111, up from 52965ms at cycle 1108, 48573ms at cycle 1105, and 48134ms at cycle 1102 (was 5414ms at cycle 1099), still under the 60s deadline but closer to it each cycle. Keep watching closely; escalate if it crosses 60s and starts timing out.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1111: listing served without credentials. Still open, not re-reported since no new change.",
-    "96 claude/ triage branches on origin as of last fetch, same count as last run. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "SBS recovered at cycle 1125 (2026-10-26T22:01Z) after an outage running continuously from cycle 1107 through cycle 1124 (18 cycles, about 34 hours). Still healthy at cycle 1126 (2026-10-27T00:01Z) per the monitor's own check, with fast real responses on all five checks. However this run's live recheck (about 40 minutes after cycle 1126) could not complete a TLS handshake to data-sdmx-disseminate.sbs.gov.ws at all (connection reset by peer), while control requests to ECB and OECD over the same network succeeded, ruling out a network-wide cause on this session's side. Treat SBS as possibly flapping, not cleanly resolved. Next run must re-check live and compare against cycle 1127+ before this is closed out.",
+    "ECB flapped healthy -> provider_down -> healthy within a single intermediate cycle at cycle 1121, already resolved and reported as such on the 2026-10-26T18:43Z (cycle 1123) run. No recurrence through cycle 1126. Re-open and alert only if ECB fails again.",
+    "Empty-message gateway error pattern ('gateway metadata: Error:' with no text) has been seen on two endpoints: ABS at cycle 26, ECB at cycle 1121, and was also present in SBS's own failure shape during its cycle 1107-1124 outage. Worth a closer look at the gateway's error-reporting path, but not actioned by this read-only routine.",
+    "ESTAT gateway metadata latency flap (climbed toward the 60s deadline through cycles 1102-1113, crossed it once at 1113, recovered at 1114): already reported, working as designed. No further climb observed through cycle 1126.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1126: listing served without credentials. Still open, not re-reported since no new change.",
+    "ILO encoding:structure_xml Content-Type charset/version parameter order flipped again at this run's /api/contracts read (was/now swap, verdict stays ok). Long-known cosmetic flip, not an incident.",
+    "100 claude/ triage branches on origin as of this run's fetch, up from 98 at cycle 1120. Well above the 20 the skill flags for pruning; not actioned by this read-only routine, flagging again so it gets pruned.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
   "alerted": true

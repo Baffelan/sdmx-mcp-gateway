@@ -4,6 +4,112 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-28T00:45Z - cycle 1138
+
+**Changed:** ILO healthy -> `provider_down` (new at cycle 1138, intermittent
+403s). ESTAT healthy -> `gateway_issue` -> healthy, a single-cycle flap at
+cycle 1137, already resolved. Also recording, retroactively, that SBS
+recovered `provider_down` -> healthy at cycle 1125 -> this was never carried
+into `main` because of an unmerged-PR backlog (see open items).
+
+**Previous state:** the newest state found across branches was cycle 1135
+(2026-10-27T18:43Z, branch `claude/sleepy-dijkstra-icannh`, PR #310, open
+and unmerged), recording all twelve endpoints healthy. That branch's own
+`incidents.md` still tops out at a cycle-1111 entry; its cycle 1135 run
+logged "no change" without writing forward the cycles it had actually
+covered. `main` itself is still at cycle 1111. Rather than trust either
+file alone, this run compared live `/api/history?hours=48` cycle-by-cycle
+against the cycle 1135 state and cross-checked open PRs #307-#310 for
+intervening findings.
+
+**ILO - cycle saw:** cycle 1138 (started 2026-10-28T00:01:22Z):
+`gateway metadata` 403, `gateway data` 403 ("probe status: error; HTTP 403
+from provider"), `direct metadata` 403, `direct data` 403, `direct json` 200
+(slow, 12959ms, succeeded). `/api/contracts` shows 6 of 12 ILO assertions
+flipped to `broken` this cycle (`auth:listing` 200->403, `constraint:
+availableconstraint` 500->403, `errors:missing_artefact` 404->403,
+`references:all` / `references:contentconstraint` / `references:descendants`
+200->403), while `references:none`, `references:children`,
+`references:parents`, and `references:parentsandsiblings` all returned 200
+in the same cycle. This is a partial, intermittent block, not the total
+site block seen before.
+
+**ILO - live recheck:** `curl` to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` about 45 minutes after
+the cycle, returns HTTP 200 with a valid SDMX structure XML body. Already
+recovered. A control request to ECB over the same proxy also returned 200,
+ruling out a network problem on this session's side.
+
+**ILO - classification:** `provider_down` per the monitor (metadata failed
+on both gateway and direct paths this cycle). Theirs, not ours: this matches
+the established pattern from cycle 1114 (PR #307), where the same endpoint
+took a full Cloudflare edge block (`server: cloudflare`, `__cf_bm` cookie,
+confirmed live at the time) that later cleared on its own. This cycle's
+block was partial rather than total, but the shape (403 on multiple
+unrelated check types, cleared within the hour) is the same class of event.
+
+**ILO - new or chronic:** new as of this single cycle, but part of ILO's
+long-running 403/Cloudflare flapping history (full block at cycle 1114;
+partial 403 flaps also recorded in the branch history at cycles 32, 1030,
+and others). Not treated as a new failure mode.
+
+**ILO - recommended action:** none beyond watching. Matches a known,
+self-resolving pattern and has already cleared on live recheck.
+
+**ILO - could not determine:** whether this cycle's partial block and the
+cycle 1114 full block share a trigger (a scheduled WAF rule, a rate window)
+or are unrelated instances of the same class of edge block.
+
+**ESTAT - cycle saw:** cycle 1137 (2026-10-27T22:01:22Z) `gateway_issue`,
+`failing: ["gateway metadata: tool call list_dataflows timed out after
+60.0s"]`. Recovered by cycle 1138 (current), `healthy`, gateway metadata
+latency back down to 6299ms.
+
+**ESTAT - classification:** the documented "`list_dataflows` under load"
+flap, working as designed (our own call deadline firing, not a gateway
+bug). Already resolved by the time this run looked; no live recheck needed.
+
+**ESTAT - new or chronic:** single-cycle blip. The climbing-latency open
+item from the cycle 1111 entry (48134ms -> 55119ms) appears to have been
+heading toward exactly this outcome and has now reset; watch for a repeat
+climb rather than treating this as closed for good.
+
+**SBS - retroactive note:** `/api/history` shows SBS `provider_down`
+continuously from cycle 1107 through cycle 1124 (18 cycles, 36 hours,
+DNS failure then `ConnectTimeout`, per PR #307 and #308), then healthy from
+cycle 1125 (2026-10-26T22:01Z) onward, unchanged through the current cycle
+1138 (13 consecutive healthy cycles). PR #309 already wrote this recovery up
+in detail at cycle 1126. It was never visible on `main` because #309, like
+#307, #308, and #310, is still open. No new action: SBS has been stable for
+over a day. Recorded here so the canonical record does not silently skip a
+34-hour outage and its recovery.
+
+**Other endpoints:** ABS, BIS, ECB, FBOS, IMF, OECD, SPC, STATSNZ, UNICEF
+all healthy and unchanged across cycles 1135-1138.
+
+**Open items:**
+
+- STATSNZ `auth:listing` `capability_appeared`, unchanged since first seen
+  at cycle 60. Still open, not re-reported.
+- `claude/` triage branches on origin: 104, up from 103 at cycle 1135 and 96
+  at cycle 1111. Still well above the 20 the skill flags for pruning; not
+  actioned by this read-only routine.
+- Merge-to-main backlog: at least 29 open PRs from this routine, going back
+  to cycle 835 (2026-10-04), remain unmerged against `main`, including
+  #307, #308, #309, and #310 covering cycles 1114-1135. `main`'s
+  `docs/monitor/incidents.md` is stale (stuck at cycle 1111) even though
+  the actual findings already exist on these branches. The one PR checked
+  (#309) reports `mergeable_state: "clean"`, so the PRs themselves are not
+  the blocker; this run will attempt its own Step 8 merge and report the
+  result below. If that also fails, the merge step's credentials (the
+  proxy-injected token used for `api.github.com`) are worth a human look.
+- Architectural facts, unchanged: ILO `/availableconstraint/` returns 500
+  (constraints come via `?references=all`); ESTAT has no practical
+  constraint support; BIS/ILO/IMF `references:contentconstraint` reads
+  `ignored` (accepted and silently dropped); ABS/ILO
+  `encoding:structure_xml` Content-Type charset/version order flips
+  cosmetically from time to time, verdict always stays `ok`.
+
 ## 2026-10-25T18:43Z - cycle 1111
 
 **Changed:** nothing in status terms (SBS stays `provider_down`, ILO is back to

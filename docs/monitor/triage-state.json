@@ -1,15 +1,15 @@
 {
-  "last_cycle_id": 1138,
-  "last_cycle_started_at": "2026-10-28T00:01:22+00:00",
-  "last_run": "2026-10-28T00:45Z",
+  "last_cycle_id": 1144,
+  "last_cycle_started_at": "2026-10-28T12:01:22+00:00",
+  "last_run": "2026-10-28T13:01Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
-    "ABS": "healthy",
+    "ABS": "gateway_issue",
     "BIS": "healthy",
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "provider_down",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,12 +18,13 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO healthy -> provider_down at cycle 1138 (2026-10-28T00:01Z): partial, intermittent 403s (6 of 12 contract assertions broken, 5 checks failing, but references:none/children/parents/parentsandsiblings and direct json all passed in the same cycle). Live recheck ~45 min later already shows HTTP 200. Matches the established ILO/Cloudflare flapping pattern (full block at cycle 1114, PR #307); not a new failure mode. Watch next cycle; escalate only if it persists.",
-    "SBS: fully recovered and stable. provider_down cycle 1107-1124 (18 cycles, 36h, DNS then ConnectTimeout), healthy since cycle 1125, now 13 consecutive healthy cycles through 1138. Recovery already written up in PR #309 (unmerged); re-open only if it fails again.",
-    "ESTAT gateway_issue at cycle 1137 only (list_dataflows timeout at 60s), recovered cycle 1138, latency back down to 6299ms. Known 'under load' flap, not a gateway bug. The climbing-latency trend from cycle 1111 (48134ms -> 55119ms) appears to have been heading toward this timeout and has now reset; watch for a repeat climb.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1138: listing served without credentials. Still open, not re-reported since no new change.",
-    "104 claude/ triage branches on origin as of this fetch, up from 103 at cycle 1135 and 96 at cycle 1111. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "Merge-to-main backlog: at least 29 open PRs from this routine (cycle 835 onward) remain unmerged against main, including #307, #308, #309, #310 covering cycles 1114-1135. main's incidents.md is stuck at cycle 1111 despite those findings already existing. PR #309 reports mergeable_state 'clean', so the PRs are not the blocker; this run's own Step 8 attempt and its result are recorded in the run output. If it also fails, the proxy-injected GH_TOKEN permissions for api.github.com PUT merge calls are worth a human look.",
+    "ABS gateway_issue at cycle 1144 (currently active as of this run), same empty 'gateway metadata: Error:' body as cycle 1140 and originally cycle 26. Third confirmed occurrence; gap since the last one (1140 -> 1144) is much shorter than before. Live recheck of ABS direct confirms the provider is healthy; this is gateway-side. Root cause traced to tools/sdmx_tools.py:208-210 (bare except Exception as e: return {\"error\": str(e), ...}) feeding main_server.py:477's next_step=f\"Error: {result['error']}\" - when str(e) is empty (consistent with a bare TimeoutError()), the gateway reports exactly 'Error: ' with no detail. Not fixed by this routine (docs/monitor/ only). Watch for a further shortening gap or a fix landing.",
+    "ESTAT flapped twice this window: cycle 1142 the known 60s list_dataflows timeout (chronic, self-resolving, same as cycles 1056/1137/1140), cycle 1143 the same empty-error-body shape just seen on ABS - first time that shape has appeared on a second endpoint, supporting that it is a generic gap in tools/sdmx_tools.py rather than ABS-specific. Recovered by cycle 1144. Watch whether it recurs on a third endpoint.",
+    "SBS: stable, healthy every cycle through 1144. No new data this run.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1144. Still open, not re-reported since no new change.",
+    "Cosmetic encoding:structure_xml charset/version parameter-order flip recurred on ABS and, newly, OECD at cycle 1144. Verdict stays ok both times; architectural noise, not an incident.",
+    "105 claude/ triage branches on origin as of this fetch, up from 104 at cycle 1141. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "Merge-to-main backlog: 44 open PRs against main as of this run (up from 43 at cycle 1141), including #307-#312. main is current through commit c15a80a (cycle 1141, the previous run); the older unmerged PRs still have not landed and the backlog keeps growing slightly rather than shrinking. Worth a human look at why PRs from this routine are not getting merged or closed.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
   "alerted": true

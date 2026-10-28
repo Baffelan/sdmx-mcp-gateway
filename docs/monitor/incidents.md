@@ -4,6 +4,56 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-28T18:45Z - cycle 1147
+
+**Changed:** ABS `gateway_issue` -> healthy (resolved). ESTAT flapped
+healthy -> `gateway_issue` -> healthy once more in this window.
+
+**Previous state:** cycle 1144, read from this same branch
+(`claude/sleepy-dijkstra-taqkb6`), which is also where `main` currently sits
+(`d9bf3eb`, the previous run's PR #313 merged cleanly this time). ABS was
+recorded `gateway_issue`; all other eleven endpoints healthy.
+
+**ABS - cycle saw:** healthy again by cycle 1145 (started 14:01:22Z) and
+has stayed healthy through 1146 and the current cycle 1147 (started
+18:01:22Z) - three consecutive healthy cycles since the 1144 failure.
+
+**ABS - live recheck:** `curl` to
+`https://data.api.abs.gov.au/rest/dataflow/ABS?references=none` returns
+HTTP 200 with a full dataflow listing just now, confirming the provider is
+healthy. No `x-deny-reason` header, so this is a real response, not a
+blocked host.
+
+**ABS - classification:** resolved. This is the fourth confirmed
+occurrence-and-recovery of the empty `gateway metadata: Error:` body
+(cycle 26, ~997, 1087, 1140, now 1144) traced previously to
+`tools/sdmx_tools.py:208-210` feeding `main_server.py:477`. Each occurrence
+has self-resolved within one to two cycles; nothing suggests this one
+behaved differently. Still not fixed in code; this routine only commits to
+`docs/monitor/`.
+
+**ESTAT - cycle saw:** healthy at 1144 and 1145, `gateway_issue` at cycle
+1146 (`gateway metadata: tool call list_dataflows timed out after 60.0s`),
+healthy again at 1147. This is the same chronic 60s `list_dataflows`
+timeout-under-load pattern seen repeatedly before (cycles 1056, 1137, 1140,
+1142) - self-resolving, working as designed, not a new failure mode. Not
+alerting on this by itself; recorded here because this entry already exists
+for ABS.
+
+**Contracts:** no entries in `changes`; no assertion newly `broken` or
+`capability_appeared`. STATSNZ `auth:listing` remains `capability_appeared`
+(open since cycle 60, unchanged, not re-reported).
+
+**Could not determine:** nothing. The monitor answered normally throughout
+this window (`healthz` 200, `stale: false`, `gateway_up: true` at every
+cycle checked), so this run's conclusions cover the full window.
+
+**Open items carried forward:** merge-to-main backlog is still 44 open PRs
+(#243-#312, unchanged in count from cycle 1144's note, though this run's
+own prior PR #313 did merge). 105 `claude/` triage branches remain on
+origin, still above the 20 the skill flags for pruning; neither is actioned
+by this read-only routine.
+
 ## 2026-10-28T13:01Z - cycle 1144
 
 **Changed:** ABS healthy -> `gateway_issue` again at cycle 1144 (currently

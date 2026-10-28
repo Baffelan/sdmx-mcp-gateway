@@ -4,6 +4,105 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-28T13:01Z - cycle 1144
+
+**Changed:** ABS healthy -> `gateway_issue` again at cycle 1144 (currently
+active), the same empty `gateway metadata: Error:` body reported at cycle
+1140 and originally at cycle 26. ESTAT flapped healthy -> `gateway_issue` ->
+healthy twice in this run's window: cycle 1142 (the known 60s timeout) and
+cycle 1143 (the same empty-error-body shape as ABS - a new occurrence of
+that shape on a second endpoint).
+
+**Previous state:** cycle 1141, read from branch
+`claude/sleepy-dijkstra-0d6lzh` (the newest state found across branches;
+`main` is current through that run's commit `c15a80a`). All twelve
+endpoints recorded healthy.
+
+**ABS - cycle saw:** cycle 1144 (started 2026-10-28T12:01:22Z): `gateway
+metadata: Error: ` (empty), `gateway data` ok, `direct metadata` / `direct
+data` / `direct json` all ok (HTTP 200). Same single-check failure shape as
+cycles 26 and 1140.
+
+**ABS - live recheck:** `curl` to
+`https://data.api.abs.gov.au/rest/dataflow/ABS/CPI/latest` (the exact
+metadata URL `config.py` pins for ABS) returns HTTP 200 in 0.64s, confirming
+the provider is healthy right now and this is gateway-side, not theirs. The
+gateway's own MCP endpoint
+(`sdmx-mcp-gateway-production.up.railway.app`) is not in this environment's
+allowed host list, so the gateway's `list_dataflows` call itself could not
+be re-run directly; the direct-path recheck is the corroboration available
+from here.
+
+**ABS - classification:** `gateway_issue` (direct path ok, gateway path
+failing). Ours to fix, not theirs.
+
+**ABS - new or chronic:** third confirmed occurrence of this exact failure
+shape (cycle 26, cycle 1140, cycle 1144). The gap between the last two
+(1140 -> 1144, 4 cycles / 8 hours) is far shorter than the gap before it
+(26 -> 1140). Per the skill's own standing note, a recurrence of the empty
+body is itself the bug; two recurrences inside one 8-hour window is no
+longer a one-off.
+
+**ABS - root cause found in code:** `tools/sdmx_tools.py:208-210`:
+
+```
+except Exception as e:
+    logger.exception("Failed to discover dataflows")
+    return {"error": str(e), "discovery_level": "overview", "dataflows": []}
+```
+
+`main_server.py:477` then builds `next_step=f"Error: {result['error']}"`.
+When the caught exception's `str(e)` is empty, the gateway reports exactly
+"Error: " with no detail. A bare `TimeoutError()` (whose `str()` is "")
+raised somewhere inside `discover_dataflows` would produce exactly this
+shape, and would explain why the same text just appeared on ESTAT too (see
+below): nothing here looks ABS-specific. Not fixed in this run; this
+routine only commits to `docs/monitor/`.
+
+**ABS - could not determine:** whether the underlying exception really is a
+bare `TimeoutError`, since the gateway's own log (where `logger.exception`
+would carry the real traceback) is not reachable from this environment.
+
+**ESTAT - cycle saw:** cycle 1142 (started 2026-10-28T08:01:22+00:00):
+`gateway metadata: tool call list_dataflows timed out after 60.0s` (the
+known monitor-side 60s deadline, same shape as cycles 1137 and 1140). Cycle
+1143 (started 2026-10-28T10:01:22+00:00): `gateway metadata: Error:` - the
+same empty-body shape previously seen only on ABS. Recovered by cycle 1144.
+
+**ESTAT - live recheck:** not performed; both cycles had already
+self-resolved by the next cycle, and the monitor's own cycle 1144 already
+shows ESTAT healthy.
+
+**ESTAT - classification:** `gateway_issue` both times. Cycle 1142 is the
+known "under load" 60s-timeout flap (our own call deadline, working as
+designed). Cycle 1143 is new: the first time the empty-error-body shape has
+been seen on an endpoint other than ABS, which supports the hypothesis
+above that this is a generic exception-formatting gap in
+`tools/sdmx_tools.py`, not something peculiar to ABS's provider behaviour.
+
+**ESTAT - new or chronic:** the 60s-timeout flap is chronic (cycles 1056,
+1137, 1140, 1142) and still self-resolving. The empty-error-body occurrence
+at cycle 1143 is new for this endpoint; combined with ABS's cycle 1144
+occurrence, that is two different endpoints hitting the same empty-body
+shape within three cycles of each other.
+
+**ESTAT - could not determine:** whether cycle 1143's empty-body failure and
+cycle 1142's 60s-timeout failure share one root cause (for example a slow
+upstream response that sometimes trips the monitor's own 60s budget and
+sometimes trips an internal timeout inside the gateway with no message) or
+are unrelated.
+
+**Other open items carried forward, unchanged:** SBS stable, healthy every
+cycle through 1144. STATSNZ `auth:listing` `capability_appeared` still
+present at cycle 1144, unchanged since cycle 60, not re-reported. The
+cosmetic charset/version parameter-order flip in `encoding:structure_xml`
+recurred on ABS and, newly, OECD this cycle; verdict stays `ok` both times,
+not an incident. Open PR backlog against `main` is 44 (up from 43 at cycle
+1141); `main` is current through commit `c15a80a` (cycle 1141), the older
+unmerged PRs (#307-#310 and others) still have not landed. `origin/claude/*`
+branch count is 105 (up from 104), still above the 20 the skill flags for
+pruning, not actioned by this read-only routine.
+
 ## 2026-10-28T00:45Z - cycle 1138
 
 **Changed:** ILO healthy -> `provider_down` (new at cycle 1138, intermittent

@@ -4,6 +4,100 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-28T06:45Z - cycle 1141
+
+**Changed:** ILO `provider_down` (reported at cycle 1138) -> healthy by
+cycle 1139, confirmed through 1141. ESTAT flapped healthy -> `gateway_issue`
+-> healthy again at cycle 1140 (a second occurrence of the same list_dataflows
+timeout seen at cycle 1137). ABS flapped healthy -> `gateway_issue` -> healthy
+at cycle 1140, with the specific empty-error-body shape this skill's own notes
+flag as worth re-reporting if it recurs.
+
+**Previous state:** cycle 1138, read from this branch's own
+`docs/monitor/triage-state.json` (the newest state found across branches,
+and already merged into `main` at commit `c009384`). That state recorded ILO
+as `provider_down` and listed it as an open item to watch.
+
+**ILO - cycle saw:** healthy at cycles 1139, 1140, and 1141 (no entries in
+`failing` for any of the three). No repeat of the cycle 1138 403s on any
+check.
+
+**ILO - live recheck:** `curl` to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now returns HTTP 200
+in 3.0s. A control request to ECB over the same session returned 200 in
+under a second, ruling out a network problem on this session's side.
+
+**ILO - classification:** resolved. The cycle 1138 block was `provider_down`
+(theirs, not ours) and matched the established Cloudflare-flap pattern from
+PR #307; it did not persist past one cycle, as that pattern predicts.
+
+**ILO - new or chronic:** closes the open item carried from the cycle 1138
+entry. No action needed unless it recurs.
+
+**ILO - could not determine:** nothing outstanding; this item is closed.
+
+**ESTAT - cycle saw:** cycle 1140 (started 2026-10-28T04:01:22Z):
+`gateway metadata: tool call list_dataflows timed out after 60.0s`. Recovered
+by cycle 1141. This is the same failure text as the cycle 1137 flap already
+reported in the cycle 1138 entry.
+
+**ESTAT - live recheck:** not performed; the monitor's own cycle 1141 already
+shows ESTAT healthy, and this is the second occurrence of a known,
+self-resolving pattern.
+
+**ESTAT - classification:** `gateway_issue` at the time, but the known
+"`list_dataflows` under load" flap, not a gateway bug -> our own call
+deadline firing as designed, same as cycle 1137 and cycle 1056.
+
+**ESTAT - new or chronic:** chronic, intermittent. Two occurrences now
+visible in this run's window (1137, 1140) roughly 6 hours apart. Not escalated
+unless the gap between occurrences shortens or it stops self-resolving.
+
+**ESTAT - could not determine:** whether this is trending more frequent;
+only two data points are visible in the 48h window pulled this run.
+
+**ABS - cycle saw:** cycle 1140 (started 2026-10-28T04:01:22Z):
+`gateway metadata: Error:` with an empty error message. Recovered by cycle
+1141. This is the exact shape flagged as notable in the skill's own notes
+(originally seen at cycle 26): "`gateway metadata: Error:`" with nothing
+after it.
+
+**ABS - live recheck:** first attempt to
+`https://data.api.abs.gov.au/rest/dataflow/ABS/all/latest` timed out at 30s
+with no response (curl exit, HTTP 000). A control request to ILO succeeded
+in the same window, so the network path itself was not broadly down. A
+second attempt to the same ABS URL moments later returned HTTP 200 in 1.4s
+with a valid structure document, and a plain HEAD to
+`/rest/dataflow/all/all/latest` returned HTTP 405 (also a normal response,
+just the wrong HTTP verb for that path). So the live recheck itself was a
+one-off transient timeout, not a repeat of the cycle 1140 failure.
+
+**ABS - classification:** `gateway_issue` at the time. Per the skill's own
+note, a recurrence of this specific empty-error-body shape is "itself the
+bug to report": the gateway's error handling for this call is losing or
+never populating the error detail, which matters for anyone trying to
+diagnose a future ABS failure from the monitor's record alone, independent
+of whether ABS itself was actually down for that cycle.
+
+**ABS - new or chronic:** first confirmed recurrence since the cycle 26
+instance this skill's notes were written from. Not frequent enough yet to
+call chronic; treat the next occurrence as confirmation it is a standing gap
+in the gateway's error reporting rather than a one-off.
+
+**ABS - could not determine:** whether ABS itself returned an error with no
+body, or whether the gateway's error-formatting code dropped a body that was
+present. The monitor's recorded string does not distinguish the two, which
+is the gap being flagged.
+
+**Other open items carried forward, unchanged:** SBS remains stable (healthy
+every cycle 1135-1141, no new data). STATSNZ `auth:listing`
+`capability_appeared` is still present at cycle 1141; not re-reported, no
+change since first seen at cycle 60. The open-PR backlog against `main` has
+grown to 43 open PRs (from 29 noted in the cycle 1138 entry); `main` is
+caught up through this run's own branch (commit `c009384`) but the
+intervening unmerged PRs (#307-#310 and others) still have not landed.
+Branch count on `origin/claude/*` is 104, unchanged from the last run.
+
 ## 2026-10-28T00:45Z - cycle 1138
 
 **Changed:** ILO healthy -> `provider_down` (new at cycle 1138, intermittent

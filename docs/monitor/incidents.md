@@ -4,6 +4,52 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-29T06:43Z - cycle 1153
+
+**Changed:** ILO `gateway_issue` -> healthy (resolved).
+
+**Previous state:** cycle 1150, read from branch `claude/sleepy-dijkstra-0zwpgq`.
+ILO was recorded `gateway_issue` as its current, still-open status at that
+run's time (the last cycle then available); all other eleven endpoints
+healthy.
+
+**ILO - cycle saw:** `/api/history?hours=48` shows cycle 1150 (started
+2026-10-29T00:01:22Z) as the only affected cycle - `gateway metadata: Error:
+403 Forbidden` and `gateway data: HTTP 403 from provider`, direct path OK.
+Cycle 1151 (started 02:01:22Z) is already back to healthy, and so are 1152 and
+1153 (the current cycle). Three consecutive healthy cycles since the failure.
+
+**ILO - live recheck:** `curl` to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now returns HTTP 200.
+
+**ILO - classification:** resolved, exactly as the previous run's "watch the
+next cycle" note anticipated. This is the same shape as cycle 1078 (gateway
+403, direct path fine, self-resolved by the next cycle with no code change) -
+ILO's documented 403 flakiness, not a stable gateway-side bug. No code action
+taken; this routine only commits to `docs/monitor/`.
+
+**ILO - new or chronic:** single-cycle flap (1150 only), now closed. Third
+confirmed occurrence of this exact pattern (cycles 32, 1078, 1150), all
+self-resolved within one to two cycles.
+
+**Recommended action:** none. Close the open item from cycle 1150; continue
+treating a bare one-cycle ILO gateway 403 as expected flakiness unless it
+persists past the next cycle again.
+
+**Could not determine:** what causes ILO's provider-side 403 to appear and
+clear within a single two-hour cycle (rate limiting vs. transient edge/WAF
+block); the pattern has recurred three times without enough information to
+tell which.
+
+**Other checks this run:** no other endpoint changed status across cycles
+1150-1153 (all eleven others stayed healthy throughout). `/api/contracts`
+`changes` is empty; the only non-`ok` verdict in the matrix is STATSNZ
+`auth:listing` = `capability_appeared`, unchanged since cycle 60 and already
+on record as an open item, not re-reported. `stale` is false and
+`gateway_up` is true at cycle 1153. Branch count on `origin/claude/*` is 106,
+up from 105 at cycle 1147, still above the 20 the skill flags for pruning;
+not actioned by this read-only routine.
+
 ## 2026-10-28T18:45Z - cycle 1147
 
 **Changed:** ABS `gateway_issue` -> healthy (resolved). ESTAT flapped

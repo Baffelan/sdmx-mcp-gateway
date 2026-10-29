@@ -4,6 +4,119 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-29T18:47Z - cycle 1159
+
+**Changed:** ESTAT healthy -> `gateway_issue` -> healthy (flapped between
+runs, already resolved).
+
+**Previous state:** cycle 1156, read from branch
+`claude/sleepy-dijkstra-5oeeei`, which is the newest state found across all
+`claude/*` branches and `main`. All twelve endpoints were healthy at 1156.
+
+**Cycle saw:** `/api/history?hours=48` shows ESTAT healthy at cycle 1156,
+`gateway_issue` at cycles 1157 and 1158 (both started 14:01:22Z and
+16:01:22Z, same failing check: `gateway metadata: tool call list_dataflows
+timed out after 60.0s`), healthy again at the current cycle 1159 (started
+18:01:22Z). Two consecutive flapped cycles, already resolved by the time
+this run looked.
+
+**Live recheck:** fetched the ESTAT dataflow listing directly
+(`GET https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`)
+just now: HTTP 200 in 28.2s for a 38MB body. Confirms the provider is up
+and reproduces why the listing is slow enough to occasionally exceed the
+gateway's internal call budget -> the same shape documented at cycle 1156
+(29.4s then) and earlier.
+
+**Classification:** `gateway_issue` by the monitor's own label (direct
+path presumably fine, only `gateway metadata` failed), but this is the
+known 60s `list_dataflows` timeout-under-load pattern, working as
+designed rather than a new code bug.
+
+**New or chronic:** chronic. At least the sixth and seventh occurrence of
+this specific timeout shape (cycles 1056, 1137, 1140, 1142, 1146, now
+1157 and 1158). Self-resolved within one cycle each time, same as every
+prior occurrence.
+
+**Contracts:** no new entries. `/api/contracts` `changes` still lists the
+ILO `auth:listing` / `dialect:sdmx3` / `errors:missing_artefact` was/now
+pairs (`403` -> `200`/`400`/`404`), but `/api/history` confirms ILO has
+been healthy continuously since cycle 1151 -- this is the already-resolved
+ILO flap from cycle 1150, previously reported and closed (ALERT commits
+`dfab96d` and `40bda1c`), not a new change. No assertion is newly `broken`
+or `capability_appeared`. STATSNZ `auth:listing` remains
+`capability_appeared` (open since cycle 60, unchanged, not re-reported).
+
+**Could not determine:** nothing beyond the usual: the gateway's own
+internal log is not reachable from this environment, so the exact
+queueing or concurrency reason the 60s budget was exceeded twice in a row
+this time (rather than the usual single cycle) is not independently
+confirmed beyond the direct-fetch timing match.
+
+**Recommended action:** none beyond what is already on record. Not
+re-reported going forward unless it changes shape or fails to self-resolve
+within one cycle.
+
+**Open items carried forward:** 108 `claude/` triage branches now on
+origin, up from 107 at cycle 1156. Still above the 20 the skill flags for
+pruning; not actioned by this read-only routine.
+
+## 2026-10-29T12:52Z - cycle 1156
+
+**Changed:** ESTAT healthy -> `gateway_issue` -> healthy (flapped between
+runs, already resolved).
+
+**Previous state:** cycle 1153, read from branch `claude/sleepy-dijkstra-0txgxa`,
+which is the newest state found across all `claude/*` branches and `main`.
+All twelve endpoints were healthy at 1153.
+
+**Cycle saw:** `/api/history` shows ESTAT healthy at cycles 1153 and 1154,
+`gateway_issue` at cycle 1155 (started 2026-10-29T10:01:22Z, failing check
+`gateway metadata: Error:`), healthy again at the current cycle 1156
+(started 12:01:22Z). A single-cycle flap, already resolved by the time this
+run looked.
+
+**Live recheck:** called the ESTAT provider directly
+(`GET https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`)
+just now: HTTP 200 in 29.4s for a 38MB body. That confirms the provider is
+up and also confirms why this is slow enough to occasionally trip a gateway
+call budget: the full ESTAT dataflow listing is large and already took
+nearly half of the monitor's 60s deadline on a direct, unproxied fetch.
+
+**Classification:** `gateway_issue` (direct path presumably fine, only
+`gateway metadata` failed). This is not a new bug: the empty `Error:` body
+is the same exception-formatting gap already root-caused at
+`tools/sdmx_tools.py:208-210` (a caught exception with an empty `str(e)`,
+likely a bare `TimeoutError`) feeding `main_server.py:477`. That shape was
+first seen on ESTAT at cycle 1143 and repeatedly on ABS before that
+(cycles 26, ~997, 1087, 1140, 1144). Still not fixed in code; this routine
+only commits to `docs/monitor/`.
+
+**New or chronic:** chronic. This is at least the second occurrence of the
+empty-body shape on ESTAT specifically (1143, now 1155), on top of the
+separately chronic 60s `list_dataflows` timeout-under-load flavor (cycles
+1056, 1137, 1140, 1142, 1146) that already has an explicit "working as
+designed" classification. Self-resolved within one cycle, same as every
+prior occurrence.
+
+**Contracts:** one entry in `changes` -- OECD `encoding:structure_xml`
+Content-Type parameter order flipped (`charset` and `version` swapped
+order), verdict stayed `ok`. This is the known cosmetic parameter-order
+flip, not a real change. No assertion is newly `broken` or
+`capability_appeared`. STATSNZ `auth:listing` remains `capability_appeared`
+(open since cycle 60, unchanged, not re-reported).
+
+**Could not determine:** whether this occurrence's root cause is really the
+same bare-exception path as the ABS/ESTAT history above, since the
+gateway's own internal log is not reachable from this environment.
+
+**Recommended action:** none beyond what is already on record. Not
+re-reported going forward unless it recurs again or fails to self-resolve
+within one cycle.
+
+**Open items carried forward:** 107 `claude/` triage branches now on
+origin, up from 106 at cycle 1153. Still above the 20 the skill flags for
+pruning; not actioned by this read-only routine.
+
 ## 2026-10-28T18:45Z - cycle 1147
 
 **Changed:** ABS `gateway_issue` -> healthy (resolved). ESTAT flapped

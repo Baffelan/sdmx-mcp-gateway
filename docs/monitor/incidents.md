@@ -4,6 +4,79 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-29T00:44Z - cycle 1150
+
+**Changed:** ILO healthy -> `gateway_issue` (new at cycle 1150, still current,
+no later cycle exists yet). UNICEF flapped healthy -> `provider_down` ->
+healthy between runs, already resolved by the time of this read.
+
+**Previous state:** cycle 1147, read from this same branch
+(`claude/sleepy-dijkstra-0zwpgq`). All twelve endpoints were healthy.
+
+**ILO - cycle saw:** `/api/status` at cycle 1150 (started 2026-10-29T00:01:22Z)
+shows `gateway metadata: Error: Client error '403 Forbidden' for url
+'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'` and `gateway data: probe
+status: error; HTTP 403 from provider.`, with both direct checks passing.
+`/api/history?hours=48` confirms cycles 1148 and 1149 were healthy; 1150 is the
+only affected cycle so far, and it is the newest cycle (no later data exists to
+say whether it has already recovered).
+
+**ILO - live recheck:** `curl` to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` about 40 minutes after the
+cycle returned one 403, then five consecutive 200s over the next ~10 seconds.
+ECB answered 200 at the same time, ruling out a network-wide problem on this
+run's side. The direct path is intermittently flaky right now, consistent with
+the monitor's own "direct OK" read moments before or after the gateway's
+request landed in a bad window.
+
+**ILO - classification:** `gateway_issue` per the monitor (direct path OK,
+gateway path failing), which the monitor's vocabulary marks as ours to fix.
+The failing checks are the gateway's dataflow listing probe (`tools/sdmx_tools.py`
+`list_dataflows` / `discover_dataflows`, metadata and data channels against
+`GET /dataflow/ILO/all/latest`). However, this exact shape - ILO 403 on the
+gateway path only, direct path fine - already happened at cycle 1078 and
+resolved on its own by cycle 1081 with no code change, matching ILO's
+documented 403 flapping rather than a stable bug in our request.
+
+**ILO - new or chronic:** new as of this single cycle (1148 and 1149 were
+clean). ILO has a documented history of brief 403 flaps on both the direct and
+gateway paths (cycle 1138 this window, cycle 1078 previously, both recovered
+unassisted).
+
+**Recommended action:** watch the next cycle before treating this as a code
+bug. If `gateway_issue` persists past one more cycle without a matching direct
+failure, that would be new evidence of an actual asymmetry between the
+gateway's and the direct probe's request and worth root-causing.
+
+**Could not determine:** whether this one cycle's gateway 403 has already
+recovered, since cycle 1150 is still the newest cycle at the time of this
+read.
+
+**UNICEF - cycle saw:** `/api/history?hours=48` shows cycle 1149 (started
+2026-10-28T22:01:22Z) with `gateway metadata: Error: Server error '503 Service
+Unavailable'`, `gateway data: probe status: error; HTTP 503`, and both direct
+checks at HTTP 503 too. Cycle 1150 shows all UNICEF checks healthy again.
+`/api/contracts` `changes` confirms the same recovery across all fourteen
+UNICEF assertions (503 -> 200/400/404 as expected per assertion).
+
+**UNICEF - classification:** provider-side (`provider_down`, every path
+failing together, nothing gateway-specific). Matches the documented UNICEF 503
+flapping pattern (first seen at cycle 2), already resolved by the next cycle.
+
+**UNICEF - recommended action:** none; treat as resolved.
+
+**Other notes:** `encoding:structure_xml` cosmetic header-order flip
+(`charset`/`version` order) recorded again for ILO and OECD, verdict stays
+`ok` both ways, consistent with the known cosmetic noise for that assertion.
+STATSNZ `auth:listing` `capability_appeared` is unchanged from cycle 1147,
+still open, not re-reported. 105 `claude/` triage branches remain on origin,
+unchanged from the last run, still above the 20 the skill flags for pruning.
+
+Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+returns 500 (constraints come via `?references=all`); ESTAT has no practical
+constraint support; BIS/ILO/IMF `references:contentconstraint` reads `ignored`
+(accepted and silently dropped).
+
 ## 2026-10-28T18:45Z - cycle 1147
 
 **Changed:** ABS `gateway_issue` -> healthy (resolved). ESTAT flapped

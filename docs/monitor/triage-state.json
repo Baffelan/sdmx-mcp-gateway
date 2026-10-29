@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1147,
-  "last_cycle_started_at": "2026-10-28T18:01:22+00:00",
-  "last_run": "2026-10-28T18:45Z",
+  "last_cycle_id": 1156,
+  "last_cycle_started_at": "2026-10-29T12:01:22+00:00",
+  "last_run": "2026-10-29T12:52Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,12 +18,11 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ABS resolved: gateway_issue at cycle 1144 recovered by cycle 1145 and stayed healthy through 1146 and 1147. Fourth confirmed occurrence-and-recovery of the empty 'gateway metadata: Error:' body (cycle 26, ~997, 1087, 1140/1144). Root cause still traced to tools/sdmx_tools.py:208-210 feeding main_server.py:477; not fixed by this routine. Watch for recurrence.",
-    "ESTAT flapped once more this window: cycle 1146 showed the known chronic 60s list_dataflows timeout (same as cycles 1056/1137/1140/1142), recovered by 1147. Self-resolving, working as designed, not a new failure mode.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1147. Still open, not re-reported since no new change.",
-    "105 claude/ triage branches on origin as of this run, same as cycle 1144's count. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "Merge-to-main backlog: 44 open PRs against main as of this run (#243-#312), unchanged in count from cycle 1144. This run's own prior PR (#313, cycle 1144's commit) did merge cleanly into main this time, so the merge step itself is working; the 44 older PRs are a separate backlog that keeps accumulating because it is never retried by later runs. Worth a human look at closing or merging the old backlog.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
+    "ESTAT resolved: gateway_issue at cycle 1155 ('gateway metadata: Error:', empty body) recovered by cycle 1156. Second occurrence of the empty-body shape on ESTAT specifically (also cycle 1143), on top of the separately chronic 60s list_dataflows timeout flavor (cycles 1056, 1137, 1140, 1142, 1146). Root cause still traced to tools/sdmx_tools.py:208-210 feeding main_server.py:477; not fixed by this routine. Closed, not re-reported unless it recurs or fails to self-resolve within one cycle next time.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1156. Still open, not re-reported since no new change.",
+    "OECD encoding:structure_xml Content-Type charset/version parameter order flipped cosmetically at this cycle; verdict stayed ok. Known cosmetic behavior, not an incident.",
+    "107 claude/ triage branches on origin as of this run, up from 106 at cycle 1153. Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ILO/OECD encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
   "alerted": true
 }

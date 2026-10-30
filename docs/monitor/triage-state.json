@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1168,
-  "last_cycle_started_at": "2026-10-30T12:01:22+00:00",
-  "last_run": "2026-10-30T12:43Z",
+  "last_cycle_id": 1171,
+  "last_cycle_started_at": "2026-10-30T18:01:22+00:00",
+  "last_run": "2026-10-30T18:45Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,11 +18,13 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO flapped: degraded at cycle 1168 (direct metadata HTTP 403 after 2 attempts; gateway metadata, gateway data, direct data, direct json all ok). Live recheck at this run returned 200 twice, immediately. Fourth occurrence of the recurring ILO 403 pattern (cycle 32, 1150, 1162, now 1168), this time narrower (direct metadata only). Watch next cycle; close if it clears and stays clear.",
-    "ILO encoding:structure_xml Content-Type charset/version parameter order flipped cosmetically this cycle (same pattern previously seen on ABS/ILO/OECD); verdict stayed ok, not an incident.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1168. Still open, not re-reported since no new change.",
-    "111 claude/ triage branches on origin as of this run (up from 110 at cycle 1165). Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "main is still only through cycle 1147's PR (#314). This run's own merge-to-main attempt is reported separately in the session output; if it also fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
+    "ILO contract 500s at cycle 1171 on errors:missing_artefact, references:all, references:contentconstraint, references:descendants (was 404/200, now 500, verdict broken); auth:listing also 500 but verdict stayed ok. Underlying health checks (gateway/direct metadata, data, json) stayed ok throughout. Live recheck a few minutes later: all back to 200/404 as expected. New sub-pattern (500) distinct from the known ILO 403 pattern (cycle 32, 1150, 1162, 1168). Watch for recurrence; if 500s on these reference queries happen again, treat as a new chronic pattern.",
+    "ILO direct-metadata-403 flap reported at cycle 1168 did not recur at 1169-1171. That open item is closed.",
+    "ILO encoding:structure_xml Content-Type charset/version parameter order flipped cosmetically again at cycle 1171 (same pattern previously seen on ABS/ILO/OECD); verdict stayed ok, not an incident.",
+    "ESTAT list_dataflows gateway-metadata check timed out at 60s at cycle 1170, recovered by 1171. Known 'our own deadline firing under load' pattern, not new.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1171. Still open, not re-reported since no new change.",
+    "111 claude/ triage branches on origin as of this run (same ballpark as cycle 1168's 111). Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "main now carries cycle 1168 (the previous run's merge succeeded). This run's own merge-to-main attempt is reported separately in the session output; if it fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO/OECD encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
   "alerted": true

@@ -4,6 +4,77 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-30T18:45Z - cycle 1171
+
+**Changed:** ILO API contract `ok`/`broken` on four reference-query
+assertions, now recovered.
+
+**Previous state:** cycle 1168, read from this run's own branch
+`claude/sleepy-dijkstra-fv6t0z` (the newest state found across branches;
+`main` now carries cycle 1168 via a merged PR, so the previous open item about
+`main` lagging is closed).
+
+**Health checks (gateway/direct metadata, data, json):** all healthy at cycle
+1171, and have been healthy for cycles 1169-1171. The direct-metadata-403 flap
+reported at cycle 1168 (fourth occurrence of that pattern) did not recur; that
+open item is closed.
+
+**Contract checks:** `/api/contracts` reported 6 was/now changes, all on ILO,
+for cycle 1171 only:
+
+| Assertion | Was | Now | Verdict |
+| --- | --- | --- | --- |
+| `auth:listing` | 200 | 500 | `ok` (expected is "open", not a literal status code) |
+| `errors:missing_artefact` | 404 | 500 | `broken` |
+| `references:all` | 200 | 500 | `broken` |
+| `references:contentconstraint` | 200 | 500 | `broken` |
+| `references:descendants` | 200 | 500 | `broken` |
+| `encoding:structure_xml` | charset/version order flipped | same cosmetic flip seen before on ABS/ILO/OECD | `ok` |
+
+This is the condition that made `/api/status` label ILO `degraded` at cycle
+1171 (`monitor/derive.py` overrides a healthy checks-based status to `degraded`
+when any contract is `broken`; the underlying health checks never saw this,
+since `/api/history`'s per-cycle series does not pass contracts into
+`derive_status`, only `/api/status` does -- that split is by design, not a bug).
+
+**Live recheck (2026-10-30T18:45Z, a few minutes after cycle 1171):**
+`references=all`, `references=contentconstraint`, `references=descendants`,
+and `references=none` on
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` all
+returned `200`, and the missing-artefact probe returned `404` as expected.
+Already recovered. A sanity check against ECB's dataflow endpoint during the
+same recheck returned `200`, so this was not this routine's network.
+
+**Classification:** provider-side transient. The 500s hit only the
+structure/references queries used by the contract probes, not the gateway's
+own metadata/data/json health checks, which stayed `ok` throughout. Distinct
+from the previously-documented ILO 403 pattern (cycles 32, 1150, 1162, 1168) --
+this is a new sub-pattern (500, not 403) on the same endpoint family.
+
+**History:** new as of cycle 1171, single cycle, already resolved by recheck.
+Fifth-ish occurrence of ILO being the flakiest endpoint in this fleet, this
+time via a different symptom.
+
+**Recommended action:** no code change. `?references=all` remains the correct
+workaround for ILO's `/availableconstraint/` 500 (that assumption was not
+itself affected here, since by live recheck `references=all` works). Keep
+watching; if 500s on these reference queries recur, treat it as a new chronic
+pattern separate from the 403 one.
+
+**Could not determine:** whether the 500 was a one-off provider hiccup or an
+in-progress deploy on ILO's side that happened to straddle cycle 1171; ILO
+gives no error body distinguishing the two.
+
+**Also noted, not an incident:** ESTAT's `list_dataflows` gateway-metadata
+check timed out at 60s at cycle 1170 and recovered by 1171 -- the
+already-documented "times out under load, our own deadline firing as
+designed" pattern, not new.
+
+**Open items carried forward:** STATSNZ `auth:listing` `capability_appeared`
+(first seen cycle 60, still present, not re-reported). 111 `claude/` triage
+branches on origin (same ballpark as last run), still above the 20 the skill
+flags for pruning; not actioned by this read-only routine.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

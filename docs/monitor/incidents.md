@@ -4,6 +4,211 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-30T12:43Z - cycle 1168
+
+**Changed:** ILO healthy -> `degraded` (direct metadata only).
+
+**Previous state:** cycle 1165, read from branch
+`claude/sleepy-dijkstra-q2cevx` (the newest state found across branches; `main`
+is still at cycle 1147's PR #314). All twelve endpoints were healthy at 1165.
+
+**ILO**
+**Cycle saw:** cycle 1168 (started 2026-10-30T12:01:22Z): direct metadata
+`HTTP 403` after 2 attempts. Gateway metadata and gateway data both ok;
+direct data and direct json both ok (HTTP 200).
+**Live recheck:** two repeated direct calls to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now both returned
+`200` immediately, no 403.
+**Classification:** `degraded` per the monitor (direct metadata failing,
+everything else on both paths passing) - provider-side, not a gateway bug,
+since the gateway path itself was unaffected. Checked other providers (ECB,
+OECD) at the same time; both answered `200` immediately, so this is not a
+network problem on our end.
+**New or chronic:** new as of cycle 1168, recovered live within the hour.
+This is the same recurring pattern already logged for ILO 403s on the direct
+path (cycle 32, cycle 1150 gateway+data, cycle 1162 all paths); this is the
+fourth occurrence, this time narrower (metadata only).
+**Contract side effect:** `encoding:structure_xml` was flagged in
+`/api/contracts` `changes` for a Content-Type parameter-order flip
+(`charset=utf-8; version=2.1` -> `version=2.1; charset=utf-8`); verdict stayed
+`ok`. This is the same cosmetic flip already seen on ABS/ILO/OECD, not an
+incident.
+**Recommended action:** watch the next cycle; if it clears and stays clear,
+close as another instance of the self-resolving ILO 403 flap.
+**Could not determine:** the root cause on ILO's side of the 403, as in prior
+occurrences.
+
+**Other endpoints:** ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF all healthy at cycle 1168, no change from 1165.
+
+**Open items carried forward, unchanged this run:**
+- STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) is still
+  present at cycle 1168. Still open, not re-reported since no new change.
+- 111 `claude/` triage branches on origin as of this run (up from 110 at
+  cycle 1165). Still above the 20 the skill flags for pruning; not actioned
+  by this read-only routine.
+- `main` is still only through cycle 1147's PR (#314). This run's own
+  merge-to-main attempt is reported separately in the session output.
+
+
+## 2026-10-30T06:45Z - cycle 1165
+
+**Changed:** ILO `provider_down` -> healthy (resolved). UNICEF `provider_down`
+-> healthy (resolved). ABS healthy -> `gateway_issue` -> healthy (new flap,
+cycle 1164).
+
+**Previous state:** cycle 1162, read from branch
+`claude/sleepy-dijkstra-j48tkg` (the newest state found across branches; it
+had not yet merged into `main`, which is still at cycle 1147's PR #314 - this
+run restores the missing cycle 1162 entry below so it is not lost). ILO and
+UNICEF were recorded `provider_down`; the other ten endpoints healthy.
+
+**ILO**
+**Cycle saw:** resolved by cycle 1163 (started 2026-10-30T02:01:22Z) and has
+stayed healthy through 1164 and the current cycle 1165 - three consecutive
+healthy cycles since the 1162 403.
+**Live recheck:** three repeated direct calls to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now all returned
+`200`, no flapping this time.
+**Classification:** resolved, confirming the previous entry's recommended
+action ("watch the next cycle; if it clears, close as a self-resolving ILO 403
+flap"). All ILO contract assertions read `ok` again (`references:*` back from
+`broken`/`skipped`).
+**Could not determine:** the root cause on ILO's side of the 403, as before.
+
+**UNICEF**
+**Cycle saw:** resolved by cycle 1163, healthy through 1164 and 1165.
+**Live recheck:** three repeated direct calls to
+`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/dataflow/UNICEF/all/latest`
+just now all returned `200`.
+**Classification:** resolved, confirming the previous entry's note. This was
+the second 503 flap in roughly 26h (cycles 1149 and 1162); no third occurrence
+has followed as of this run. All UNICEF contract assertions read `ok` again.
+**Could not determine:** the root cause on UNICEF's side of either 503
+episode.
+
+**ABS**
+**Cycle saw:** cycle 1164 (started 2026-10-30T04:01:22Z): `gateway metadata:
+Error:` (empty body), gateway data / direct metadata / direct data / direct
+json all ok (HTTP 200). Recovered by cycle 1165.
+**Live recheck:** the direct listing call
+(`https://data.api.abs.gov.au/rest/dataflow/ABS?references=none`, the same
+call `list_dataflows` makes) timed out twice in a row at 30s with no response,
+then on a third attempt returned `200` in 1.7s with a 3.2MB payload. The
+pinned-dataflow metadata call (`.../dataflow/ABS/CPI/latest`) answered `200`
+in 0.69s throughout. This reproduces exactly the kind of intermittent stall
+that would raise a bare, message-less exception on the gateway's side.
+**Classification:** `gateway_issue` per the monitor (direct path ok, gateway
+path failing) - ours to fix, not ABS's, though the live recheck suggests the
+proximate trigger is ABS's own listing endpoint being slow/flaky under this
+3.2MB payload size.
+**New or chronic:** not new. This is at least the sixth confirmed occurrence
+of the same empty `gateway metadata: Error:` body (cycle 26, ~997, 1087, 1140,
+1144, now 1164), already traced in a previous run to
+`tools/sdmx_tools.py:208-210` feeding `main_server.py:477`: a caught exception
+whose `str(e)` is empty produces exactly this text. Self-resolved within one
+cycle, consistent with every prior occurrence. Not fixed in code; this routine
+only commits to `docs/monitor/`.
+**Recommended action:** no new action beyond the standing recommendation to
+fix the empty-exception-message gap in `tools/sdmx_tools.py`. Not alerting
+further on repeats of this exact shape unless the self-resolving pattern
+breaks (an occurrence that does not clear by the next cycle).
+**Could not determine:** whether this occurrence's bare exception was
+specifically a timeout from the listing slowness just reproduced live, or a
+different empty-`str()` exception; the gateway's own logs (where
+`logger.exception` would carry the real traceback) remain unreachable from
+this environment.
+
+**Contracts:** one entry in `changes`: ABS `encoding:structure_xml` Content-Type
+parameter order flipped (`charset=utf-8; version=2.1` -> `version=2.1;
+charset=utf-8`), verdict stayed `ok` both times - the same cosmetic flip
+previously documented for ILO/OECD, now also seen on ABS. Not an incident. No
+assertion newly `broken` or `capability_appeared`; STATSNZ `auth:listing`
+remains `capability_appeared`, unchanged since cycle 60, not re-reported.
+
+**Network:** ruled out as the cause of the ABS recheck's own timeouts - ECB
+and OECD both answered this run's direct live checks without issue, so the
+stalls are isolated to ABS's listing endpoint rather than a network problem on
+this routine's side.
+
+**Could not determine (overall):** nothing else. The monitor answered
+normally throughout this window (`healthz` 200, `stale: false`, `gateway_up:
+true` at every cycle checked), so this run's conclusions cover the full
+window.
+
+**Open items carried forward:** 110 `claude/` triage branches remain on
+origin (up from 109 last run), still above the 20 the skill flags for
+pruning, not actioned by this read-only routine. `main` is still only through
+cycle 1147's PR (#314); the cycle 1162 entry restored above had been stranded
+on an unmerged branch and is folded into this file now so the record stays
+complete regardless of whether this run's own PR merges.
+
+## 2026-10-30T00:44Z - cycle 1162
+
+**Changed:** ILO healthy -> `provider_down`. UNICEF healthy -> `provider_down`.
+Both changed in the same cycle, 1162 (started 2026-10-30T00:01:22Z); the three
+preceding cycles (1159, 1160, 1161) were healthy for both.
+
+**Previous state:** cycle 1159, read from branch `claude/sleepy-dijkstra-oi1qw4`
+(the newest state found across branches; this run's local working tree only
+carried cycle 1147). All twelve endpoints were healthy at 1159.
+
+**ILO**
+**Cycle saw:** gateway metadata `403 Forbidden` from
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`; gateway data probe `403`;
+direct metadata, data, and json all `403`. Every contract assertion for ILO
+flipped to `403` in the `changes` array (`auth:listing`, `references:*`,
+`errors:missing_artefact`, etc.), verdict `broken` or `skipped`.
+**Live recheck:** disagreement. Three repeated direct calls to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at 00:43Z returned `200`,
+`403`, `200` -> ILO is currently flapping between `200` and `403`, not
+uniformly down.
+**Classification:** `provider_down` (metadata failed on both gateway and
+direct paths at cycle time) -> provider-side, nothing to fix in our code.
+**History:** ILO flapped on 403 once before in this 48h window, at cycle 1150
+(2026-10-29T00:01Z), but that time only the gateway path failed
+(`gateway_issue`) and direct stayed up; it self-resolved by the next cycle
+(1151). This is a harder flap: direct also failed this time, matching the
+known flap pattern noted for ILO (403 on direct data/json, previously seen at
+cycle 32) but more severe than cycle 1150's recurrence.
+**Recommended action:** watch the next cycle; if it clears, treat as another
+self-resolving ILO 403 flap and close without further action, consistent with
+the documented pattern.
+**Could not determine:** whether cycle 1162's 403 was ILO-side rate limiting,
+a transient outage, or something tied to the specific dataflow path the
+monitor probes; the live recheck's own flakiness (2 of 3 calls succeeded)
+means a clean story isn't available from this vantage point either.
+
+**UNICEF**
+**Cycle saw:** gateway metadata `503 Service Unavailable` from
+`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/dataflow/UNICEF/all/latest`;
+gateway data probe `503`; direct metadata, data, and json all `503`. All
+UNICEF contract assertions flipped to `503` in `changes`, verdict `broken` for
+assertions that expect a real response.
+**Live recheck:** disagreement. Three repeated direct calls at 00:43Z all
+returned `200` -> UNICEF looks fully recovered already, well before the next
+scheduled cycle.
+**Classification:** `provider_down` at cycle time -> provider-side.
+**History:** UNICEF had an earlier `provider_down` flap in this same 48h
+window at cycle 1149 (2026-10-28T22:01Z), which also self-resolved by the very
+next cycle (1150). This is the second occurrence of the same shape (full
+`503` across every path) in roughly 26 hours, consistent with the
+previously-noted UNICEF 503 flap pattern (seen at cycle 2) rather than a new
+failure mode.
+**Recommended action:** no action; the live recheck already shows recovery.
+Note the recurrence frequency (twice in 26h) in case a third occurrence soon
+would mean this is becoming more frequent rather than an isolated flap.
+**Could not determine:** the root cause on UNICEF's side of either 503
+episode; both look like transient outages from here, but the routine has no
+visibility into UNICEF's infrastructure.
+
+Both providers also stayed outside the network-connectivity concern:
+ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ all read healthy in
+the same cycle 1162, and this run's own direct calls to ECB and OECD
+succeeded, so the failures are isolated to ILO and UNICEF rather than a
+network problem on either the monitor's or this routine's side.
+
+
 ## 2026-10-28T18:45Z - cycle 1147
 
 **Changed:** ABS `gateway_issue` -> healthy (resolved). ESTAT flapped

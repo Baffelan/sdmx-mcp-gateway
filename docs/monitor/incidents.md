@@ -4,6 +4,71 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-30T00:44Z - cycle 1162
+
+**Changed:** ILO healthy -> `provider_down`. UNICEF healthy -> `provider_down`.
+Both changed in the same cycle, 1162 (started 2026-10-30T00:01:22Z); the three
+preceding cycles (1159, 1160, 1161) were healthy for both.
+
+**Previous state:** cycle 1159, read from branch `claude/sleepy-dijkstra-oi1qw4`
+(the newest state found across branches; this run's local working tree only
+carried cycle 1147). All twelve endpoints were healthy at 1159.
+
+**ILO**
+**Cycle saw:** gateway metadata `403 Forbidden` from
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`; gateway data probe `403`;
+direct metadata, data, and json all `403`. Every contract assertion for ILO
+flipped to `403` in the `changes` array (`auth:listing`, `references:*`,
+`errors:missing_artefact`, etc.), verdict `broken` or `skipped`.
+**Live recheck:** disagreement. Three repeated direct calls to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at 00:43Z returned `200`,
+`403`, `200` -> ILO is currently flapping between `200` and `403`, not
+uniformly down.
+**Classification:** `provider_down` (metadata failed on both gateway and
+direct paths at cycle time) -> provider-side, nothing to fix in our code.
+**History:** ILO flapped on 403 once before in this 48h window, at cycle 1150
+(2026-10-29T00:01Z), but that time only the gateway path failed
+(`gateway_issue`) and direct stayed up; it self-resolved by the next cycle
+(1151). This is a harder flap: direct also failed this time, matching the
+known flap pattern noted for ILO (403 on direct data/json, previously seen at
+cycle 32) but more severe than cycle 1150's recurrence.
+**Recommended action:** watch the next cycle; if it clears, treat as another
+self-resolving ILO 403 flap and close without further action, consistent with
+the documented pattern.
+**Could not determine:** whether cycle 1162's 403 was ILO-side rate limiting,
+a transient outage, or something tied to the specific dataflow path the
+monitor probes; the live recheck's own flakiness (2 of 3 calls succeeded)
+means a clean story isn't available from this vantage point either.
+
+**UNICEF**
+**Cycle saw:** gateway metadata `503 Service Unavailable` from
+`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/dataflow/UNICEF/all/latest`;
+gateway data probe `503`; direct metadata, data, and json all `503`. All
+UNICEF contract assertions flipped to `503` in `changes`, verdict `broken` for
+assertions that expect a real response.
+**Live recheck:** disagreement. Three repeated direct calls at 00:43Z all
+returned `200` -> UNICEF looks fully recovered already, well before the next
+scheduled cycle.
+**Classification:** `provider_down` at cycle time -> provider-side.
+**History:** UNICEF had an earlier `provider_down` flap in this same 48h
+window at cycle 1149 (2026-10-28T22:01Z), which also self-resolved by the very
+next cycle (1150). This is the second occurrence of the same shape (full
+`503` across every path) in roughly 26 hours, consistent with the
+previously-noted UNICEF 503 flap pattern (seen at cycle 2) rather than a new
+failure mode.
+**Recommended action:** no action; the live recheck already shows recovery.
+Note the recurrence frequency (twice in 26h) in case a third occurrence soon
+would mean this is becoming more frequent rather than an isolated flap.
+**Could not determine:** the root cause on UNICEF's side of either 503
+episode; both look like transient outages from here, but the routine has no
+visibility into UNICEF's infrastructure.
+
+Both providers also stayed outside the network-connectivity concern:
+ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ all read healthy in
+the same cycle 1162, and this run's own direct calls to ECB and OECD
+succeeded, so the failures are isolated to ILO and UNICEF rather than a
+network problem on either the monitor's or this routine's side.
+
 ## 2026-10-28T18:45Z - cycle 1147
 
 **Changed:** ABS `gateway_issue` -> healthy (resolved). ESTAT flapped

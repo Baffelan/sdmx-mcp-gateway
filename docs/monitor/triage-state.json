@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1168,
-  "last_cycle_started_at": "2026-10-30T12:01:22+00:00",
-  "last_run": "2026-10-30T12:43Z",
+  "last_cycle_id": 1180,
+  "last_cycle_started_at": "2026-10-31T12:01:22+00:00",
+  "last_run": "2026-10-31T12:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "degraded",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,11 +18,11 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO flapped: degraded at cycle 1168 (direct metadata HTTP 403 after 2 attempts; gateway metadata, gateway data, direct data, direct json all ok). Live recheck at this run returned 200 twice, immediately. Fourth occurrence of the recurring ILO 403 pattern (cycle 32, 1150, 1162, now 1168), this time narrower (direct metadata only). Watch next cycle; close if it clears and stays clear.",
-    "ILO encoding:structure_xml Content-Type charset/version parameter order flipped cosmetically this cycle (same pattern previously seen on ABS/ILO/OECD); verdict stayed ok, not an incident.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1168. Still open, not re-reported since no new change.",
-    "111 claude/ triage branches on origin as of this run (up from 110 at cycle 1165). Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "main is still only through cycle 1147's PR (#314). This run's own merge-to-main attempt is reported separately in the session output; if it also fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
+    "ABS and ESTAT both flapped to gateway_issue at cycle 1179 with an identical empty-body 'gateway metadata: Error:' failure, then both cleared to healthy by cycle 1180. No other endpoint failed at cycle 1179. Likely a shared transient gateway/monitor-side blip rather than two independent provider bugs. Watch for recurrence of the empty error message, especially across more endpoints at once or failing to clear within one cycle.",
+    "ILO encoding:structure_xml Content-Type charset/version parameter order flipped cosmetically again this cycle (same pattern previously seen on ABS/ILO/OECD); verdict stayed ok, not an incident.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1180. Still open, not re-reported since no new change.",
+    "114 claude/ triage branches on origin as of this run (up from 113 at cycle 1177). Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "main is still behind this run's branch history. This run's own merge-to-main attempt is reported separately in the session output; if it fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO/OECD encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
   ],
   "alerted": true

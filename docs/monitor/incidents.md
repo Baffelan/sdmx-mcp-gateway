@@ -4,6 +4,60 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-31T12:44Z - cycle 1180
+
+**Changed:** ABS healthy -> `gateway_issue` -> healthy (resolved). ESTAT healthy
+-> `gateway_issue` -> healthy (resolved). Both on the same cycle.
+
+**Previous state:** cycle 1177, read from branch
+`claude/sleepy-dijkstra-7b39w4` (the newest state found across branches). All
+twelve endpoints were healthy at 1177.
+
+**ABS and ESTAT**
+**Cycle saw:** both moved to `gateway_issue` at cycle 1179 (started
+2026-10-31T10:01:22Z), each with a single failing check: `gateway metadata:
+Error:` (empty error body on both). No other endpoint failed at cycle 1179.
+Both were back to healthy with all checks passing by cycle 1180 (started
+2026-10-31T12:01:22Z, the current cycle) and remain healthy now via
+`/api/status`.
+**Live recheck:** not applicable to the provider directly, since the failing
+check is the gateway-path metadata call, not a direct-provider call, and the
+most recent cycle already shows it healthy again.
+**Classification:** `gateway_issue` per the monitor (gateway path failed,
+direct paths ok) - ours, not the providers'. Two unrelated endpoints failing
+the identical gateway metadata check with the same empty error message, in
+the same single cycle, and clearing together by the next cycle, points at a
+shared cause on the gateway or monitor side for that one cycle (e.g. a
+transient gateway restart, deploy, or timeout window) rather than two
+independent provider-side bugs.
+**New or chronic:** new as of cycle 1179, already resolved by 1180. ABS has
+shown this exact empty-error `gateway metadata` pattern before (cycle 26,
+noted in the skill as a known flap); this is the first time it has coincided
+with ESTAT on the same cycle.
+**Contract side effect:** `encoding:structure_xml` on ILO flipped Content-Type
+parameter order again (`version=2.1; charset=utf-8` ->
+`charset=utf-8; version=2.1`); verdict stayed `ok`. Same cosmetic flip already
+logged for ABS/ILO/OECD, not an incident.
+**Recommended action:** no action yet; watch for a recurrence of the empty
+`gateway metadata: Error:` message, especially if it starts hitting more than
+two endpoints at once or stops clearing within one cycle.
+**Could not determine:** what the empty error message actually was on the
+gateway side for either endpoint; the monitor does not retain more detail than
+`Error:` with no body.
+
+**Other endpoints:** BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC, STATSNZ, UNICEF
+all healthy at cycle 1180, no change from 1177.
+
+**Open items carried forward, unchanged this run:**
+- STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) is still
+  present at cycle 1180. Still open, not re-reported since no new change.
+- 114 `claude/` triage branches on origin as of this run (up from 113 at
+  cycle 1177). Still above the 20 the skill flags for pruning; not actioned
+  by this read-only routine.
+- `main` is still behind this run's branch history. This run's own
+  merge-to-main attempt is reported separately in the session output.
+
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

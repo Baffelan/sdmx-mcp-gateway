@@ -4,6 +4,61 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-31T00:48Z - cycle 1174
+
+**Changed:** ILO healthy -> `provider_down`. Also ESTAT healthy -> `gateway_issue` -> healthy between runs (already resolved).
+
+**Previous state:** cycle 1171, read from branch
+`claude/sleepy-dijkstra-fv6t0z` (the newest state found across branches).
+All twelve endpoints were healthy or ILO `degraded` (contract-only, see
+cycle 1171's own entry) at that run.
+
+**ILO**
+**Cycle saw:** cycle 1174 (started 2026-10-31T00:01:22Z): `HTTP 403` on
+every check on both paths - gateway metadata, gateway data, direct metadata,
+direct data, direct json. Ten of twelve contract assertions flipped to
+`broken` with `observed: 403` (`auth:listing`, `constraint:availableconstraint`,
+`errors:missing_artefact`, and all seven `references:*` assertions);
+`encoding:structure_xml` came back `skipped` because the 403 pre-empted the
+encoding check.
+**Live recheck:** repeated direct calls to both the metadata and data paths
+over several seconds returned an inconsistent mix of `200` and `403` on the
+same URLs with no change in request shape. Direct json consistently returned
+`200`. Checked ECB and ABS at the same time; both answered `200` immediately,
+so this is not a network problem on our end.
+**Classification:** `provider_down` per the monitor (metadata failing on
+both gateway and direct paths) - provider-side, not a gateway bug.
+**New or chronic:** this is the fifth occurrence of the same recurring
+ILO-403 pattern already logged at cycle 32, cycle 1150 (gateway+data), cycle
+1162 (all paths), and cycle 1168 (direct metadata only). This occurrence is
+the widest yet, hitting every check on both paths rather than a subset.
+**Recommended action:** watch the next cycle; if it clears and stays clear,
+treat as another self-resolving instance, same as the prior four. If 403s on
+every path persist for two consecutive cycles, that would be new territory
+(previous occurrences all cleared within one cycle) and would warrant
+escalation.
+**Could not determine:** the root cause on ILO's side, as in all prior
+occurrences; whether the flapping is rate-limiting, WAF behavior, or
+something else. We have no visibility into ILO's infrastructure.
+
+**ESTAT**
+**Cycle saw:** cycle 1173 (started 2026-10-30T22:01:22Z): `gateway_issue`,
+failing check `gateway metadata: Error:` (empty error body). Recovered to
+healthy by cycle 1174.
+**Classification:** matches the known chronic pattern (`list_dataflows`
+hitting our own call deadline under load, last seen at cycle 1170) - flapping
+that resolves within one cycle, not a new incident. The empty error body is
+the same shape previously flagged as worth watching if it recurs; it has now
+recurred (cycle 1170 and cycle 1173) without ever carrying a more specific
+message, which is itself worth a closer look at some point, but not urgent.
+**Could not determine:** whether the empty error body ever carries a fuller
+message internally that is being dropped before it reaches `/api/status`.
+
+**Also noted, not incidents:** `encoding:structure_xml` on ABS flipped
+Content-Type parameter order again (cosmetic, verdict stayed `ok`, same
+pattern as before). 112 `claude/` triage branches exist on origin, above the
+20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

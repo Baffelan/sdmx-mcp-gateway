@@ -4,6 +4,45 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-10-31T06:43Z - cycle 1177
+
+**Changed:** ILO `provider_down` -> healthy (resolved).
+
+**Previous state:** cycle 1174, read from branch
+`claude/sleepy-dijkstra-anuum1` (the newest state found across branches;
+`main` is still at cycle 1168). ILO was recorded `provider_down`; the other
+eleven endpoints healthy.
+
+**ILO**
+**Cycle saw:** resolved by cycle 1175 (started 2026-10-31T02:01:22Z) and has
+stayed healthy through 1176 and the current cycle 1177 - three consecutive
+healthy cycles since the 1174 403.
+**Live recheck:** three repeated direct calls to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now all returned
+`200` immediately, no flapping this time. ECB and OECD also answered `200`
+at the same time, so the network this routine runs on is not the issue.
+**Classification:** resolved. All ILO contract assertions read `ok` again
+(`references:contentconstraint` back to its usual `ignored`, not `broken`).
+**New or chronic:** this is the sixth occurrence of the recurring ILO 403
+pattern (cycle 32, 1150, 1162, 1168, 1174, now resolved). Cycle 1174 was the
+widest yet (every check, both paths) but still cleared within one cycle,
+consistent with all five prior occurrences.
+**Could not determine:** the root cause on ILO's side of the 403, as in
+every prior occurrence.
+
+**Other endpoints:** ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC,
+STATSNZ, UNICEF all healthy at cycle 1177, no change from 1174.
+`/api/contracts` reports no new `changes`.
+
+**Open items carried forward, unchanged this run:**
+- STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) is still
+  present at cycle 1177. Still open, not re-reported since no new change.
+- 113 `claude/` triage branches on origin as of this run (up from 112 at
+  cycle 1174). Still above the 20 the skill flags for pruning; not actioned
+  by this read-only routine.
+- `main` is still only through cycle 1168. This run's own merge-to-main
+  attempt is reported separately in the session output.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

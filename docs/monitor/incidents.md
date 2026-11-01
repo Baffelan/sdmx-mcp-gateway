@@ -4,6 +4,83 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-01T06:43Z - cycle 1189
+
+**Changed:** ILO `provider_down` -> healthy (resolved). UNICEF `degraded` ->
+healthy (resolved).
+
+**Previous state:** cycle 1186, read from branch
+`claude/sleepy-dijkstra-dp0cif` (the newest state found across branches;
+`main` is still at cycle 1168's PR). ILO was recorded `provider_down`,
+UNICEF `degraded`; the other ten endpoints healthy.
+
+**ILO**
+**Cycle saw at 1186:** full 403 on every path (gateway metadata, gateway
+data, direct metadata, direct data, direct json).
+**Resolved by:** cycle 1187, and has stayed healthy through 1188 and the
+current cycle 1189 - three consecutive healthy cycles.
+**Live recheck:** a direct call to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now returned `200`
+immediately, no 403.
+**Classification:** resolved. This is the fourth occurrence of the recurring
+full/partial ILO 403 pattern already tracked in open items (cycle 1162 full,
+cycle 1168 metadata-only, cycle 1186 full again, now resolved as before).
+Each occurrence has self-resolved within one to two cycles; provider-side,
+nothing to fix in our code.
+**Could not determine:** the root cause on ILO's side of the 403, as in all
+prior occurrences.
+
+**UNICEF**
+**Cycle saw at 1186:** HTTP 429 on gateway data, direct data, and direct
+json; metadata on both paths fine, all contract checks ok.
+**Resolved by:** cycle 1187, healthy through 1188 and 1189.
+**Live recheck:** direct metadata call returned `200`. A manual direct data
+probe used a malformed dataflow id and returned `400` from our own bad
+query, not from the provider, so it is not evidence either way; the
+monitor's own three consecutive healthy cycles (1187-1189) are the stronger
+signal here.
+**Classification:** resolved. This was the first occurrence of this
+specific 429 rate-limit shape for UNICEF (prior UNICEF incidents were a
+full 503 outage at cycle 2 and `provider_down` at cycle 1162); worth keeping
+in view in case the rate limit recurs, but not actionable now.
+**Could not determine:** whether the 429 reflects a UNICEF-side quota that
+could recur under load.
+
+**Contract side effects:** no entries in `/api/contracts` `changes`.
+`STATSNZ auth:listing` still reads `capability_appeared`, same as every run
+since cycle 60; not re-reported as new.
+
+**Other endpoints:** ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC,
+STATSNZ all healthy at cycle 1189, no change from 1186.
+
+**Recommended action:** no action; both endpoints match their established
+self-resolving patterns. Continue watching ILO for a fifth occurrence and
+UNICEF for a repeat of the 429 shape specifically (as opposed to the earlier
+503/`provider_down` shape).
+
+**Open items carried forward:**
+- ILO's recurring 403 pattern (cycle 1162, 1168, 1186, each self-resolved
+  within 1-2 cycles) - watch for a fifth occurrence.
+- UNICEF 429 rate-limit shape, first seen cycle 1186, resolved by 1187 -
+  watch for recurrence.
+- STATSNZ `auth:listing` `capability_appeared`, first seen cycle 60, still
+  present. Still open, not re-reported since no new change.
+- 117 `claude/` triage branches on origin as of this run (up from 116 at
+  cycle 1186). Still above the 20 the skill flags for pruning; not actioned
+  by this read-only routine.
+- `main` is only through cycle 1168, 21 cycles behind this run. This run's
+  own merge-to-main attempt is reported separately in the session output;
+  if it fails too, findings stay recorded on this branch and the next run's
+  branch-scan will pick them up.
+- Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+  returns 500 (constraints come via `?references=all`); ESTAT has no
+  practical constraint support; ESTAT direct json check is skipped by design
+  (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF
+  `references:contentconstraint` reads `ignored` (accepted and silently
+  dropped); ABS/ILO/OECD `encoding:structure_xml` Content-Type
+  charset/version parameter order flips cosmetically from time to time,
+  verdict always stays `ok`.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

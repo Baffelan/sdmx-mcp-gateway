@@ -4,6 +4,72 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-01T12:42Z - cycle 1192
+
+**Changed:** ESTAT healthy -> `gateway_issue` -> healthy (resolved, flapped at
+cycle 1191).
+
+**Previous state:** cycle 1189, read from branch
+`claude/sleepy-dijkstra-criyv2` (the newest state found across branches;
+`main` is still at cycle 1168). All twelve endpoints were healthy at 1189.
+
+**ESTAT**
+**Cycle saw:** cycle 1191 (started 2026-11-01T10:01:22Z): `gateway metadata:
+Error:` - the failing check's own error string is empty. Direct metadata,
+direct data, direct json and gateway data all passed; only the gateway
+metadata check failed, and with no error text attached.
+**Live recheck:** by cycle 1192 (started 2026-11-01T12:01:22Z) ESTAT showed
+`healthy` with all checks passing, so the condition had already cleared by
+the time this run looked. No other endpoint showed any non-healthy cycle in
+the 1189-1192 window, so this was not a network problem on this run's side.
+**Classification:** `gateway_issue` per the monitor (gateway path failed,
+direct path ok) - this is ours, not provider-side. The empty error message is
+itself notable: the skill's own open-items history already flagged this exact
+shape (an empty `Error:` string on a gateway metadata check) on ABS at cycle
+26 as a bug worth reporting if it recurred. It has now recurred, on a
+different endpoint (ESTAT), which suggests the empty-message gap is in the
+gateway's shared error-handling path rather than anything ABS- or
+ESTAT-specific.
+**New or chronic:** new as of cycle 1191 for ESTAT; ESTAT's only previously
+known flap was the `list_dataflows` 60s timeout at cycles 54-55, a different
+shape. Self-resolved within one cycle (2 hours).
+**Contract side effect:** none; `/api/contracts` `changes` is empty this run,
+and the only non-`ok` verdict in the matrix is the already-open STATSNZ
+`auth:listing` `capability_appeared`, unchanged from prior runs.
+**Recommended action:** no action yet, since it already cleared and this is
+the first time this shape has hit ESTAT. If an empty-message `gateway
+metadata: Error:` recurs again on any endpoint, it is worth looking at the
+gateway's metadata-fetch exception handling directly rather than continuing
+to treat each occurrence as an isolated provider flap.
+**Could not determine:** what exception produced the empty error string, since
+the monitor's history only records the check's own blank message, not a
+traceback.
+
+**Other endpoints:** ABS, BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF all healthy at cycle 1192, no change from 1189.
+
+**Open items carried forward, unchanged this run:**
+- ILO recurring 403 pattern (cycles 1162, 1168, 1186): no new occurrence
+  through cycle 1192.
+- UNICEF 429 rate-limit shape (first seen cycle 1186): no recurrence through
+  cycle 1192.
+- STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) still
+  present at cycle 1192. Still open, not re-reported since no new change.
+- 118 `claude/` triage branches on origin as of this run (up from 117 at
+  cycle 1189). Still above the 20 the skill flags for pruning; not actioned
+  by this read-only routine.
+- `main` is still only through cycle 1168, now 24 cycles behind. This run's
+  own merge-to-main attempt is reported separately in the session output.
+- Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+  returns 500 (constraints come via `?references=all`); ESTAT has no
+  practical constraint support; ESTAT direct json check is skipped by design
+  (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF
+  `references:contentconstraint` reads `ignored` (accepted and silently
+  dropped); ABS/ILO/OECD `encoding:structure_xml` Content-Type charset/version
+  parameter order flips cosmetically from time to time, verdict always stays
+  `ok`.
+
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

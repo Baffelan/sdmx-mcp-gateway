@@ -4,6 +4,82 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-01T00:44Z - cycle 1186
+
+**Changed:** ILO healthy -> `provider_down`. UNICEF healthy -> `degraded`.
+Both changed in the same cycle, 1186 (started 2026-11-01T00:01:22Z); the three
+preceding cycles (1183, 1184, 1185) were healthy for both, and the full window
+back to 1163 shows only one other ILO episode (cycle 1168, direct-metadata-only
+`degraded`) and no other UNICEF episode.
+
+**Previous state:** cycle 1183, read from branch
+`claude/sleepy-dijkstra-d4j14g` (the newest state found across branches;
+`main` is still at cycle 1168). All twelve endpoints were healthy at 1183.
+
+**ILO**
+**Cycle saw:** gateway metadata `403 Forbidden` from
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`; gateway data probe `403`;
+direct metadata, data, and json all `403` after 2 attempts each. Every
+contract assertion for ILO flipped to `403` in `/api/contracts` `changes`
+(`auth:listing`, `references:*`, `errors:missing_artefact`, etc.), verdict
+`broken` or `skipped`. The `auth:listing` assertion's error text reads
+"provider now demands credentials", but that is the check's own wording for
+any 403, not a confirmed auth change.
+**Live recheck:** disagreement. A direct call to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now (00:43Z)
+returned `200` immediately, no 403, with normal Cloudflare-fronted headers.
+**Classification:** `provider_down` per the monitor (metadata failed on both
+gateway and direct paths at cycle time) -> provider-side, nothing to fix in
+our code.
+**History:** this is the same recurring ILO 403-across-everything pattern
+already logged at cycle 1162 (2026-10-30T00:44Z) and, in a narrower
+metadata-only form, at cycle 1168. Three full or partial occurrences in the
+last 48 hours now, each self-resolving within about one cycle, consistent
+with the long-standing flap first noted at cycle 32.
+**Recommended action:** no action; live recheck already shows recovery. If a
+fourth full occurrence lands within the next day or two, treat the pattern as
+more frequent than before and worth a closer look at whether ILO changed
+something on their WAF/Cloudflare front.
+**Could not determine:** the root cause on ILO's side of the 403, as in prior
+occurrences.
+
+**UNICEF**
+**Cycle saw:** gateway data probe `429` ("HTTP 429 from provider"); direct
+data and direct json both `429` after 2 attempts. Gateway metadata and direct
+metadata both stayed `200`/ok. All UNICEF contract assertions in
+`/api/contracts` read `ok` this cycle (the contract checks hit the structure
+endpoints, which were unaffected; only the data-retrieval endpoints were
+rate-limited).
+**Live recheck:** disagreement. A direct call to
+`https://sdmx.data.unicef.org/ws/public/sdmxapi/rest/dataflow/UNICEF/all/latest`
+just now (00:43Z) returned `200` immediately, no 429.
+**Classification:** `degraded` per the monitor (gateway data, direct data,
+direct json failing; metadata on both paths fine) -> provider-side rate
+limiting, not a gateway bug, since gateway and direct failed identically.
+**History:** UNICEF's last episode in this window was at cycle 1162
+(2026-10-30T00:44Z), but that was a full `503 provider_down` across every
+path, not a `429` on data endpoints only. This is a different failure shape:
+a rate limit on data retrieval rather than a service outage. First time this
+specific shape (429, data-only) has shown up in the 48h history checked here.
+**Recommended action:** no action; live recheck already shows recovery.
+Watch for a repeat with the same 429 shape, which would point at UNICEF
+tightening rate limits on the data endpoint specifically.
+**Could not determine:** whether the 429 came from a UNICEF-side rate limit
+tied to request volume across all monitor/gateway users, or something
+specific to this monitor's request pattern.
+
+Both providers also stayed outside the network-connectivity concern: ABS,
+BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ all read healthy in the
+same cycle 1186, and this run's own direct calls to ILO and UNICEF both
+succeeded on live recheck, so there is no sign of a network problem on either
+the monitor's or this routine's side.
+
+Housekeeping: 116 `claude/` triage branches on origin as of this run, still
+well above the 20 the skill flags for pruning; not actioned by this
+read-only routine. `main` remains stuck at cycle 1168 (18 cycles behind this
+run); this run's own merge-to-main attempt is reported separately in the
+session output.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

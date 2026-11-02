@@ -4,6 +4,67 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-02T00:44Z - cycle 1198
+
+**Changed:** ILO healthy -> `degraded` (direct data and direct json, HTTP 403).
+
+**Previous state:** cycle 1195, read from branch
+`claude/sleepy-dijkstra-btqvif` (the newest state found across branches; `main`
+is still at cycle 1168). All twelve endpoints were healthy at 1195, and stayed
+healthy through cycles 1196 and 1197.
+
+**ILO**
+**Cycle saw:** cycle 1198 (started 2026-11-02T00:01:22Z): direct data `HTTP
+403` and direct json `HTTP 403`, both after 2 attempts. Direct metadata,
+gateway metadata and gateway data all ok (gateway data returned 120
+observations). Contract probes on the same cycle went `broken` for
+`errors:missing_artefact` (404 -> 403), `references:all`, `references:children`,
+`references:contentconstraint`, `references:descendants`, `references:none`,
+and `references:parents` (all 200 -> 403) - a direct consequence of the same
+403s on the direct path, not a separate issue. `encoding:structure_xml` read
+`skipped` (403, so encoding could not be judged).
+**Live recheck:** direct calls to the same ILO paths just now
+(`dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`,
+`data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1` with both
+the SDMx-CSV and SDMx-JSON 2.0.0 Accept headers) all returned `200`
+immediately. The cycle's 403s have already cleared.
+**Classification:** `degraded` per the monitor - mixed, not a gateway bug:
+the gateway's own calls to ILO succeeded in the same cycle, so this is
+provider-side (ILO's direct-path 403, likely edge/Cloudflare-level and
+intermittent, as in prior occurrences) rather than something wrong in our
+code.
+**New or chronic:** new as of cycle 1198 relative to the last run, but this is
+a long-recurring pattern for ILO's direct path (previously logged at cycles
+32, 1066, 1078, 1102, 1108, 1114, 1138, 1150, 1162, 1168, 1174, 1186, among
+others). Checked other providers (ECB, OECD) live at the same time; both
+answered 200 immediately, so this is isolated to ILO, not a network problem
+on this routine's side.
+**Recommended action:** no action beyond watching the next cycle; every prior
+occurrence of this exact shape has self-resolved within one to a few cycles,
+and the live recheck already shows it cleared.
+**Could not determine:** the root cause on ILO's side of the 403, as in every
+prior occurrence.
+
+**Other endpoints:** ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF all healthy at cycle 1198, no change from 1195. No other contract
+assertion changed; STATSNZ `auth:listing` remains `capability_appeared`
+(first seen cycle 60), unchanged, not re-reported.
+
+**Open items carried forward:**
+- 120 `claude/` triage branches on origin as of this run (up from 119 at
+  cycle 1195). Still above the 20 the skill flags for pruning; not actioned
+  by this read-only routine.
+- `main` is still only through cycle 1168. This run's own merge-to-main
+  attempt is reported separately in the session output; if it fails too,
+  findings stay recorded on this branch and the next run's branch-scan will
+  pick them up.
+- Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+  returns 500 (constraints come via `?references=all`); ESTAT has no
+  practical constraint support; BIS/ILO/IMF `references:contentconstraint`
+  reads `ignored` (accepted and silently dropped); ABS/ILO/OECD
+  `encoding:structure_xml` Content-Type charset/version parameter order
+  flips cosmetically from time to time, verdict always stays `ok`.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

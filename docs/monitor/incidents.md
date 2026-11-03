@@ -4,6 +4,89 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-03T00:46Z - cycle 1210
+
+**Changed:** ESTAT healthy -> `gateway_issue` -> healthy (resolved, flap
+inside this run's window).
+
+**Previous state:** cycle 1207, read from branch
+`claude/sleepy-dijkstra-sisy5n` (the newest state found across branches;
+`main` is still at cycle 1168). All twelve endpoints were healthy at 1207.
+
+**ESTAT**
+**Cycle saw:** cycle 1209 (started 2026-11-02T22:01:22Z): `gateway metadata:
+Error:` (empty body) after 2 attempts. Gateway data, direct metadata, direct
+data and direct json all ok. Cycle 1208 and cycle 1210 (current) both show
+ESTAT fully healthy; only cycle 1209 was affected. All eleven other endpoints
+were healthy at cycle 1209 too, so this was not a network-wide problem on
+this run's side.
+**Live recheck:** direct call to
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?detail=allstubs`
+just now returned `200` in 5.4s, and ECB's direct endpoint answered `200` in
+1.0s at the same time, confirming the network path from this run is fine and
+ESTAT is reachable right now.
+**Classification:** `gateway_issue` per the monitor (direct path ok, gateway
+path failing) - ours, not the provider's.
+**Root cause:** already found and documented in this log (see the cycle
+1144 entry): `tools/sdmx_tools.py:208-210` returns `{"error": str(e), ...}`
+on any exception inside `discover_dataflows`, and `main_server.py:477`
+builds `next_step=f"Error: {result['error']}"`. When the caught exception's
+`str(e)` is empty (a bare `TimeoutError()` is the leading suspect), the
+gateway reports exactly `"Error: "` with no detail. Not fixed in this run;
+this routine only commits to `docs/monitor/`.
+**New or chronic:** not a new bug. This is the same empty-body
+`gateway metadata: Error:` shape previously confirmed on ABS (cycles 26,
+1140, 1144) and on ESTAT itself (cycle 1143, reported in the cycle 1144
+entry). This is at least the fifth confirmed occurrence across both
+endpoints, now with a longer gap since the last one (1143 -> 1209, 66
+cycles / roughly 5.5 days) than the short cluster seen around cycle 1140-1144.
+**Recommended action:** no new action beyond what the cycle 1144 entry
+already recommended (fix the empty-exception-string path in
+`discover_dataflows` / `main_server.py:477`); this occurrence is further
+confirmation the bug is still live, not a new lead.
+**Could not determine:** whether the underlying exception is really a bare
+`TimeoutError`, since the gateway's own application log is not reachable
+from this environment, same limitation as every prior occurrence.
+
+**Other endpoints:** ABS, BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF all healthy at cycle 1210, no status change from 1207.
+
+**Contract side effects, not incidents:**
+- ECB: `encoding:structure_xml`, `references:children` and
+  `references:parentsandsiblings` each show a `504 -> 200`/`504 -> ok-value`
+  entry in `/api/contracts` `changes`; `verdict` stayed `ok` throughout and
+  ECB's endpoint status never left `healthy` in this window. This is the
+  same contract-only transient-504-then-clears noise already documented
+  for ECB elsewhere in this log; not a new incident.
+- ILO: `encoding:structure_xml` Content-Type charset/version parameter
+  order flipped cosmetically again; verdict stayed `ok`, same long-running
+  cosmetic pattern on ABS/ILO/OECD.
+
+**Open items carried forward:**
+- ILO degraded->healthy flap at cycle 1201 (direct metadata/data/json all
+  403, recovered by 1202, healthy through 1210 checked this run) was
+  already reported in full by an earlier run per that run's own state
+  notes. Not re-reported here; this is the last run that will carry it as
+  an open item, since it is now nine cycles resolved.
+- STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) still
+  present at cycle 1210. Still open, not re-reported since no new change.
+- 124 `claude/` triage branches on origin as of this run (up from 123 at
+  cycle 1207 per that run's notes). Still above the 20 the skill flags for
+  pruning; not actioned by this read-only routine.
+- `main` is still only through cycle 1168, 42 cycles behind this run. This
+  run's own merge-to-main attempt is reported separately in the session
+  output; if it fails too, findings stay recorded on this branch and the
+  next run's branch-scan will pick them up.
+- Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+  returns 500 (constraints come via `?references=all`); ESTAT has no
+  practical constraint support; ESTAT direct json check is skipped by
+  design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF
+  `references:contentconstraint` reads `ignored` (accepted and silently
+  dropped); ABS/ILO/OECD `encoding:structure_xml` Content-Type
+  charset/version parameter order flips cosmetically from time to time,
+  verdict always stays `ok`.
+
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

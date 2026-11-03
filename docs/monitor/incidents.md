@@ -4,6 +4,180 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-03T18:44Z - cycle 1219
+
+**Previous state:** cycle 1216, read from branch
+`claude/sleepy-dijkstra-skztg9` (the newest state found across branches;
+`main` is still at cycle 1168, now 51 cycles behind).
+
+**Changed 1: ECB flapped degraded again, broader shape this time.**
+
+**History across the gap:** 1213-1215 healthy, 1216 `degraded` (reported
+last run), 1217 healthy, 1218 `degraded` again, 1219 healthy.
+**Cycle saw (1218, started 2026-11-03T16:01:22Z):** `gateway data: probe
+status: error; HTTP 504 from provider.`, `direct metadata: HTTP 504`,
+`direct data: HTTP 504`, `direct json: HTTP 500`. This is wider than the
+1216 flap, where gateway data only needed a retry and direct metadata
+still passed; at 1218 both the gateway path and every direct check failed.
+**Live recheck (now, cycle 1219 window):** direct metadata and direct data
+both answered `200` in under 1.2s; all twelve ECB contract probes in
+`/api/contracts` are back to `ok` with normal 175-280ms latencies (the
+1216 flap had these at 10-16s). Checked OECD and IMF direct endpoints at
+the same time; both answered immediately, so neither flap is this
+routine's network.
+**Classification:** provider-side both times (`degraded`, not
+`provider_down` or `gateway_issue` -- at 1216 metadata passed on both
+paths; at 1218 the failure was broader but still resolved on its own
+within one 2-hour cycle both times). No gateway code bug indicated.
+**New or chronic:** this is the second ECB flap in three cycles (1216 and
+1218), separated by one clean healthy cycle (1217). The open item from
+last run said "watch next cycle; close if it clears and stays clear" --
+it cleared at 1217 but did not stay clear. Keeping this open rather than
+closing it: two flares in 6 hours, with the second one wider than the
+first, reads as continuing instability rather than a single resolved
+event.
+**Recommended action:** keep watching. If a third flap appears within the
+next day or two, or if gateway data starts failing outright instead of
+recovering on retry, this is worth a closer look at ECB-side capacity
+rather than treating it as isolated noise.
+**Could not determine:** why this is recurring now after 23 clean cycles
+(1193-1215) when nothing in our own config changed; nothing in the
+responses says whether this is planned ECB-side maintenance or load.
+
+**Changed 2: ESTAT gateway_issue flap at cycle 1215, already resolved
+(not reported last run).**
+
+**Cycle saw (1215, started 2026-11-03T10:01:22Z):** `gateway metadata:
+Error:` -- the error message itself is empty. Direct metadata, direct
+data and direct json all stayed ok at 1215 (gateway-only failure, hence
+`gateway_issue`, which is the monitor's "ours" classification). Healthy
+again at cycle 1216 and every cycle since.
+**Why this is being reported now:** cycle 1215 fell inside the previous
+run's comparison window (previous-to-1216 was cycle 1213) but was not
+mentioned in that run's report. Reporting it now, marked as already
+resolved, per the rule that a fail-and-recover between runs still gets
+recorded once.
+**Note:** the empty error body (`Error:` with nothing after it) is the
+same shape already flagged as a bug-to-watch for ABS at cycle 26 ("if this
+recurs, the empty message is itself the bug to report"). It has now
+recurred, on a different endpoint. The failure itself resolved in one
+cycle; the empty, uninformative error message did not change and is still
+worth a fix so a future occurrence is diagnosable from the monitor output
+alone.
+**Classification:** `gateway_issue` -- ours, not ESTAT's. Low severity
+(resolved within the cycle), but the blank error message is a real gap:
+whatever raised it on our side swallowed the underlying exception text.
+**Could not determine:** what the underlying exception was, since the
+monitor's own record of it is blank.
+
+**Contract noise, not reported as changes:** none this run beyond the ECB
+probes already covered above.
+
+**Open items carried forward:**
+- STATSNZ `auth:listing` is still `capability_appeared` (listing succeeds
+  without credentials). First seen cycle 60, unchanged at 1219, not
+  re-reported since nothing changed.
+- 127 `claude/` triage branches on origin as of this run (up from 126 at
+  cycle 1216). Still above the 20 the skill flags for pruning; not
+  actioned by this read-only routine.
+- `main` is still at cycle 1168, now 51 cycles behind. This run's own
+  merge-to-main attempt is reported separately in the session output.
+- Monitor bug noted previously: `/api/history` computes status without
+  contracts, so a contract-only `degraded` state never shows up in
+  `/api/history`, only in `/api/status`. Not re-confirmed this run since
+  no contract-only state occurred, but still believed true.
+- Blank gateway-metadata error message: previously only seen on ABS
+  (cycle 26), now also seen on ESTAT (cycle 1215). Worth a fix on our
+  side so the next occurrence carries a real error string.
+- Long-running architectural facts, not incidents: ILO
+  `/availableconstraint/` returns 500 (constraints come via
+  `?references=all`); ESTAT has no practical constraint support; ESTAT
+  direct json check is skipped by design; BIS/ILO/IMF
+  `references:contentconstraint` reads `ignored` (accepted and silently
+  dropped); ABS/ILO/OECD `encoding:structure_xml` charset/version order
+  flips cosmetically, verdict always stays `ok`.
+
+## 2026-11-03T12:44Z - cycle 1216
+
+**Previous state:** cycle 1213, read from branch
+`claude/sleepy-dijkstra-08p4s3` (the newest state found across branches; `main`
+is still at cycle 1168, 48 cycles behind).
+
+**Changed 1: ECB healthy -> degraded.**
+
+**Cycle saw (1216, started 2026-11-03T12:01:22Z):** direct data failing with
+`HTTP 500`. Gateway data also only succeeded on a retry (2 attempts,
+6931ms). Five contract assertions flipped to `broken`, all with `expected`
+200/404 and `observed 504`: `constraint:availableconstraint`,
+`references:all`, `references:descendants`, `references:none`,
+`references:parents`. Latencies on the broken contract rows were all
+10.1-10.2 seconds, and `encoding:structure_xml` (verdict `ok`) took 16.4
+seconds. `references:children`, `references:contentconstraint`, and
+`references:parentsandsiblings` stayed `ok`.
+**Live recheck:** still failing, same shape. A direct call to
+`https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`
+timed out completely at 20s (curl code 000). Direct calls to
+`.../dataflow/ECB/EXR/latest?references=none&detail=allstubs` and
+`...?references=all&detail=allstubs` both returned `504` after ~10-11s.
+Checked OECD, IMF, and BIS metadata from the same runner at the same time;
+all three answered normally in under 1s, so this is not this routine's
+network.
+**Classification:** provider-side. Metadata succeeds on both gateway and
+direct paths, so this is not `provider_down` by the monitor's own
+definition; gateway data only recovered via retry. This reads as ECB
+itself being slow or overloaded right now (5-16s response times, several
+outright timeouts) rather than a contract or routing bug in our gateway.
+**History:** new as of cycle 1216; ECB was healthy for the preceding 23
+cycles (1193-1215, back to 2026-11-01T14:01Z). Not the old `HTTP 406`
+failure that was fixed around cycle 43 -- this is a different shape (500
+on direct data, 504 timeouts on the references/constraint probes). ECB
+had no open items carried from the previous run.
+**Recommended action:** watch the next one or two cycles. If it clears on
+its own, this was ECB-side load; if the 504s persist past a handful of
+cycles, it is worth confirming the gateway's own timeout/retry settings
+for ECB are still appropriate given 10s+ live response times.
+**Could not determine:** whether this is a planned ECB maintenance window,
+a capacity issue on their side, or an early sign of a new permanent
+quirk; nothing in the responses themselves says why.
+
+**Changed 2: ILO degraded -> healthy (resolved).**
+
+ILO was `degraded` at cycle 1213 purely on a contract probe
+(`references:none` returning `HTTP 403`, expected 200), the same recurring
+pattern already logged at cycles 32, 1150, 1162, 1168, 1198, and 1201. At
+cycle 1216 all twelve checks and all contract assertions for ILO are `ok`
+(`references:contentconstraint` stays `informational`/`ignored`, as
+expected). This closes the "watch next cycle" item carried from the
+previous run's state file.
+
+**Contract noise, not reported as changes:** `ABS` and `ILO`
+`encoding:structure_xml` both flipped their `Content-Type` parameter
+order (`charset` vs `version` first) between cycles 1213 and 1216;
+verdict stayed `ok` both times. This is the known cosmetic flip already
+recorded as an architectural fact.
+
+**Open items carried forward:**
+- STATSNZ `auth:listing` is still `capability_appeared` (listing succeeds
+  without credentials). First seen cycle 60, unchanged at 1216, not
+  re-reported since nothing changed.
+- 126 `claude/` triage branches on origin as of this run (up from 125 at
+  cycle 1213). Still above the 20 the skill flags for pruning; not
+  actioned by this read-only routine.
+- `main` is still at cycle 1168, now 48 cycles behind. This run's own
+  merge-to-main attempt is reported separately in the session output.
+- Monitor bug noted previously: `/api/history` computes status without
+  contracts, so a contract-only `degraded` state (like ILO at 1213) never
+  shows up in `/api/history`, only in `/api/status`. Confirmed again this
+  run. Trust `/api/status`, not `/api/history`, for contract-driven
+  states.
+- Long-running architectural facts, not incidents: ILO
+  `/availableconstraint/` returns 500 (constraints come via
+  `?references=all`); ESTAT has no practical constraint support; ESTAT
+  direct json check is skipped by design; BIS/ILO/IMF
+  `references:contentconstraint` reads `ignored` (accepted and silently
+  dropped); ABS/ILO/OECD `encoding:structure_xml` charset/version order
+  flips cosmetically, verdict always stays `ok`.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

@@ -4,6 +4,87 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-03T12:44Z - cycle 1216
+
+**Previous state:** cycle 1213, read from branch
+`claude/sleepy-dijkstra-08p4s3` (the newest state found across branches; `main`
+is still at cycle 1168, 48 cycles behind).
+
+**Changed 1: ECB healthy -> degraded.**
+
+**Cycle saw (1216, started 2026-11-03T12:01:22Z):** direct data failing with
+`HTTP 500`. Gateway data also only succeeded on a retry (2 attempts,
+6931ms). Five contract assertions flipped to `broken`, all with `expected`
+200/404 and `observed 504`: `constraint:availableconstraint`,
+`references:all`, `references:descendants`, `references:none`,
+`references:parents`. Latencies on the broken contract rows were all
+10.1-10.2 seconds, and `encoding:structure_xml` (verdict `ok`) took 16.4
+seconds. `references:children`, `references:contentconstraint`, and
+`references:parentsandsiblings` stayed `ok`.
+**Live recheck:** still failing, same shape. A direct call to
+`https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`
+timed out completely at 20s (curl code 000). Direct calls to
+`.../dataflow/ECB/EXR/latest?references=none&detail=allstubs` and
+`...?references=all&detail=allstubs` both returned `504` after ~10-11s.
+Checked OECD, IMF, and BIS metadata from the same runner at the same time;
+all three answered normally in under 1s, so this is not this routine's
+network.
+**Classification:** provider-side. Metadata succeeds on both gateway and
+direct paths, so this is not `provider_down` by the monitor's own
+definition; gateway data only recovered via retry. This reads as ECB
+itself being slow or overloaded right now (5-16s response times, several
+outright timeouts) rather than a contract or routing bug in our gateway.
+**History:** new as of cycle 1216; ECB was healthy for the preceding 23
+cycles (1193-1215, back to 2026-11-01T14:01Z). Not the old `HTTP 406`
+failure that was fixed around cycle 43 -- this is a different shape (500
+on direct data, 504 timeouts on the references/constraint probes). ECB
+had no open items carried from the previous run.
+**Recommended action:** watch the next one or two cycles. If it clears on
+its own, this was ECB-side load; if the 504s persist past a handful of
+cycles, it is worth confirming the gateway's own timeout/retry settings
+for ECB are still appropriate given 10s+ live response times.
+**Could not determine:** whether this is a planned ECB maintenance window,
+a capacity issue on their side, or an early sign of a new permanent
+quirk; nothing in the responses themselves says why.
+
+**Changed 2: ILO degraded -> healthy (resolved).**
+
+ILO was `degraded` at cycle 1213 purely on a contract probe
+(`references:none` returning `HTTP 403`, expected 200), the same recurring
+pattern already logged at cycles 32, 1150, 1162, 1168, 1198, and 1201. At
+cycle 1216 all twelve checks and all contract assertions for ILO are `ok`
+(`references:contentconstraint` stays `informational`/`ignored`, as
+expected). This closes the "watch next cycle" item carried from the
+previous run's state file.
+
+**Contract noise, not reported as changes:** `ABS` and `ILO`
+`encoding:structure_xml` both flipped their `Content-Type` parameter
+order (`charset` vs `version` first) between cycles 1213 and 1216;
+verdict stayed `ok` both times. This is the known cosmetic flip already
+recorded as an architectural fact.
+
+**Open items carried forward:**
+- STATSNZ `auth:listing` is still `capability_appeared` (listing succeeds
+  without credentials). First seen cycle 60, unchanged at 1216, not
+  re-reported since nothing changed.
+- 126 `claude/` triage branches on origin as of this run (up from 125 at
+  cycle 1213). Still above the 20 the skill flags for pruning; not
+  actioned by this read-only routine.
+- `main` is still at cycle 1168, now 48 cycles behind. This run's own
+  merge-to-main attempt is reported separately in the session output.
+- Monitor bug noted previously: `/api/history` computes status without
+  contracts, so a contract-only `degraded` state (like ILO at 1213) never
+  shows up in `/api/history`, only in `/api/status`. Confirmed again this
+  run. Trust `/api/status`, not `/api/history`, for contract-driven
+  states.
+- Long-running architectural facts, not incidents: ILO
+  `/availableconstraint/` returns 500 (constraints come via
+  `?references=all`); ESTAT has no practical constraint support; ESTAT
+  direct json check is skipped by design; BIS/ILO/IMF
+  `references:contentconstraint` reads `ignored` (accepted and silently
+  dropped); ABS/ILO/OECD `encoding:structure_xml` charset/version order
+  flips cosmetically, verdict always stays `ok`.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

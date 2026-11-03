@@ -4,6 +4,47 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-03T06:44Z - cycle 1213
+
+**Changed:** ILO healthy -> `degraded` (API contract broken: `references:none`).
+
+**Previous state:** cycle 1210, read from branch
+`claude/sleepy-dijkstra-jo3qhp` (the newest state found across branches). All
+twelve endpoints were healthy at 1210.
+
+**ILO**
+**Cycle saw:** the `references:none` contract probe (`GET
+/ILO/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest?references=none&detail=allstubs`)
+returned `HTTP 403`, expected `200`; verdict `broken`. Every other check in
+the cycle passed: gateway metadata, gateway data, direct metadata, direct
+data, direct json were all `ok`, and the other 11 contract assertions on ILO
+stayed `ok` (several noted "ignored-detection unavailable: no
+references=none baseline this cycle", a knock-on of the same 403 rather than
+a separate problem).
+**Live recheck:** the same URL just now returned `200` with a normal
+structure document body. Other providers answered normally in the same
+window (ILO's own direct/gateway checks in this same cycle also succeeded),
+so this is not a network problem on this routine's side.
+**Classification:** provider-side, transient. The monitor's own
+check-based status (`gateway`/`direct` metadata, data, json) never left
+healthy this cycle; the only failure was this one contract probe, and
+`derive_status` promotes any `broken` contract verdict to `degraded` even
+when every check passes. Not a gateway bug: the gateway path was never
+exercised by this specific probe and the gateway's own checks against ILO
+passed.
+**New or chronic:** new as of cycle 1213 on this specific probe, already
+resolved by the time of this live recheck. ILO has a well-established
+pattern of intermittent 403s on its direct path (cycle 32, cycle 1150,
+cycle 1162, cycle 1168, cycle 1198, cycle 1201), always self-resolving within
+a cycle or two; this is the same pattern landing on the `references:none`
+contract check rather than on the main metadata/data/json checks.
+**Recommended action:** no action; watch for recurrence. If `references:none`
+keeps failing while the main checks stay green, that would point at something
+specific to that query shape (`detail=allstubs`) rather than a general
+provider blip.
+**Could not determine:** the root cause on ILO's side of the 403, as in every
+prior occurrence of this flap.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

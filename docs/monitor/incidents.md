@@ -4,6 +4,50 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-04T12:43Z - cycle 1228
+
+**Changed:** ESTAT healthy -> `gateway_issue` -> healthy (flapped between runs, already resolved).
+
+**Previous state:** cycle 1225, read from branch `claude/sleepy-dijkstra-tikv2m`
+(the newest state found across branches). All twelve endpoints were healthy
+at 1225.
+
+**ESTAT**
+**Cycle saw:** `/api/history` shows ESTAT healthy at cycles 1225 and 1226,
+`gateway_issue` at cycle 1227 (started 2026-11-04T10:01:22Z) with the single
+failing check `gateway metadata: Error:` (empty error body), then healthy
+again at cycle 1228 (started 2026-11-04T12:01:22Z, the current cycle).
+**Live recheck:** a direct call to
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?references=none`
+just now returned `200` immediately. Consistent with cycle 1228 already
+showing ESTAT clean.
+**Classification:** `gateway_issue` at 1227 (direct path OK, gateway metadata
+path failing) - per the monitor's own derivation this means the problem is on
+our side, not ESTAT's, for that one cycle.
+**New or chronic:** this exact empty `gateway metadata: Error:` body on ESTAT
+is a recurring pattern, previously logged at cycles 26, 997, 1087, 1140,
+1142 and 1143 (see entries above), distinct from the also-chronic
+`list_dataflows` 60s-timeout flap. This is at least the seventh occurrence,
+always single-cycle and self-resolving.
+**Recommended action:** no action; matches the long-standing recurring
+pattern. If the empty error body is ever accompanied by a non-empty message,
+or the flap stops self-resolving, that would be new and worth a closer look.
+**Could not determine:** the root cause of the intermittently empty gateway
+metadata error message, as in every prior occurrence.
+
+**Other endpoints:** ABS, BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF all read healthy across cycles 1225-1228, no change.
+
+**Contracts:** no entries in `/api/contracts` `changes` this run. STATSNZ
+`auth:listing` remains `capability_appeared` (open since cycle 60, not new).
+BIS/ILO/IMF `references:contentconstraint` remain `ignored` (known
+architectural fact). No `broken` verdicts.
+
+**Other open items:** 130 `claude/` triage branches on `origin` as of this
+run, still above the 20 the skill flags for pruning; not actioned by this
+read-only routine. `main` freshness not reconfirmed this run; see this run's
+merge-to-main attempt in the session output.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

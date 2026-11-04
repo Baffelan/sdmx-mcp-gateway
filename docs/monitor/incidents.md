@@ -4,6 +4,45 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-04T00:46Z - cycle 1222
+
+**Changed:** ILO healthy -> `provider_down`.
+
+**Previous state:** cycle 1219, read from branch
+`claude/sleepy-dijkstra-v3e7wv` (the newest state found across branches; `main`
+is still at cycle 1168). All twelve endpoints were healthy at 1219, and ILO
+stayed healthy through cycle 1221 per `/api/history`.
+
+**ILO**
+**Cycle saw:** cycle 1222 (started 2026-11-04T00:01:22Z): gateway metadata
+`403 Forbidden` from `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`,
+gateway data probe also `403`, direct metadata `HTTP 403`. Direct data and
+direct json both ok (`HTTP 200`).
+**Live recheck:** direct call to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now still returns
+`403`, served by Cloudflare (`server: cloudflare`, `cf-ray` present). Checked
+other providers (ECB, OECD) at the same time; both answered `200`
+immediately, so this is not a network problem on our end.
+**Classification:** `provider_down` per the monitor (metadata failing on both
+the gateway and direct paths) - provider-side, nothing to fix in our code.
+Broader than the last ILO 403 (cycle 1168, direct metadata only, gateway
+unaffected): this time the gateway path is also blocked, not just the direct
+probe.
+**New or chronic:** new as of cycle 1222. Same recurring Cloudflare-403
+pattern already logged for ILO (cycle 32, cycle 1150, cycle 1162, cycle
+1168); this is the fifth occurrence and the broadest so far.
+**Contract side effect:** `auth:listing`, `constraint:availableconstraint`,
+`references:all`, `references:contentconstraint`, and
+`references:descendants` all flipped to `broken` (`now: 403`), and
+`encoding:structure_xml` reads `skipped`. All five are downstream of the same
+metadata endpoint Cloudflare is blocking, not independent breaks.
+**Recommended action:** watch the next cycle; if it clears, close as another
+instance of the recurring ILO Cloudflare-403 flap. If it persists past one
+cycle, this would be the longest ILO outage of this kind seen so far and
+worth escalating.
+**Could not determine:** the root cause on ILO's/Cloudflare's side, as in
+prior occurrences.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

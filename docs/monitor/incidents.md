@@ -4,6 +4,37 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-04T06:44Z - cycle 1225
+
+**Changed:** ILO `provider_down` -> healthy (already resolved).
+
+**Previous state:** cycle 1222, read from branch
+`claude/sleepy-dijkstra-axrcjw` (the newest state found across branches).
+ILO was `provider_down` at cycle 1222; all other eleven endpoints healthy.
+
+**ILO**
+**Cycle saw:** cycle 1222 (started 2026-11-04T00:01:22Z) had `provider_down`:
+gateway metadata `403 Forbidden` from `sdmx.ilo.org`, gateway data `403 from
+provider`, direct metadata `403`. Cycles 1223, 1224 and 1225 (through
+2026-11-04T06:01:22Z) all show ILO healthy, no failing checks.
+**Live recheck:** `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+just now returned `200` immediately.
+**Classification:** was `provider_down` (both gateway and direct metadata
+failing) at 1222, now healthy on both paths - provider-side, nothing to fix
+in our code.
+**New or chronic:** this is the broadest ILO 403 flap on record (previous
+ones, e.g. cycle 1168 and 1150, left the gateway path at least partly
+unaffected), but it resolved within one cycle (2 hours) and has stayed clear
+for three consecutive cycles since. Closing the watch item opened at 1222.
+**Contracts:** no changes in `/api/contracts` `changes`; `matrix` shows only
+the known architectural ones (`BIS`/`ILO`/`IMF` `references:contentconstraint`
+= `ignored`, `STATSNZ` `auth:listing` = `capability_appeared`, open since
+cycle 60, unchanged).
+**Recommended action:** none; treat as resolved. If ILO 403s on the gateway
+path specifically recur and widen further, that would be worth escalating.
+**Could not determine:** the root cause on ILO's side of the 403, as in
+every prior occurrence of this flap.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

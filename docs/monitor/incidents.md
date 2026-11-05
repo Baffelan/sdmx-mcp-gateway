@@ -4,6 +4,76 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-05T06:45Z - cycle 1237
+
+**Previous state:** cycle 1234, read from branch
+`claude/sleepy-dijkstra-ipur6r` (the newest state found across branches). All
+twelve endpoints were healthy except ILO (`provider_down`) at cycle 1234.
+
+**Changed:** ECB healthy -> `gateway_issue` (new)
+
+**Cycle saw:** new as of cycle 1236 (04:01Z) and still present at 1237
+(06:01Z), so two consecutive cycles (4 hours). Gateway data check fails with
+"probe status: error; Network or transport error - provider unreachable"
+after 2 attempts, latency ~30.4s (the full probe timeout). Gateway metadata,
+direct metadata, direct data and direct json all pass with real data
+(sample 1.1267 for 2026-11-04).
+**Live recheck:** reproduced directly against ECB, bypassing the gateway.
+`Accept: application/vnd.sdmx.data+csv;version=1.0.0` against
+`https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`
+hangs with no response at all (curl times out at 35s, HTTP 000 - no 406, no
+anything). The same URL with `Accept: text/csv` answers in ~1s with HTTP 200
+and real CSV data.
+**Classification:** `gateway_issue` - ours. `sdmx_progressive_client.py`'s
+`fetch_data_probe` (sdmx_progressive_client.py:301-335) requests the standard
+SDMx-CSV Accept header first and only retries as `text/csv` on an observed
+`406`. That logic was built on ECB answering the SDMx-CSV Accept header with
+a fast 406 (true as of 2026-07-27, see config.py:93-98 and the note on ECB
+being "no longer a known failure" since cycle 43). ECB now appears to hang
+on that Accept header instead of rejecting it quickly, so the probe never
+gets the 406 that triggers the fallback and burns the full timeout, which
+`probing_tools.py:401` then reports as "provider unreachable" - the wrong
+diagnosis for what is actually a hung request on an Accept header ECB no
+longer answers promptly.
+**Network ruled out:** other endpoints (ABS, ILO, IMF, etc.) all answered
+normally this cycle and in the live recheck, and ECB itself answers
+instantly to `text/csv`, so this is specific to ECB plus that one Accept
+header, not a network problem on our side.
+**History:** new regression; ECB was healthy through cycle 1235. A similar
+but distinct one-cycle blip happened at cycle 1231 (`degraded`, same
+"provider unreachable" message on gateway data, plus a separate direct json
+`ReadTimeout`) and self-resolved by 1232. This is the second occurrence of
+the same gateway-data symptom in the last 48h, and the first time it has
+persisted past one cycle.
+**Recommended action:** either make `fetch_data_probe` always try `text/csv`
+directly for endpoints with a `data_formats` CSV override (ECB already has
+one, config.py:99) instead of attempting the standard SDMx-CSV type at all,
+or give the first attempt a much shorter timeout than the fallback so a hang
+degrades fast into the retry instead of consuming the whole budget.
+**Could not determine:** whether ECB's hang-instead-of-406 behavior is a
+permanent provider change or a transient condition on their side; only two
+cycles of data exist so far.
+
+**Changed:** ILO `provider_down` -> healthy (recovered)
+
+**Cycle saw:** healthy at 1235, 1236 and 1237; no failing checks.
+**Live recheck:** not needed; three consecutive healthy cycles since the
+failure.
+**Classification:** provider-side 403, same recurring pattern as before.
+**History:** this is the same chronic Cloudflare-403 flapping already on
+file (episodes at cycles 1222, 1232, 1234, each resolving within 1-2
+cycles). This is the fourth episode in the current window and it resolved
+the same way. No new behavior.
+**Recommended action:** none; continue watching, already tracked.
+**Could not determine:** nothing outstanding for ILO this run.
+
+**Other checks this run:** `/healthz` 200, `stale: false`, `gateway_up:
+true`, no entries in `/api/contracts` `changes`. The only non-`ok` contract
+verdict anywhere is STATSNZ `auth:listing` -> `capability_appeared`, already
+open since cycle 60 and unchanged this run. 133 `claude/` triage branches
+exist on origin, still above the 20 the skill flags for pruning; not
+actioned by this read-only routine.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

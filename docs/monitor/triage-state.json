@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1168,
-  "last_cycle_started_at": "2026-10-30T12:01:22+00:00",
-  "last_run": "2026-10-30T12:43Z",
+  "last_cycle_id": 1234,
+  "last_cycle_started_at": "2026-11-05T00:01:22+00:00",
+  "last_run": "2026-11-05T00:46Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "degraded",
+    "ILO": "provider_down",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,12 +18,13 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO flapped: degraded at cycle 1168 (direct metadata HTTP 403 after 2 attempts; gateway metadata, gateway data, direct data, direct json all ok). Live recheck at this run returned 200 twice, immediately. Fourth occurrence of the recurring ILO 403 pattern (cycle 32, 1150, 1162, now 1168), this time narrower (direct metadata only). Watch next cycle; close if it clears and stays clear.",
-    "ILO encoding:structure_xml Content-Type charset/version parameter order flipped cosmetically this cycle (same pattern previously seen on ABS/ILO/OECD); verdict stayed ok, not an incident.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1168. Still open, not re-reported since no new change.",
-    "111 claude/ triage branches on origin as of this run (up from 110 at cycle 1165). Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "main is still only through cycle 1147's PR (#314). This run's own merge-to-main attempt is reported separately in the session output; if it also fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO/OECD encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
+    "ILO healthy -> provider_down at cycle 1234 (Cloudflare 403 on gateway and direct paths). Third 403 episode in the current 48h window (cycles 1222, 1232, 1234), each resolving within 1-2 cycles so far. Live recheck ~40min after the cycle still showed 403. Watch next cycle; not actioned, provider-side.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1234. Still open, not re-reported since no new change.",
+    "132 claude/ triage branches on origin as of this run. Still well above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "main freshness not reconfirmed this run; this run's own merge-to-main attempt is reported separately in the session output. If it fails, findings stay recorded on this branch and the next run's branch-scan will pick them up.",
+    "Monitor bug noted previously: /api/history computes status without contracts, so a contract-only degraded state never shows up in /api/history, only in /api/status. Not re-confirmed this run since no contract-only state occurred, but still believed true.",
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO/OECD encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok.",
+    "ABS gateway metadata empty-error-body bug recurred briefly at cycle 1233 (recovered by 1234). Same shape previously seen at cycle 1144. Watch for it recurring every run instead of intermittently; no action taken this run since it already self-resolved."
   ],
   "alerted": true
 }

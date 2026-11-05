@@ -4,6 +4,192 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-05T00:46Z - cycle 1234
+
+**Changed:** ILO healthy -> `provider_down` (Cloudflare 403 on every path).
+
+**Previous state:** cycle 1231, read from branch `claude/sleepy-dijkstra-7p73z0`
+(the newest state found across branches). ILO was healthy at 1231.
+
+**ILO**
+**Cycle saw:** `/api/history` shows ILO healthy at 1231, flapped to
+`gateway_issue` at 1232 (gateway metadata 403, gateway data 403; direct
+checks still passing) and recovered to healthy at 1233. At 1234 (started
+2026-11-05T00:01:22Z) every check failed: gateway metadata (403, Cloudflare,
+2 attempts), gateway data (403, 2 attempts), direct metadata (HTTP 403),
+direct data (HTTP 403), direct json (HTTP 403).
+**Live recheck:** `curl` against `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+about 40 minutes after the cycle still returns `HTTP/2 403`, served by
+Cloudflare (`server: cloudflare`, `cf-ray` present), body is ILO's own
+"403 - Forbidden: Access is denied." HTML page. Agrees with the cycle: not
+transient. A simultaneous check against ECB succeeded (`200`), so this is
+not the environment's network being blocked generally.
+**Classification:** `provider_down` per the monitor's own derivation
+(metadata failing on both the gateway and the direct path). Theirs, not
+ours; nothing to fix in gateway code.
+**New or chronic:** chronic. This is the third ILO 403 episode inside the
+current 48-hour window alone (cycle 1222: `provider_down`, recovered by
+1223; cycle 1232: `gateway_issue`, recovered by 1233; now 1234:
+`provider_down` again), consistent with the Cloudflare-fronted 403
+recurrence this project has already filed alerts for (see cycles 1138 and
+1168 in git history). Each episode so far has resolved within one or two
+2-hour cycles.
+**Recommended action:** none beyond watching the next cycle for recovery;
+no gateway code change is implicated. If this stretches past 2-3 cycles
+without recovering, that would be new and worth a closer look (ILO has not
+previously stayed down this long in this window).
+**Could not determine:** why Cloudflare intermittently blocks these
+specific requests, or whether it correlates with anything on our side (rate,
+user agent, IP reputation) versus being purely ILO/Cloudflare-side.
+
+**ABS (resolved between runs):** `healthy` -> `gateway_issue` at cycle 1233
+(`gateway metadata: Error:`, empty error body - the same empty-message shape
+flagged before, see cycle 1144) -> back to `healthy` at cycle 1234, per the
+monitor's own next cycle. Direct checks were unaffected throughout, so this
+read as `gateway_issue`, i.e. ours, while it lasted. Reporting this once as
+already resolved; the recurrence of the empty-body shape is itself worth
+keeping an eye on if it starts happening every run instead of intermittently.
+
+**ECB (resolved, closes out cycle 1231's open item):** the `degraded` episode
+recorded at cycle 1231 in the previous entry recovered at cycle 1232 and has
+stayed `healthy` through 1233 and 1234. No live recheck needed; the monitor's
+own subsequent cycles confirm recovery. Closing that open item.
+
+**Other endpoints:** BIS, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ, UNICEF
+all read healthy at cycle 1234, no change from 1231.
+
+**Contracts:** `changes` in `/api/contracts` lists twelve ILO assertions
+flipping to `403`, all consistent with the `provider_down` episode above
+(`auth:listing`, `constraint:availableconstraint`, `errors:missing_artefact`,
+`references:all/children/contentconstraint/descendants/none/parents/parentsandsiblings`
+went `broken`; `dialect:sdmx3` stayed `ok` since 400 and 403 are both
+"not success"; `encoding:structure_xml` was `skipped` since the probe itself
+403'd). No contract changes on any other endpoint. STATSNZ `auth:listing`
+remains `capability_appeared` (open since cycle 60, not new, not
+re-reported in detail). BIS/IMF `references:contentconstraint` remain
+`ignored` (known architectural fact).
+
+**Monitor health:** `/healthz` answered 200, `gateway_up: true`,
+`stale: false`, no drift. No severe conditions.
+
+**Other open items:** 132 `claude/` triage branches on `origin`, still well
+above the 20 the skill flags for pruning; not actioned by this read-only
+routine. The `/api/history`-vs-`/api/contracts` monitor quirk noted in
+earlier entries (contract-only degraded states not showing in
+`/api/history`) was not re-confirmed this run since no contract-only state
+occurred, but is still believed true.
+
+
+## 2026-11-04T18:44Z - cycle 1231
+
+**Changed:** ECB healthy -> `degraded`.
+
+**Previous state:** cycle 1228, read from branch `claude/sleepy-dijkstra-yar3ak`
+(the newest state found across branches). All twelve endpoints were healthy
+at 1228.
+
+**ECB**
+**Cycle saw:** `/api/history` shows ECB healthy through cycle 1230 (started
+2026-11-04T16:01:22Z). At cycle 1231 (started 2026-11-04T18:01:22Z, the
+current cycle) the failing checks are: `gateway metadata: Error:` (empty
+error body, 2 attempts, 31767ms), `gateway data: probe status: error;
+Network or transport error - provider unreachable` (2 attempts, 30379ms),
+and `direct json: ReadTimeout:` (2 attempts, 30481ms). Direct metadata (200,
+848ms in my recheck) and direct data (200, csv, sample 1.1267 for
+2026-11-04) both passed within the cycle itself.
+**Live recheck:** direct metadata, direct data (csv), and direct json
+(`application/vnd.sdmx.data+json;version=1.0.0-wd`) all returned `200`
+within 1 second, about an hour after the cycle ran. Disagrees with the
+cycle's gateway-metadata, gateway-data, and direct-json failures, pointing
+to something transient rather than a lasting outage.
+**Classification:** `degraded` per the monitor's own derivation. Mixed
+signature: for metadata and data, direct succeeded while gateway failed,
+which on its own would read as `gateway_issue` (ours); but direct json also
+failed in the same cycle, which a gateway-side bug alone would not explain,
+since ECB's direct json check does not go through the gateway. The more
+likely explanation is a transient slow or unresponsive window at ECB during
+the 2026-11-04T18:01-18:05Z cycle, that affected the gateway's probe and the
+direct json check similarly but had cleared by the time the direct
+metadata/data checks ran moments later and by the time of this live recheck.
+**New or chronic:** ECB was explicitly not a known failure as of the
+previous baseline (fixed since cycle 43, after the gateway learned to retry
+`text/csv` on a 406). It has flapped twice more recently in this same
+48-hour window before today: cycle 1216 (direct data: HTTP 500, recovered at
+1217) and cycle 1218 (gateway data: HTTP 504 from provider; direct metadata,
+data, and json: HTTP 504/500, recovered at 1219). This is a third episode in
+the last two days, each with a different failure shape (plain 500/504 vs.
+today's timeouts and an empty gateway-metadata error), after ECB had been
+stable for months before that. The recurrence itself, not any single cycle,
+is the news here.
+**Recommended action:** watch the next few cycles. If ECB keeps flapping at
+this cadence, it is worth checking whether the gateway's timeout/retry
+budget for ECB specifically needs adjusting, since two of today's three
+failing checks are the gateway's own probes timing out at 30s while the
+direct checks for the same kinds succeeded quickly outside that window.
+**Could not determine:** whether the empty `gateway metadata: Error:` body
+has a specific cause, or whether this is the same underlying slowness as the
+`direct json: ReadTimeout` and the two prior flaps in this window, or an
+unrelated coincidence.
+
+**Other endpoints:** ABS, BIS, ESTAT, FBOS, ILO, IMF, OECD, SBS, SPC,
+STATSNZ, UNICEF all read healthy at cycle 1231, no change from 1228.
+
+**Contracts:** no entries in `/api/contracts` `changes` this run. STATSNZ
+`auth:listing` remains `capability_appeared` (open since cycle 60, not new).
+BIS/ILO/IMF `references:contentconstraint` remain `ignored` (known
+architectural fact). No `broken` verdicts.
+
+**Other open items:** 132 `claude/` triage branches on `origin` as of this
+run (fetching all of them to find the previous state pulled in roughly 130
+new remote branches at once), still well above the 20 the skill flags for
+pruning; not actioned by this read-only routine. `main` freshness not
+reconfirmed this run; see this run's merge-to-main attempt in the session
+output.
+
+## 2026-11-04T12:43Z - cycle 1228
+
+**Changed:** ESTAT healthy -> `gateway_issue` -> healthy (flapped between runs, already resolved).
+
+**Previous state:** cycle 1225, read from branch `claude/sleepy-dijkstra-tikv2m`
+(the newest state found across branches). All twelve endpoints were healthy
+at 1225.
+
+**ESTAT**
+**Cycle saw:** `/api/history` shows ESTAT healthy at cycles 1225 and 1226,
+`gateway_issue` at cycle 1227 (started 2026-11-04T10:01:22Z) with the single
+failing check `gateway metadata: Error:` (empty error body), then healthy
+again at cycle 1228 (started 2026-11-04T12:01:22Z, the current cycle).
+**Live recheck:** a direct call to
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?references=none`
+just now returned `200` immediately. Consistent with cycle 1228 already
+showing ESTAT clean.
+**Classification:** `gateway_issue` at 1227 (direct path OK, gateway metadata
+path failing) - per the monitor's own derivation this means the problem is on
+our side, not ESTAT's, for that one cycle.
+**New or chronic:** this exact empty `gateway metadata: Error:` body on ESTAT
+is a recurring pattern, previously logged at cycles 26, 997, 1087, 1140,
+1142 and 1143 (see entries above), distinct from the also-chronic
+`list_dataflows` 60s-timeout flap. This is at least the seventh occurrence,
+always single-cycle and self-resolving.
+**Recommended action:** no action; matches the long-standing recurring
+pattern. If the empty error body is ever accompanied by a non-empty message,
+or the flap stops self-resolving, that would be new and worth a closer look.
+**Could not determine:** the root cause of the intermittently empty gateway
+metadata error message, as in every prior occurrence.
+
+**Other endpoints:** ABS, BIS, ECB, FBOS, ILO, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF all read healthy across cycles 1225-1228, no change.
+
+**Contracts:** no entries in `/api/contracts` `changes` this run. STATSNZ
+`auth:listing` remains `capability_appeared` (open since cycle 60, not new).
+BIS/ILO/IMF `references:contentconstraint` remain `ignored` (known
+architectural fact). No `broken` verdicts.
+
+**Other open items:** 130 `claude/` triage branches on `origin` as of this
+run, still above the 20 the skill flags for pruning; not actioned by this
+read-only routine. `main` freshness not reconfirmed this run; see this run's
+merge-to-main attempt in the session output.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

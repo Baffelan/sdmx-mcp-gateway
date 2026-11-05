@@ -4,6 +4,77 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-05T12:45Z - cycle 1240
+
+**Previous state:** cycle 1237, read from branch
+`claude/sleepy-dijkstra-5nl33t` (the newest state found across branches).
+That run left an open item: ECB had moved `healthy -> gateway_issue` at
+cycle 1236, still present at 1237, with gateway data failing
+("provider unreachable") while direct data and json were fine. The
+hypothesis was a gateway-side bug: the `text/csv` Accept retry never firing
+after a hang on the standard SDMx-CSV Accept header.
+
+**Changed:** ECB `gateway_issue -> degraded` (now failing on both the
+gateway and the direct path).
+
+**ECB**
+**Cycle saw (1240):** gateway data failing with "probe status: error;
+Network or transport error - provider unreachable" (30.6s, 2 attempts);
+direct data now also failing, `ReadTimeout` (30.5s, 2 attempts). Gateway
+metadata, direct metadata and direct json all ok.
+**History since cycle 1237:** not stable. Cycle 1238 was `degraded`
+("gateway metadata: Error:" + "direct json: ReadTimeout") and recovered by
+1239 (`healthy`), then failed again at 1240 with yet another combination
+(gateway data + direct data). Three different check combinations have
+failed across four cycles, each recovering before the next failed
+differently.
+**Live recheck:** repeated the direct data call just now
+(`GET /data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`, `Accept: text/csv`,
+exactly what `config.py` already sends for ECB): took 31.4s and came back
+`HTTP 504` with ECB's own error page, not a client-side timeout. The same
+series via `Accept: application/vnd.sdmx.data+json;version=1.0.0-wd`
+answered `200` in 0.8s with real data.
+**Correction to the previous run's hypothesis:** the prior theory (our
+gateway hangs on the SDMx-CSV Accept header and never reaches its
+`text/csv` retry, while `text/csv` direct stays fast) does not hold up
+anymore - this recheck shows plain `text/csv` direct also 504ing. The
+pattern looks like an intermittent problem on ECB's own infrastructure
+specific to the `EXR` data query under `text/csv`, independent of which
+Accept header is sent, not a bug in our retry logic.
+**Rule out network on our end:** OECD, IMF and ABS metadata endpoints all
+answered in under 1s during the same check, so this is not a connectivity
+problem in the environment running this routine.
+**Classification:** provider-side. `degraded` per the monitor's own
+derivation (mixed: data fails on both paths, metadata and json are fine on
+both), and the live recheck confirms the failure originates at ECB
+(`HTTP 504`, ECB's branded error page), not in our gateway code.
+**Recommended action:** keep watching; do not action a gateway code change
+based on the previous run's Accept-header theory, since this recheck
+contradicts it. If a future cycle shows the gateway specifically failing
+while a simultaneous direct `text/csv` call to the same series succeeds,
+that would support a real gateway-side retry bug and should be reported
+again with that evidence.
+**Could not determine:** why ECB's `EXR` data query intermittently 504s,
+or whether it is tied to load, a maintenance window, or a backend issue
+on their side.
+
+**ESTAT (minor, already resolved)**
+**Changed:** `healthy -> gateway_issue -> healthy` within the window.
+**Cycle saw:** cycle 1239 failed with "gateway metadata: Error:"; cycle
+1238 and cycle 1240 were both healthy. Recording per the skill's rule to
+report flaps that already recovered between runs, since they can precede
+a harder failure.
+**Classification:** gateway-side per the monitor's own label
+(`gateway_issue`), but self-resolved within one cycle and not re-verified
+live since it had already cleared by the time this run read `/api/status`.
+**Could not determine:** the specific gateway error text was truncated to
+"Error:" by the monitor itself; the underlying cause was not captured and
+cannot be recovered now that the cycle has passed.
+
+**No contract changes** in this window (`/api/contracts` `changes` is
+empty). `STATSNZ auth:listing` stays `capability_appeared`, unchanged from
+the open item already tracked; not re-reported as new.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

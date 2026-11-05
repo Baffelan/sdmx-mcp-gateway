@@ -4,6 +4,119 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-05T18:45Z - cycle 1243
+
+**Changed:** ECB flapped `degraded` -> healthy -> `gateway_issue` -> healthy
+(already resolved). ILO healthy -> `provider_down` (new occurrence).
+
+**Previous state:** cycle 1240, read from branch
+`claude/sleepy-dijkstra-fz16mw` (the newest state found across branches;
+`main` is still at cycle 1168's PR). All twelve endpoints were healthy at
+1240 except ECB, which was `degraded`.
+
+**ECB**
+**Cycle saw (scanned 1241-1243 from `/api/history`):** cycle 1241 healthy;
+cycle 1242 (started 2026-11-05T16:01:22Z) `gateway_issue`, failing list
+`["gateway data: probe status: error; Network or transport error —
+provider unreachable"]` with direct data *not* in the failing list, i.e.
+direct succeeded while gateway failed; cycle 1243 (current) healthy on all
+five checks, latencies 0.6-1.4s.
+**Live recheck:** a plain `text/csv` direct call to
+`/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1` (ECB's exact configured
+data path) returned `200` in 0.54s just now, consistent with the current
+healthy cycle.
+**Classification:** `gateway_issue` at cycle 1242 is the monitor's own
+label and per the skill's table means "ours." This is exactly the pattern
+the previous run's open item asked to watch for (a cycle where gateway
+data fails while a simultaneous direct call to the same series succeeds),
+and it has now happened. Root cause identified in code, not just inferred:
+`tools/probing_tools.py`'s `_probe_via_csv` (line ~396) calls
+`SDMXProgressiveClient.fetch_data_probe()` with no `accept` argument, so
+every provider's gateway-side data probe uses the hardcoded default
+`application/vnd.sdmx.data+csv;version=1.0.0` — it never consults
+`config.py:get_data_accept()`, which is the function that knows ECB needs
+`text/csv` directly (`config.py` `ECB.data_formats`). `fetch_data_probe()`
+(`sdmx_progressive_client.py` line ~301) reacts to ECB's 406 on that
+default by retrying once as `text/csv`, so every gateway-side probe of ECB
+makes two sequential HTTP round trips to ECB. The monitor's own direct
+check is configured with `data_accept="text/csv"`
+(`monitor/endpoints_config.py` line ~112) and makes only one. Two round
+trips double ECB's exposure window to ordinary transient provider latency
+relative to one, which plausibly explains why the gateway-only path trips
+into failure while the direct path does not, without needing ECB itself to
+be unhealthy. This is a real asymmetry in our own code, not a logic bug
+that returns wrong data — the real user-facing data-fetch tool
+(`tools/sdmx_tools.py`) does call `get_data_accept()` and already avoids
+this for normal data fetches; only the lightweight probe path skips it.
+**New or chronic:** the `gateway_issue` flap itself is new as of cycle
+1242 and resolved by 1243. The underlying asymmetry (probe path skipping
+`get_data_accept`) is presumably long-standing code, not a new change;
+nothing in git history for this run suggests a recent regression.
+**Recommended action:** no action taken (read-only routine). Worth
+someone having `_probe_via_csv` pass the endpoint's resolved accept header
+(via `get_data_accept`) instead of the hardcoded default, so the
+gateway-side probe stops paying for an extra round trip it does not need
+for ECB. Low urgency: this cycle resolved on its own and the data-fetch
+tool itself is unaffected.
+**Could not determine:** whether cycle 1242's gateway failure would have
+reproduced on a second simultaneous attempt, since the live recheck ran
+hours later against an already-healthy cycle.
+
+**ILO**
+**Cycle saw:** cycle 1243 (started 2026-11-05T18:01:22+00:00)
+`provider_down`: gateway metadata `HTTP 503` from
+`sdmx.ilo.org/rest/dataflow/ILO/all/latest`; gateway data `HTTP 403 from
+provider`; direct metadata `HTTP 403` (837ms); direct data and direct json
+both `HTTP 200` and ok. Cycles 1238-1242 were all healthy for ILO.
+**Live recheck:** a direct call to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now returned
+`200` in 2.4s, no 403. Already clear.
+**Classification:** `provider_down` per the monitor (metadata failing on
+both gateway and direct paths) - provider-side, nothing to fix in our
+code. This is the same recurring ILO Cloudflare-403 pattern already
+logged repeatedly (cycles 32, 1150, 1162, 1168, 1222, 1232, 1234); this is
+the latest occurrence, metadata-led this time with data/json unaffected
+on the direct path.
+**Contract side effect:** `encoding:structure_xml` was flagged in
+`/api/contracts` `changes` for a Content-Type parameter-order flip
+(`charset=utf-8; version=2.1` -> `version=2.1; charset=utf-8`); verdict
+stayed `ok`. Same cosmetic flip already seen repeatedly on ABS/ILO/OECD,
+not an incident.
+**New or chronic:** new occurrence as of cycle 1243, already clear on live
+recheck. Chronic pattern, self-resolving every time so far.
+**Recommended action:** no action; same as every prior occurrence of this
+pattern.
+**Could not determine:** the root cause on ILO's/Cloudflare's side of the
+403, as in every prior occurrence.
+
+**Other endpoints:** ABS, BIS, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF all healthy at cycle 1243, no change from 1240.
+
+**Open items carried forward, unchanged this run:**
+- STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) is
+  still present at cycle 1243. Still open, not re-reported since no new
+  change.
+- 135 `claude/` triage branches on origin as of this run. Still well above
+  the 20 the skill flags for pruning; not actioned by this read-only
+  routine.
+- `main` is still only through cycle 1168's PR. This run's own
+  merge-to-main attempt is reported separately in the session output; if
+  it also fails, this run's findings stay recorded on this branch and the
+  next run's branch-scan will pick them up.
+- Monitor bug noted previously: `/api/history` computes status without
+  contracts, so a contract-only degraded state never shows up there, only
+  in `/api/status`. Not re-confirmed this run since no contract-only state
+  occurred, but still believed true.
+- Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+  returns 500 (constraints come via `?references=all`); ESTAT has no
+  practical constraint support; ESTAT direct json check is skipped by
+  design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF
+  `references:contentconstraint` reads `ignored` (accepted and silently
+  dropped); ABS/ILO/OECD `encoding:structure_xml` Content-Type
+  charset/version parameter order flips cosmetically from time to time,
+  verdict always stays `ok`.
+
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

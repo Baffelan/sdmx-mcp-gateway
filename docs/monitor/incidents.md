@@ -4,6 +4,46 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-06T12:43Z - cycle 1252
+
+**Changed:** ESTAT healthy -> `gateway_issue` -> healthy, already resolved.
+
+**Previous state:** cycle 1249, read from branch
+`claude/sleepy-dijkstra-vt7xeo` (the newest state found across branches;
+`main` is still at cycle 1168's PR #320). All twelve endpoints were healthy
+at 1249.
+
+**ESTAT**
+**Cycle saw:** the flap happened between runs, at cycle 1251 (started
+2026-11-06T10:01:22Z): `gateway_issue`, failing check `gateway metadata:
+Error:` with an empty error body. Cycle 1250 and cycle 1252 (the current
+cycle) both show ESTAT healthy with no failing checks.
+**Live recheck:** `/api/status` at this run (cycle 1252) already shows ESTAT
+healthy, all checks passing - consistent with the monitor's own cycle 1252
+result, so no separate live call was needed to confirm recovery.
+**Classification:** `gateway_issue` per the monitor (gateway metadata
+failed, direct paths presumably unaffected) - this is ours, not the
+provider's, to the extent the empty error message lets us tell. Checked
+other providers at cycle 1251 in the history series: all eleven others
+stayed healthy that cycle, so this was not a network problem on the
+monitor's side.
+**New or chronic:** single-cycle flap, new as of 1251, already resolved by
+1252. ESTAT has flapped before (`list_dataflows` timing out at 60s under
+load, cycles 54 and 55), but that was a `degraded` timeout, not this
+`gateway_issue` empty-error shape.
+**Recommended action:** none needed now since it already cleared. The empty
+error message is itself worth fixing in `monitor/derive.py` or wherever the
+gateway metadata check captures its error, so a future occurrence (on ESTAT
+or any other endpoint) carries an actual message instead of `Error:` with
+nothing after it. This is the same empty-body pattern previously logged for
+ABS's `gateway metadata: Error:` at cycle 26; this is the second known
+occurrence, now on a different endpoint, which is why it is being reported
+this time per the skill's own guidance ("if this recurs, the empty message
+is itself the bug to report").
+**Could not determine:** what the underlying gateway-side error actually
+was, since the captured message is empty; whether this is the same root
+cause as the ABS cycle 26 occurrence or coincidental.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

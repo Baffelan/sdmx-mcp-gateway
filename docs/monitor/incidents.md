@@ -4,6 +4,42 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-06T00:44Z - cycle 1246
+
+**Changed:** ILO `provider_down` -> healthy (already resolved by the time this run started).
+
+**Previous state:** cycle 1243, read from branch `claude/sleepy-dijkstra-5nk38m`
+(the newest state found across branches; `main` is still at cycle 1168's PR).
+All twelve endpoints were healthy at 1243 except ILO.
+
+**ILO**
+**Cycle saw (1243):** gateway metadata `503 Service Unavailable`; gateway data
+probe `HTTP 403 from provider`; direct metadata `HTTP 403`. Direct data and
+direct json both ok.
+**History since:** cycle 1244 already shows ILO healthy, and it has stayed
+healthy through cycles 1244, 1245, and the current cycle 1246 (three
+consecutive cycles).
+**Live recheck:** direct call to `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+just now returned `200` in 2.6s.
+**Classification:** `provider_down` per the monitor (metadata failed on both
+the gateway and direct paths) - provider-side, nothing to fix in our code.
+**New or chronic:** chronic. This is the same recurring ILO Cloudflare-403
+pattern already logged repeatedly (cycles 32, 1150, 1162, 1168, 1222, 1232,
+1234, and now 1243), and it self-resolved again by the very next cycle, as it
+always has.
+**Recommended action:** none. Pattern continues to self-resolve within one
+cycle every time; no code change indicated.
+**Could not determine:** nothing outstanding for this finding; the recovery is
+confirmed live and by three consecutive healthy cycles.
+
+**Contracts:** no entries in `/api/contracts`'s `changes` array this run. The
+matrix still shows STATSNZ `auth:listing` as `capability_appeared`, unchanged
+from previous runs (open since cycle 60); not re-reported as new.
+
+**All other endpoints** (ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC,
+STATSNZ, UNICEF): healthy at cycle 1243 and still healthy at cycle 1246, no
+change.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

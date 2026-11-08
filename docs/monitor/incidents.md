@@ -4,6 +4,65 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-08T00:45Z - cycle 1270
+
+**Changed:** ILO healthy -> `provider_down`; UNICEF healthy -> `degraded`.
+
+**Previous state:** cycle 1267, read from branch
+`claude/sleepy-dijkstra-1yk5f1` (the newest state found across branches;
+`main` is still at cycle 1168's PR #320). All twelve endpoints were healthy at
+1267.
+
+**ILO**
+**Cycle saw:** cycle 1270 (started 2026-11-08T00:01:22Z): `HTTP 403 Forbidden`
+on all five checks - gateway metadata, gateway data, direct metadata, direct
+data, direct json. Every contract assertion for ILO flipped to `broken` in
+`/api/contracts` `changes` (`auth:listing`, `constraint:availableconstraint`,
+`errors:missing_artefact`, `references:all/children/contentconstraint/
+descendants/none/parents/parentsandsiblings`) - this is one failure (metadata
+blocked) cascading through every contract check, not twelve separate findings.
+There was also an intermediate flap in between runs: cycle 1268 showed
+`gateway_issue` (`HTTP 503 Service Unavailable` on gateway metadata only),
+which recovered by cycle 1269 (healthy) before cycle 1270's 403s. Reporting it
+here since it's flapping right before the harder failure.
+**Live recheck:** direct metadata to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now: 4 of 5 repeated
+GETs returned `200` with a valid structure XML body, 1 returned `403`
+(Cloudflare-fronted, `cf-ray` present on both outcomes). Same URL hit with
+`-I` (HEAD) returned `405` (method not allowed for HEAD, expected and
+unrelated). Other providers (OECD, UNICEF) answered `200` immediately in the
+same window, so this is not a network problem on our end.
+**Classification:** `provider_down` per the monitor (metadata failing on both
+gateway and direct paths) - provider-side, nothing to fix in our code.
+**New or chronic:** new as of cycle 1270. This matches ILO's long-running
+403/Cloudflare flakiness already logged for this endpoint (cycle 32, cycle
+1150, cycle 1162, cycle 1168), each time self-resolving; this occurrence is
+wider (hit metadata, data, and json on both paths simultaneously, with a 503
+flap the cycle before) but the live recheck already shows it mostly cleared.
+**Recommended action:** no action; watch the next scheduled cycle to confirm
+it clears and stays clear.
+**Could not determine:** the root cause on ILO/Cloudflare's side of the
+403s, as in every prior occurrence.
+
+**UNICEF**
+**Cycle saw:** cycle 1270 (started 2026-11-08T00:01:22Z): `HTTP 429` (rate
+limited) on gateway data, direct data, and direct json. Metadata on both
+paths stayed healthy. No UNICEF contract assertions flipped in
+`/api/contracts` `changes`.
+**Live recheck:** the same data probe
+(`/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`)
+returned `200` with a valid observation on 3 of 3 repeated calls just now.
+**Classification:** `degraded` per the monitor (data/json failing, metadata
+fine on both paths) - provider-side rate limiting, nothing to fix in our
+code.
+**New or chronic:** new as of cycle 1270. UNICEF has flapped before (`HTTP
+503` at cycle 2, recovered) but a `429` is a new variant for this endpoint,
+not previously catalogued; already cleared on live recheck.
+**Recommended action:** no action; watch the next scheduled cycle to confirm
+it clears and stays clear.
+**Could not determine:** whether the 429 came from UNICEF's own rate limit or
+an intermediary in front of it.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

@@ -4,6 +4,65 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-09T06:43Z - cycle 1285
+
+**Changed:** ECB `gateway_issue` -> healthy; ILO `gateway_issue` -> healthy.
+
+**Previous state:** cycle 1282, read from branch
+`claude/sleepy-dijkstra-so4zgp` (the newest state found across branches;
+`main` is still at cycle 1168's PR #320). At cycle 1282 both ECB and ILO were
+`gateway_issue`; all other ten endpoints were healthy.
+
+**ECB**
+**Cycle saw:** cycle 1282 (started 2026-11-09T00:01:22Z) failed with
+`gateway data: probe status: error; Network or transport error - provider
+unreachable`. Cycles 1283, 1284 and 1285 (checked via `/api/history`) all show
+healthy, no failing checks.
+**Live recheck:** direct call to
+`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest` just now
+returned `200` in 1.4s.
+**Classification:** resolved by the very next cycle (1283), one cycle after
+the prior run recorded it. The prior run's own live recheck at the time found
+1-of-4 attempts timing out while other providers answered fine, consistent
+with transient ECB-side flakiness rather than a gateway bug.
+**New or chronic:** this exact occurrence (cycle 1282) was new as of that
+cycle after 23 preceding healthy cycles; it did not recur or persist.
+
+**ILO**
+**Cycle saw:** cycle 1282 failed both gateway metadata (`403 Forbidden` from
+`sdmx.ilo.org`) and gateway data (`probe status: error; HTTP 403 from
+provider`), with both direct paths healthy. Cycles 1283-1285 all show healthy.
+**Live recheck:** direct call to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now returned `200`
+in 3.5s.
+**Classification:** resolved by the next cycle. This is the same recurring
+Cloudflare/403 pattern already logged for ILO (cycle 32, 1150, 1162, 1168,
+1268, 1270, 1272, now 1282), each time clearing within one or two cycles.
+**New or chronic:** chronic, recurring pattern; not new behaviour.
+
+**Contract side effect:** `encoding:structure_xml` for ILO flipped Content-Type
+parameter order again (`charset=utf-8; version=2.1` -> `version=2.1;
+charset=utf-8`); verdict stayed `ok`. Same cosmetic flip seen repeatedly
+before on ABS/ILO/FBOS/SBS/OECD, not an incident.
+**Network check:** at the time of the cycle-1282 failures, other providers
+(per that run's own live recheck) answered normally, so this was not a
+network-side problem on the monitor's end for either provider.
+**Recommended action:** none. Both are closed as self-resolving occurrences
+of already-known patterns; no code or config change indicated.
+**Could not determine:** the root cause on ECB's or ILO's side for these
+specific blips, as in all prior occurrences of the same patterns.
+
+**Other open items carried forward, unchanged this cycle:**
+- STATSNZ `auth:listing` reads `capability_appeared`, first seen cycle 60,
+  still present at cycle 1285. No new change; not re-reported in detail.
+- `main` is still only through cycle 1168's PR #320, unchanged since the 1282
+  run. This run's merge-to-main attempt is reported separately in session
+  output; if it fails too, these findings stay on this branch for the next
+  run's branch-scan to pick up.
+- 149 `claude/` triage branches on origin as of this run (up from 148 at
+  cycle 1282). Still well above the 20 the skill flags for pruning; not
+  actioned by this read-only routine.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

@@ -4,6 +4,79 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-09T00:46Z - cycle 1282
+
+**Previous state:** cycle 1279, read from branch
+`claude/sleepy-dijkstra-gdkwuq` (the newest state found across branches;
+`main` is still at cycle 1168's PR #320). All twelve endpoints were healthy
+at 1279.
+
+**ECB**
+**Changed:** healthy -> `gateway_issue`.
+**Cycle saw:** gateway metadata ok; gateway data failed with "probe status:
+error; Network or transport error - provider unreachable" after 30387ms
+(hit the call's timeout). Direct metadata, direct data, and direct json all
+`HTTP 200`.
+**Live recheck:** ran four repeated direct requests to
+`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest` just now:
+one timed out at 30s with no response, the other three returned `200`
+within about a second. ECB itself is intermittently timing out right now, on
+a plain direct GET with no gateway involved. Checked OECD, ABS, and ILO
+direct at the same moment; all answered `200` immediately, so this is not a
+problem with this routine's own network.
+**Classification:** monitor calls this `gateway_issue` (direct path ok,
+gateway path failing), but the live recheck disagrees with "it's our gateway
+code": ECB answered unreliably to a plain direct request with no gateway in
+the loop, in the same few minutes. Most likely explanation is that the
+cycle's direct checks got lucky timing against an intermittently slow/flaky
+ECB (or its `myracloud` front), and gateway's single attempt got unlucky.
+Not ruling out a gateway-side contributor, but the balance of evidence here
+points at ECB-side flakiness rather than a bug in our request path.
+**New or chronic:** new as of cycle 1282; healthy for the 23 preceding
+cycles in the 48h window (back to cycle 1259). ECB has not failed anything
+since the HTTP 406 issue that was fixed (text/csv retry), last seen failing
+at cycle 43.
+**Recommended action:** watch the next cycle or two before treating this as
+a real regression; a single intermittent timeout is consistent with ECB's
+own infrastructure being briefly slow, not a code fault to patch.
+**Could not determine:** whether gateway's own call path contributed beyond
+bad luck on timing, since the gateway host itself is outside this routine's
+network allowlist and could not be probed directly.
+
+**ILO**
+**Changed:** healthy -> `gateway_issue`.
+**Cycle saw:** gateway metadata `HTTP 403 Forbidden` on
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`; gateway data failed
+with "probe status: error; HTTP 403 from provider." Direct metadata, direct
+data, and direct json all `HTTP 200`.
+**Live recheck:** two direct requests just now to
+`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`
+and the pinned data path both returned `200` immediately, no 403. Could not
+replicate the gateway-path call itself: the gateway's own host
+(`sdmx-mcp-gateway-production.up.railway.app`) is not in this routine's
+network allowlist (only the monitor and the SDMx providers are), so only the
+provider side could be rechecked directly.
+**Classification:** `gateway_issue` per the monitor (direct path ok, gateway
+path 403). This is the same recurring 403-on-gateway-only pattern already
+logged in open items (cycle 32, 1150, 1162, 1168, 1268, 1270, 1272): ILO (or
+a Cloudflare front in front of it) appears to selectively block the
+gateway's own outbound IP/traffic shape while answering identical requests
+from elsewhere normally. Not a bug in our request logic, since the same
+path and headers succeed when sent directly.
+**New or chronic:** chronic/flapping. Open items noted this had not
+recurred since cycle 1272 and stayed healthy through 1273-1279; this is its
+first recurrence in that window.
+**Recommended action:** none beyond continuing to watch; this has
+self-resolved every previous time within one to two cycles.
+**Could not determine:** whether this cycle's 403 has already cleared,
+since the next cycle (1284, ~02:01Z) had not run yet when this report was
+written.
+
+**Everything else:** no other endpoint changed status; no contract became
+`broken` or `capability_appeared` beyond the already-open STATSNZ
+`auth:listing` item; `/api/contracts` reported an empty `changes` array for
+this cycle. `stale` is `false`, `gateway_up` is `true`, `drift` is empty.
+
 ## 2026-10-30T12:43Z - cycle 1168
 
 **Changed:** ILO healthy -> `degraded` (direct metadata only).

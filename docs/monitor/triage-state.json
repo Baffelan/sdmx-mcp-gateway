@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1285,
-  "last_cycle_started_at": "2026-11-09T06:01:22+00:00",
-  "last_run": "2026-11-09T06:43Z",
+  "last_cycle_id": 1291,
+  "last_cycle_started_at": "2026-11-09T18:01:22+00:00",
+  "last_run": "2026-11-09T18:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,13 +18,12 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ECB gateway_issue at cycle 1282 resolved by cycle 1283, stayed healthy through 1283-1285. Closed, no further action.",
-    "ILO gateway_issue at cycle 1282 (same recurring Cloudflare/403 pattern as cycles 32, 1150, 1162, 1168, 1268, 1270, 1272) resolved by cycle 1283, stayed healthy through 1283-1285. Closed, no further action; keep watching for a future non-resolving occurrence.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1285. Still open, not re-reported since no new change.",
-    "149 claude/ triage branches on origin as of this run (up from 148 at cycle 1282). Still well above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "main is still only through cycle 1168's PR #320, unchanged since the 1282 run. This run's own merge-to-main attempt is reported separately in the session output; if it also fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1291. Still open, not re-reported since no new change.",
+    "150 claude/ triage branches on origin as of this run (up from 149 at the 1288 run). Well above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "main was at cycle 1285's PR #355 before this run started. This run's own merge-to-main attempt is reported separately in the session output; if it fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
     "Monitor bug noted previously: /api/history computes status without contracts, so a contract-only degraded state never shows up in /api/history, only in /api/status. Not re-confirmed this run since no contract-only state occurred, but still believed true.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); IMF direct json check is skipped by design (IMF ignores the JSON Accept header and returns XML); STATSNZ direct json check is skipped by design (Stats NZ ignores the JSON Accept header and returns CSV); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time across ABS/FBOS/ILO/SBS/OECD, verdict stays ok as always."
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); IMF direct json check is skipped by design (IMF ignores the JSON Accept header and returns XML); STATSNZ direct json check is skipped by design (Stats NZ ignores the JSON Accept header and returns CSV); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time across ABS/FBOS/ILO/SBS/OECD, verdict stays ok as always.",
+    "ECB gateway_issue streak at cycles 1286-1288 (3 consecutive cycles, 6h) resolved by cycle 1289 and stayed healthy through 1291. Closed, no further action; same self-resolving shape as the isolated cycle-1242 and cycle-1282 occurrences, just one cycle slower to clear. Watch for a future non-resolving occurrence."
   ],
   "alerted": true
 }

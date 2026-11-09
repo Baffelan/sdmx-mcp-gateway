@@ -1,15 +1,15 @@
 {
-  "last_cycle_id": 1168,
-  "last_cycle_started_at": "2026-10-30T12:01:22+00:00",
-  "last_run": "2026-10-30T12:43Z",
+  "last_cycle_id": 1282,
+  "last_cycle_started_at": "2026-11-09T00:01:22+00:00",
+  "last_run": "2026-11-09T00:46Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
     "BIS": "healthy",
-    "ECB": "healthy",
+    "ECB": "gateway_issue",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "degraded",
+    "ILO": "gateway_issue",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,12 +18,13 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO flapped: degraded at cycle 1168 (direct metadata HTTP 403 after 2 attempts; gateway metadata, gateway data, direct data, direct json all ok). Live recheck at this run returned 200 twice, immediately. Fourth occurrence of the recurring ILO 403 pattern (cycle 32, 1150, 1162, now 1168), this time narrower (direct metadata only). Watch next cycle; close if it clears and stays clear.",
-    "ILO encoding:structure_xml Content-Type charset/version parameter order flipped cosmetically this cycle (same pattern previously seen on ABS/ILO/OECD); verdict stayed ok, not an incident.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1168. Still open, not re-reported since no new change.",
-    "111 claude/ triage branches on origin as of this run (up from 110 at cycle 1165). Still above the 20 the skill flags for pruning; not actioned by this read-only routine.",
-    "main is still only through cycle 1147's PR (#314). This run's own merge-to-main attempt is reported separately in the session output; if it also fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
-    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); ABS/ILO/OECD encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time, verdict always stays ok."
+    "ECB gateway_issue at cycle 1282 (gateway data: network/transport error, 30s timeout). Live recheck found ECB itself intermittently timing out on a plain direct request minutes later (1 of 4 attempts), with other providers answering fine at the same moment, so this reads as ECB-side flakiness rather than a gateway bug. New as of this cycle after 23 healthy cycles. Watch next cycle for recurrence before treating as a real regression.",
+    "ILO recurring 403/Cloudflare pattern (cycle 32, 1150, 1162, 1168, 1268, 1270, 1272) recurred again at cycle 1282 (gateway metadata + gateway data both 403, direct paths all healthy), after being clear since cycle 1272 through cycle 1281. Keep watching for a non-resolving occurrence.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1282. Still open, not re-reported since no new change.",
+    "148 claude/ triage branches on origin as of this run (up from 147 at cycle 1279). Still well above the 20 the skill flags for pruning; not actioned by this read-only routine.",
+    "main is still only through cycle 1168's PR #320, unchanged since the 1279 run. This run's own merge-to-main attempt is reported separately in the session output; if it also fails, this run's findings stay recorded on this branch and the next run's branch-scan will pick them up.",
+    "Monitor bug noted previously: /api/history computes status without contracts, so a contract-only degraded state never shows up in /api/history, only in /api/status. Not re-confirmed this run since no contract-only state occurred, but still believed true.",
+    "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); BIS/ILO/IMF references:contentconstraint reads ignored (accepted and silently dropped); encoding:structure_xml Content-Type charset/version parameter order flips cosmetically from time to time across ABS/FBOS/ILO/SBS/OECD, verdict stays ok as always."
   ],
   "alerted": true
 }

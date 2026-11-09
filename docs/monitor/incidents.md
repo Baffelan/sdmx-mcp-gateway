@@ -4,6 +4,70 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-09T12:44Z - cycle 1288
+
+**Changed:** ECB healthy -> `gateway_issue` (ongoing); OECD healthy -> `degraded` (already resolved).
+
+**Previous state:** cycle 1285, read from this run's own branch
+`claude/sleepy-dijkstra-uvzx8r` (its own prior commit was the newest state
+found across branches; `main` is now at cycle 1285's PR #355).
+
+**ECB**
+**Cycle saw:** healthy through cycle 1285, then degraded at cycle 1286
+(`gateway data: probe status: error; Network or transport error - provider
+unreachable`, plus `direct json: ReadTimeout`), then `gateway_issue` at 1287
+and 1288 (same gateway-data failure only; direct json check stopped failing).
+Still failing as of cycle 1288, the latest cycle - not yet resolved.
+**Live recheck:** direct data (`EXR/M.USD.EUR.SP00.A`) returned `200` in
+1.3s. Direct json with the SDMx-JSON accept header timed out after 30s with
+no response (`http=000`), reproducing the same shape as cycle 1286's
+`ReadTimeout`, so direct json is still intermittently broken even though it
+dropped out of the monitor's `failing` list at 1287-1288. Could not test the
+gateway-data path directly (it runs inside the gateway's own MCP call, not
+reachable from here); `gateway_up` is `true` with 119ms latency in
+`/api/status`, and other providers (IMF, ABS) answered normally, so this is
+not a network problem on this routine's side.
+**Classification:** `gateway_issue` (direct data path OK, gateway path
+failing) - **ours** per the monitor's own classification, specifically the
+`data` check on the gateway path for ECB.
+**New or chronic:** the exact same failure signature
+(`gateway data: probe status: error; Network or transport error - provider
+unreachable`) has now appeared at cycles 1242, 1282, 1286, 1287 and 1288. The
+first two were isolated and self-resolved within one cycle. This is the
+third occurrence and the first to persist past a single cycle (3 consecutive
+cycles, 6 hours and counting as of this run). The skill's own baseline notes
+ECB as "no longer a known failure" since the SDMx-CSV 406 fix; this is a
+different failure (network/transport to the provider from the gateway's
+side, not an Accept-header mismatch) and is news on both counts: new shape,
+and no longer self-resolving in one cycle.
+**Recommended action:** watch the next cycle; if `gateway_issue` persists
+past cycle 1289 (14:01Z) treat it as a real regression in the gateway's path
+to ECB rather than transient flakiness, since the pattern has now broken its
+own one-cycle-recovery history.
+**Could not determine:** whether the gateway-side "provider unreachable"
+error is ECB rate-limiting or blocking the gateway's egress IP specifically
+(since this routine's own direct calls succeed for data), a transient
+Railway-side network blip, or an actual bug in the gateway's ECB client. The
+intermittent direct-json timeout observed live cannot be attributed with
+confidence either, since it reproduced once here but was absent from the
+monitor's own last two cycles.
+
+**OECD**
+**Cycle saw:** healthy for all 48 cycles in the preceding 96 hours, then
+`degraded` at cycle 1288 only, with `direct json: HTTP 500` on the pinned
+query `data/OECD.SDD.TPS,DSD_PRICES@DF_PRICES_HICP/FRA.M......?firstNObservations=1`.
+**Live recheck:** the identical pinned query with the SDMx-JSON 2.0.0 accept
+header returned `200` about 40 minutes later, with a valid payload
+(`dataSets` present).
+**Classification:** `degraded`, direct-path-only, single check. Resolved by
+live recheck; first occurrence in the available history for this endpoint.
+**New or chronic:** new, single-cycle, not seen before in the 96-hour
+window checked.
+**Recommended action:** none; treat as a one-off provider-side 500 unless it
+recurs.
+**Could not determine:** nothing outstanding; the live recheck confirmed
+recovery.
+
 ## 2026-11-09T06:43Z - cycle 1285
 
 **Changed:** ECB `gateway_issue` -> healthy; ILO `gateway_issue` -> healthy.

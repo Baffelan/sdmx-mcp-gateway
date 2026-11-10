@@ -4,6 +4,29 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-10T00:44Z - cycle 1294
+
+**Changed:** ECB healthy -> degraded (1293) -> `gateway_issue` (1294, still open as of this run); ILO healthy -> `gateway_issue` (1292) -> degraded (1293) -> healthy (1294).
+
+**Previous state:** cycle 1291, read from branch `claude/sleepy-dijkstra-fjf4zv` (the newest state found across branches; `main` was at cycle 1285's PR #355). All twelve endpoints were healthy at 1291.
+
+**ECB**
+**Cycle saw:** 1291-1292 healthy. Cycle 1293 (started 2026-11-09T22:01:22Z) showed `direct data: ReadTimeout`. Cycle 1294 (started 2026-11-10T00:01:22Z, current) shows `gateway data: probe status: error; Network or transport error - provider unreachable`, with the direct path passing that cycle.
+**Live recheck:** first attempt against the exact monitor path (`/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`, `Accept: text/csv`) timed out after 30s with no response (direct metadata on the same host answered 200 in 1.6s). A second attempt seconds later against the same URL returned 200 in 1.45s with a valid CSV body. Direct and json checks disagree between attempts, confirming the provider-side flakiness rather than a steady outage.
+**Network sanity:** OECD, ABS and Stats NZ all answered normally in the same window, ruling out a network problem on this routine's side.
+**Classification:** `gateway_issue` at the current cycle (direct path healthy per the monitor's own cycle snapshot, gateway path failing), following a `degraded` cycle. Not yet resolved as of cycle 1294 - this is one cycle further along than it will typically take to clear.
+**New or chronic:** same self-resolving shape logged before (cycles 1242, 1282, and the 1286-1288 streak that cleared by 1289), each time an intermittent ECB-side slow/unreachable response on the data channel that clears within one to three cycles. This is a new occurrence, not a continuation of the closed 1286-1288 streak.
+**Recommended action:** watch the next cycle; escalate only if it fails to clear within another cycle or two, which would break the established self-resolving pattern.
+**Could not determine:** whether the live timeout and the live success seconds apart came from the same cause as the monitor's own gateway-path failure, since the monitor's "gateway data" check goes through the gateway rather than hitting ECB directly.
+
+**ILO**
+**Cycle saw:** cycle 1292 failed gateway metadata and gateway data with `403 Forbidden` from `sdmx.ilo.org` (direct paths healthy that cycle). Cycle 1293 then failed direct metadata, direct data and direct json, all `HTTP 403`. Cycle 1294 (current) is healthy with no failing checks.
+**Live recheck:** not separately re-verified since the monitor's own cycle 1294 already shows full recovery.
+**Classification:** resolved by the current cycle. Same recurring Cloudflare/403 pattern already logged for ILO (cycle 32, 1150, 1162, 1168, 1268, 1270, 1272, 1282), clearing within one to two cycles each time.
+**New or chronic:** chronic, recurring pattern; this occurrence is already closed.
+
+**Contracts:** the 12 entries in `/api/contracts` `changes` are all ILO assertions reverting from `403` back to their normal values (`200`, `404`, etc.) as a direct consequence of the ILO 403 flap above, all verdict `ok` or the already-known `ignored` for `references:contentconstraint`. No `broken` or new `capability_appeared` verdicts. STATSNZ `auth:listing` is still `capability_appeared`, unchanged from the open item carried since cycle 60.
+
 ## 2026-11-09T06:43Z - cycle 1285
 
 **Changed:** ECB `gateway_issue` -> healthy; ILO `gateway_issue` -> healthy.

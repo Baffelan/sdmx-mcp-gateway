@@ -4,6 +4,88 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-11T12:43Z - cycle 1312
+
+**Changed:** ECB `degraded` (1309) -> healthy (already resolved); ILO
+`degraded` (1309) -> `gateway_issue` (1312, new occurrence, already
+resolved); ESTAT flapped to `gateway_issue` at cycle 1311 and recovered by
+1312.
+
+**Previous state:** cycle 1309, read from branch
+`claude/sleepy-dijkstra-6pr90d` (the newest state found across branches).
+That run had already closed out ILO and ECB issues from cycle 1309 itself;
+this run picks up what happened afterward, at cycles 1310-1312.
+
+**ECB**
+**Cycle saw:** cycle 1309 `degraded` (direct data `ReadTimeout:`, carried
+over from the previous run's entry). Cycle 1310 `gateway_issue`: `gateway
+data: probe status: error; Network or transport error — provider
+unreachable`. Cycles 1311 and 1312 (current) both fully healthy.
+**Live recheck:** not needed; the monitor's own cycle 1311 and 1312 runs
+already show ECB passing all checks, and this run's current `/api/status`
+confirms healthy right now.
+**Classification:** provider-side transient (`gateway_issue` at 1310,
+network/transport error reaching the provider); nothing to fix in our code.
+**New or chronic:** chronic recurring pattern, same family as the ECB
+self-resolving occurrences already logged (cycles 1242, 1282, 1286-1288,
+1293-1295, 1299, 1301, 1305, 1309). New as of cycle 1310, cleared by 1311.
+**Recommended action:** none.
+**Could not determine:** nothing outstanding.
+
+**ILO**
+**Cycle saw:** cycles 1310 and 1311 fully healthy. Cycle 1312 (current)
+`gateway_issue`: `gateway metadata: Error: Client error '403 Forbidden' for
+url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`, `gateway data:
+probe status: error; HTTP 403 from provider.`; both direct checks healthy.
+Contract matrix at cycle 1312 shows `auth:listing`, `constraint:
+availableconstraint`, `errors:missing_artefact`, and `dialect:sdmx3`/
+`encoding:structure_xml` all reading `403` or `skipped`, same block as the
+status check, not independent regressions.
+**Live recheck:** direct metadata (`GET
+https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`) and direct data (`GET
+https://sdmx.ilo.org/rest/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....
+?firstNObservations=1`) both returned `200` just now. Fully recovered
+already.
+**Classification:** provider-side (Cloudflare/403 block on `sdmx.ilo.org`
+affecting the gateway's request specifically while direct access from here
+succeeds; `gateway_issue` label from the monitor is literal but the root
+cause sits with the provider's edge, not our code).
+**New or chronic:** chronic recurring pattern, same family as cycles 32,
+1150, 1162, 1168, 1268, 1270, 1272, 1282, 1292-1293, 1295, 1301, 1305-1306,
+1309. New as of cycle 1312, after two clean cycles (1310-1311), and already
+cleared by the time this run checked live.
+**Recommended action:** none; same self-resolving shape as before. Worth
+escalating only if a future occurrence fails to clear within a cycle or two.
+**Could not determine:** nothing outstanding.
+
+**ESTAT**
+**Cycle saw:** cycle 1311 `gateway_issue`: `gateway metadata: Error:` with
+an empty error body, same shape as the known ABS/ESTAT empty-exception-body
+bug in `tools/sdmx_tools.py`. Cycle 1312 (current) fully healthy again.
+**Live recheck:** not needed; already resolved by the next cycle and
+confirmed healthy in the current `/api/status`.
+**Classification:** ours (`gateway_issue`), but self-resolved; the
+underlying empty-error-body bug remains unfixed in code and this routine
+only commits to `docs/monitor/`.
+**New or chronic:** chronic recurring pattern (list_dataflows timeout /
+empty-error-body family), new occurrence at cycle 1311, cleared by 1312.
+**Recommended action:** none for this occurrence; the empty-body bug itself
+is still open and worth a real fix at some point.
+**Could not determine:** nothing outstanding for this occurrence.
+
+**Other findings:** `/api/contracts` shows the usual ABS
+`encoding:structure_xml` Content-Type parameter order flip (`was` has
+`version` before `charset`, `now` has them swapped), verdict stays `ok`.
+STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) is still
+present; not re-reported since nothing changed. Architectural facts (ILO
+`/availableconstraint/` 500, ESTAT constraint support, BIS/ILO/IMF
+`references:contentconstraint` reading `ignored`, the by-design skipped
+direct-json checks on ESTAT/IMF/STATSNZ) hold as before. 157 `claude/`
+triage branches found on origin this run, up from 156 at cycle 1309.
+`main` is still only through cycle 1285's PR #355, unchanged since at least
+the 1306 run; this run's own merge-to-main attempt is reported separately
+in the session output.
+
 ## 2026-11-09T06:43Z - cycle 1285
 
 **Changed:** ECB `gateway_issue` -> healthy; ILO `gateway_issue` -> healthy.

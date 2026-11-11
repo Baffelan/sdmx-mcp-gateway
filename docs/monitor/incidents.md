@@ -4,6 +4,128 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-11T06:43Z - cycle 1309
+
+**Changed:** ILO healthy (1307-1308) -> degraded (already resolved); ECB
+healthy (1307-1308) -> degraded (already resolved).
+
+**Previous state:** cycle 1306, read from branch
+`claude/sleepy-dijkstra-m9miek` (the newest state found across branches). At
+cycle 1306 ILO was `provider_down`, ECB was healthy; cycles 1307 and 1308
+were both fully healthy for all twelve endpoints.
+
+**ILO**
+**Cycle saw:** cycle 1309 (current) `degraded`: gateway metadata ok, gateway
+data `probe status: error; HTTP 403 from provider`, direct metadata/data/json
+all `HTTP 403`. Ten contract assertions read `broken` (`auth:listing`,
+`constraint:availableconstraint`, `errors:missing_artefact`, and all seven
+`references:*` checks), all symptoms of the same block, not independent
+regressions.
+**Live recheck:** direct metadata (`GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`)
+and direct data (`/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`)
+both returned `200` just now. Fully recovered already.
+**Classification:** provider-side (Cloudflare/403 block on `sdmx.ilo.org`,
+gateway correctly surfacing the provider's rejection; nothing to fix in our
+code).
+**New or chronic:** chronic recurring pattern, same family as cycles 32,
+1150, 1162, 1168, 1268, 1270, 1272, 1282, 1292-1293, 1295, 1301, 1305-1306.
+This occurrence is new as of cycle 1309, after two clean cycles (1307-1308)
+in between, and had already cleared by the time this run checked live.
+**Recommended action:** none; this is the same self-resolving shape ILO has
+shown repeatedly. Only worth escalating if a future occurrence does not
+clear within a cycle or two, as 1305-1306 briefly looked like it might.
+**Could not determine:** nothing outstanding; both the cycle-time failure and
+the live recheck gave a consistent picture.
+
+**ECB**
+**Cycle saw:** cycle 1309 (current) `degraded`: direct data
+`ReadTimeout:` after 30832ms. Several contract assertions (`auth:listing`,
+`encoding:structure_xml`, `references:all`, `references:contentconstraint`,
+`references:none`) read `skipped` for the same reason, not `broken`.
+**Live recheck:** direct data (`GET
+https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1`
+with `Accept: text/csv`) returned `200` in about 1.2s just now. Fully
+recovered already.
+**Classification:** provider-side transient timeout, resolved by the time
+of this check; nothing to fix in our code.
+**New or chronic:** chronic recurring pattern, same family as the
+self-resolving ECB occurrences already logged (cycles 1242, 1282, 1286-1288,
+1293-1295, 1299, 1301, 1305). New as of cycle 1309, after two clean cycles
+(1307-1308).
+**Recommended action:** none.
+**Could not determine:** nothing outstanding.
+
+**Other findings:** `/api/contracts` shows the usual ABS
+`encoding:structure_xml` Content-Type parameter order flip (`was` has
+`version` before `charset`, `now` has them swapped), verdict stays `ok`.
+Architectural facts (ILO `/availableconstraint/` 500, ESTAT constraint
+support, BIS/ILO/IMF `references:contentconstraint` reading `ignored`, the
+by-design skipped direct-json checks on ESTAT/IMF/STATSNZ) hold as before.
+156 `claude/` triage branches found on origin this run, up from 155 at
+cycle 1306. `main` is still only through cycle 1285's PR #355, unchanged
+since the 1306 run's merge attempt; this run's own merge-to-main attempt is
+reported separately in the session output.
+
+## 2026-11-11T00:44Z - cycle 1306
+
+**Changed:** ILO healthy -> degraded -> provider_down (still failing);
+ECB healthy -> gateway_issue -> healthy (already resolved).
+
+**Previous state:** cycle 1303, read from branch
+`claude/sleepy-dijkstra-24nvdz` (the newest state found across branches). At
+cycle 1303 all twelve endpoints were healthy.
+
+**ILO**
+**Cycle saw:** cycle 1303 and 1304 healthy. Cycle 1305 `degraded`, with the
+direct metadata/data/json checks all failing `HTTP 403`, gateway path still
+healthy. Cycle 1306 (current) `provider_down`: gateway metadata `403
+Forbidden` from `sdmx.ilo.org`, gateway data `probe status: error; HTTP 403
+from provider`, and all three direct checks `HTTP 403`.
+**Live recheck:** direct `GET
+https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest` just
+now returned `200`. Direct data
+(`/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`) and the
+same URL with the SDMx-JSON `Accept` header both still returned `403`. So the
+block has partially lifted since cycle 1306 ran (metadata path open again,
+data/json paths still blocked) rather than being fully resolved.
+**Classification:** provider-side (`provider_down`, both gateway and direct
+paths failing on cycle 1306; nothing to fix in our code). This is the same
+recurring Cloudflare/403 pattern already logged for ILO (cycles 32, 1150,
+1162, 1168, 1268, 1270, 1272, 1282, 1292-1293, 1295, 1301), but unlike those
+prior occurrences this one had not cleared as of the latest completed cycle.
+**New or chronic:** chronic pattern, but this specific occurrence is new as
+of cycle 1305 after two preceding healthy cycles. The contract matrix shows
+ten ILO assertions reading `broken` at cycle 1306 (`auth:listing`,
+`constraint:availableconstraint`, `errors:missing_artefact`, and all seven
+`references:*` checks) - these are not independent contract regressions,
+they are the 403 block surfacing through every ILO contract probe.
+**Recommended action:** no code action; watch the next cycle to confirm it
+clears the way every prior occurrence has.
+**Could not determine:** whether the next scheduled cycle (due ~02:01Z) finds
+ILO fully healthy again, since this run's live recheck already saw the
+metadata path recover while data/json had not yet.
+
+**ECB**
+**Cycle saw:** cycle 1303 and 1304 healthy. Cycle 1305 `gateway_issue`
+(`gateway metadata: Error:`, direct path unaffected). Cycle 1306 healthy
+again, no failing checks.
+**Live recheck:** not meaningful at this remove (the gateway-path probe runs
+inside the deployed gateway, not from here); a direct call to
+`https://data-api.ecb.europa.eu/` answered normally just now.
+**Classification:** resolved by the very next cycle. Same self-resolving
+shape as the prior occurrences already logged (cycles 1242, 1282, 1286-1288,
+1293-1295, 1299, 1301).
+**New or chronic:** chronic recurring pattern; this specific occurrence
+(cycle 1305) was new after one preceding healthy cycle and did not persist.
+
+**Other findings:** `/api/contracts` reports one `changes` entry, ABS
+`encoding:structure_xml` Content-Type parameter order flipping from
+`version=2.1; charset=utf-8` to `charset=utf-8; version=2.1`, verdict `ok`.
+This is the same cosmetic, non-incident flip already documented for this
+assertion. STATSNZ `auth:listing` still reads `capability_appeared` (open
+since cycle 60); unchanged, not re-reported.
+
 ## 2026-11-09T06:43Z - cycle 1285
 
 **Changed:** ECB `gateway_issue` -> healthy; ILO `gateway_issue` -> healthy.

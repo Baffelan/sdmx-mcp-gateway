@@ -4,6 +4,81 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-11T18:44Z - cycle 1315
+
+**Changed:** ILO healthy -> `degraded` (contract broken: `references:all`,
+`references:descendants`, `references:parentsandsiblings`, all 200 -> 403).
+
+**Previous state:** cycle 1312, read from branch
+`claude/sleepy-dijkstra-hmvmow` (the newest state found across branches; `main`
+is still at cycle 1285's PR #355). ILO was recorded `gateway_issue` at 1312 but
+`/api/history` shows it healthy again by 1313 and stayed healthy through 1314.
+
+**ILO**
+**Cycle saw:** cycle 1315 (started 2026-11-11T18:01:22Z): core checks (gateway
+metadata/data, direct metadata/data/json) all passing, but three contract
+assertions that query `?references=...` on the structure endpoint got `403`
+instead of `200`: `all`, `descendants`, `parentsandsiblings`. `references:none`,
+`references:children`, and `references:parents` all read `ok` (200) the same
+cycle. `/api/history` does not show this change at all for ILO, since history
+is computed from the core checks only and contracts are a separate layer (the
+monitor bug noted in earlier runs); `/api/status` and `/api/contracts` are the
+only places this shows up.
+**Live recheck:** disagreement, and the disagreement itself is informative.
+First live pass just now: `none`=200, `children`=403, `parents`=403, `all`=200,
+`descendants`=200, `parentsandsiblings`=200 (the exact opposite pattern from
+the cycle). Three more passes seconds apart: two passes all 200 across every
+value, the third pass flipped `parentsandsiblings` and `none` to 403. This is
+request-by-request flakiness, not a problem tied to any specific `references`
+value.
+**Classification:** `degraded` per the monitor, contract-level only - no gateway
+checks failed, so this is provider-side, not a gateway bug. This is the same
+long-running ILO Cloudflare/WAF 403 flakiness logged repeatedly before (cycles
+32, 1150, 1162, 1168, 1171, 1198, 1201, 1213, 1222, 1234, 1243, 1246, 1268,
+1270, 1272, 1282, 1292-1293, 1295, 1301, 1305-1306, 1309, 1312), this time
+landing on the contract-check layer's reference-value probes instead of the
+core metadata/data checks. Cycle 1213 previously saw the identical shape
+(contract-only, `references:*` 200->403) and self-resolved.
+**New or chronic:** chronic; not new behaviour, just a different subset of
+requests hit by the same flakiness this cycle.
+**Network check:** other providers answered normally in this cycle's own
+`/api/status` (ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ, UNICEF
+all healthy), and plain ILO requests also succeeded repeatedly during the live
+recheck, so this is not a network problem on the monitor's or this routine's
+end.
+**Recommended action:** none beyond watching; this pattern has always cleared
+within one to a few cycles in every prior occurrence and has never traced to a
+gateway code defect.
+**Could not determine:** the root cause on ILO's/Cloudflare's side of the 403
+flakiness, as in every prior occurrence of this pattern.
+
+**Other endpoints:** ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ,
+UNICEF all healthy at cycle 1315, no change from 1312-1314.
+
+**Open items carried forward, unchanged this run:**
+- STATSNZ `auth:listing` reads `capability_appeared`, first seen cycle 60,
+  still present at cycle 1315. Not re-reported in detail.
+- 158 `claude/` triage branches on origin as of this run (up from 157 at cycle
+  1312). Well above the 20 the skill flags for pruning; not actioned by this
+  read-only routine.
+- `main` is still at cycle 1285's PR #355, unchanged since at least the 1306,
+  1309, and 1312 runs. This run's own merge-to-main attempt is reported
+  separately in the session output.
+- Monitor bug noted previously and reconfirmed this run: `/api/history`
+  computes status without contracts, so a contract-only `degraded` state (like
+  this cycle's ILO) never shows up in `/api/history`, only in `/api/status` and
+  `/api/contracts`.
+- Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+  returns 500 (constraints come via `?references=all`); ESTAT has no practical
+  constraint support; ESTAT direct json check is skipped by design (Eurostat
+  returns 406 for SDMx-JSON); IMF direct json check is skipped by design (IMF
+  ignores the JSON Accept header and returns XML); STATSNZ direct json check is
+  skipped by design (Stats NZ ignores the JSON Accept header and returns CSV);
+  BIS/ILO/IMF `references:contentconstraint` reads `ignored` (accepted and
+  silently dropped); `encoding:structure_xml` Content-Type charset/version
+  parameter order flips cosmetically from time to time across
+  ABS/FBOS/ILO/SBS/OECD, verdict stays `ok` as always.
+
 ## 2026-11-09T06:43Z - cycle 1285
 
 **Changed:** ECB `gateway_issue` -> healthy; ILO `gateway_issue` -> healthy.

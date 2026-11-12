@@ -4,7 +4,29 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
-## 2026-11-12T12:43Z - cycle 1324
+## 2026-11-12T18:45Z - cycle 1327
+
+**Changed:** ECB healthy -> `degraded` (contract-only). ILO healthy -> `gateway_issue`.
+
+**Previous state:** cycle 1324, read from this branch's own file (`claude/sleepy-dijkstra-1j1utg`, already merged to `main` via PR #367). All twelve endpoints were healthy at 1324, 1325 and 1326 per `/api/history`.
+
+**ECB**
+**Cycle saw:** `/api/status` for cycle 1327 reports ECB `degraded`, reason "API contract broken: constraint:availableconstraint, errors:missing_artefact, references:descendants". The five basic checks (gateway metadata, gateway data, direct metadata, direct data, direct json) are all `ok` at cycle 1327 and `/api/history` shows ECB `healthy` with an empty `failing` list for cycles 1325-1327 -- this confirms the known monitor gap where `/api/history` never sees a contract-only `degraded`. `/api/contracts` `changes` shows three ECB assertions flipping `was: 404/404/200` -> `now: 503/503/503`, each `verdict: broken`.
+**Live recheck:** `https://data-api.ecb.europa.eu/service/availableconstraint/all/all/all/all` -> `404` (expected, ECB has no `/availableconstraint/` support, architectural fact). `https://data-api.ecb.europa.eu/service/dataflow/ECB/NONEXISTENT_FLOW_XYZ/latest` -> `404`. `https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest?references=descendants` -> `200`. `https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest` -> `200`. All four match the expected values and none returned 503; the blip had already cleared.
+**Classification:** provider-side, transient, already resolved (same shape as the cycle 1000 ECB contract blip, except that one's verdict stayed `ok` throughout and this one's verdict read `broken` while the 503 lasted). Not the old `HTTP 406` dialect issue; that fix still holds.
+**New or chronic:** this is the second ECB contract-only blip on record (first was the cycle 1000 504), and the second ECB-wide 503 episode close behind cycle 1324's `provider_down`. Two ECB incidents roughly six hours apart is worth keeping an eye on even though each one cleared fast.
+**Recommended action:** no gateway change needed. If a third ECB blip appears within the next day or two, treat ECB as having a new intermittent-503 pattern rather than isolated noise.
+**Could not determine:** the exact cycle the 503 first hit these three contract assertions (`changes` only carries a was/now pair, not a timestamp), or whether it is related to cycle 1324's broader `provider_down` 503s six hours earlier.
+
+**ILO**
+**Cycle saw:** `/api/status` cycle 1327: ILO `gateway_issue`, "direct path OK; gateway path failing". Gateway metadata failed with `403 Forbidden` from `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`; gateway data failed the same way. Direct metadata, direct data and direct json all `ok` (`200`) in the same cycle.
+**Live recheck:** `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` (direct) -> `200` just now. Could not recheck the gateway path itself from this routine (it has no access to invoke the gateway's own request), so whether the 403 has cleared on that path is unconfirmed.
+**Classification:** `gateway_issue` per the monitor's vocabulary (direct succeeds, gateway path fails), but this matches the long-running recurring Cloudflare/WAF 403 pattern against ILO already catalogued across dozens of prior cycles (most recently 1315-1318, 1320), not a new bug in the gateway code.
+**New or chronic:** chronic, recurring pattern; same signature as every prior occurrence, all of which cleared within one cycle.
+**Recommended action:** none beyond watching cycle 1328; this has self-cleared every time before.
+**Could not determine:** whether the gateway-side 403 has already cleared (only direct was rechecked live).
+
+
 
 **Changed:** ECB healthy -> `provider_down`. ILO healthy -> `degraded` -> healthy (flapped between runs, same chronic pattern as before).
 

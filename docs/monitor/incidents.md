@@ -4,6 +4,72 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-12T00:43Z - cycle 1318
+
+**Changed:** ILO `degraded` (contract-only) -> `provider_down` (all checks failing).
+
+**Previous state:** cycle 1315, read from branch
+`claude/sleepy-dijkstra-nnjay3` (the newest state found across branches;
+`main` is still at cycle 1285's PR #355). At cycle 1315 ILO was `degraded`
+with only the contract layer 403'ing (`references:all`,
+`references:descendants`, `references:parentsandsiblings`); core
+gateway/direct checks were all passing. All other eleven endpoints were
+healthy and remain healthy now.
+
+**ILO**
+**Cycle saw (via `/api/history`):** 1316 `gateway_issue` (gateway metadata +
+data 403, direct paths ok) -> 1317 healthy -> 1318 `provider_down`: every
+check failing with HTTP 403 on both paths (gateway metadata, gateway data,
+direct metadata, direct data, direct json). `/api/contracts` shows nine
+assertions flipped `200`/`500` -> `403` this cycle (`references:all`,
+`references:children`, `references:contentconstraint`,
+`references:descendants`, `references:none`, `references:parents`,
+`references:parentsandsiblings`, `errors:missing_artefact`,
+`constraint:availableconstraint`), all verdict `broken` - a direct
+reflection of the whole endpoint 403'ing, not nine separate findings.
+**Live recheck:** direct call to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now returned `403`
+twice in a row (2s apart). Not yet resolved as of this run.
+**Network check:** at the same time, a direct call to ECB
+(`data-api.ecb.europa.eu`) returned `200` normally, so this is not a
+network problem on the monitor's or this routine's end.
+**Classification:** `provider_down` - metadata failing on both the gateway
+and direct path, so there is nothing to fix in our code. This is the same
+recurring Cloudflare/WAF 403 pattern already logged for ILO (cycle 32, 1150,
+1162, 1168, 1171, 1198, 1201, 1213, 1222, 1234, 1243, 1246, 1268, 1270, 1272,
+1282, 1292-1293, 1295, 1301, 1305-1306, 1309, 1312, 1315, 1316, now 1318),
+which has self-resolved within 1-2 cycles every prior time including the two
+other full `provider_down` hits in just the last two days (cycles 1301 and
+1306, both cleared by the very next cycle).
+**New or chronic:** chronic, recurring pattern; escalated in severity from
+the contract-only 403 seen at the last run to a full provider_down this
+cycle, but the underlying cause (Cloudflare/WAF flakiness against
+`sdmx.ilo.org`) is the same one tracked for months.
+**Recommended action:** none. Watch the next cycle; every prior
+`provider_down` occurrence for ILO cleared on its own within one or two
+cycles, and today's network check rules out a problem on our side.
+**Could not determine:** why Cloudflare/WAF is blocking `sdmx.ilo.org`
+requests on this particular pattern, as in every prior occurrence.
+
+**Other open items carried forward, unchanged this cycle:**
+- STATSNZ `auth:listing` reads `capability_appeared`, first seen cycle 60,
+  still present at cycle 1318. No new change; not re-reported in detail.
+- `main` is still only through cycle 1285's PR #355, unchanged since at
+  least the 1306, 1309, 1312, and 1315 runs. This run's merge-to-main
+  attempt is reported separately in session output; if it fails too, these
+  findings stay on this branch for the next run's branch scan to pick up.
+- 159 `claude/` triage branches on origin as of this run (up from 158 at
+  cycle 1315). Well above the 20 the skill flags for pruning; not actioned
+  by this read-only routine.
+- Long-running architectural facts, not incidents: ILO `/availableconstraint/`
+  returns 500 (constraints come via `?references=all`); ESTAT has no
+  practical constraint support; ESTAT/IMF/STATSNZ direct json checks are
+  skipped by design (each ignores or rejects the JSON `Accept` header);
+  BIS/ILO/IMF `references:contentconstraint` reads `ignored` (accepted and
+  silently dropped); `encoding:structure_xml` Content-Type parameter order
+  still flips cosmetically from time to time across ABS/FBOS/ILO/SBS/OECD,
+  verdict stays `ok`.
+
 ## 2026-11-09T06:43Z - cycle 1285
 
 **Changed:** ECB `gateway_issue` -> healthy; ILO `gateway_issue` -> healthy.

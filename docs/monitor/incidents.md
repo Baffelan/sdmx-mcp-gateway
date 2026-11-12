@@ -4,6 +4,48 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-12T06:42Z - cycle 1321
+
+**Changed:** ILO `provider_down` -> healthy (with a `degraded` cycle in between).
+
+**Previous state:** cycle 1318, read from branch
+`claude/sleepy-dijkstra-ungil0` (the newest state found across branches;
+`main` is still at cycle 1285's PR #355). At cycle 1318 ILO was
+`provider_down`; all other eleven endpoints were healthy.
+
+**ILO**
+**Cycle saw (via `/api/history`):** cycle 1318 failed all five checks with
+HTTP 403 from `sdmx.ilo.org` on both gateway and direct paths
+(`provider_down`). Cycle 1319 showed healthy, no failing checks. Cycle 1320
+regressed to `degraded`: gateway paths healthy, but all three direct checks
+(metadata, data, json) back to HTTP 403. Cycle 1321 (current) is healthy
+again, no failing checks. `/api/contracts` for cycle 1321 shows nine ILO
+assertions flipping `was: 403` -> `now: 200/400/404/500` as expected, all
+verdict `ok` except `references:contentconstraint` (`ignored`, the known
+architectural fact for ILO/BIS/IMF).
+**Live recheck:** direct call to
+`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now returned `200`.
+A parallel direct call to the ECB endpoint also returned `200`, ruling out a
+network problem on this routine's side.
+**Classification:** resolved, no gateway bug. This is the same recurring
+Cloudflare/WAF 403 flakiness already logged for ILO across many prior cycles
+(32, 1150, 1162, 1168, 1171, 1198, 1201, 1213, 1222, 1234, 1243, 1246, 1268,
+1270, 1272, 1282, 1292-1293, 1295, 1301, 1305-1306, 1309, 1312, 1315-1318,
+1320). The previous run predicted it would clear within one or two cycles,
+and it did, though this time with an extra flap through `degraded` at 1320
+before settling healthy.
+**New or chronic:** chronic, not new. No action needed; recorded per the
+"report flapping once, as resolved" rule.
+**Could not determine:** nothing outstanding here; both the cycle data and
+the live recheck agree.
+
+**Other endpoints:** all eleven other endpoints (ABS, BIS, ECB, ESTAT, FBOS,
+OECD, SBS, SPC, STATSNZ, UNICEF) stayed healthy across cycles 1317-1321, no
+status changes. `stale` is false, `gateway_up` is true. STATSNZ
+`auth:listing` `capability_appeared` is still present (first seen cycle 60,
+unchanged), carried forward as an open item, not re-reported as news. No new
+contract assertion reached `broken`.
+
 ## 2026-11-09T06:43Z - cycle 1285
 
 **Changed:** ECB `gateway_issue` -> healthy; ILO `gateway_issue` -> healthy.

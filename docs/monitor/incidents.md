@@ -4,6 +4,29 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-12T12:43Z - cycle 1324
+
+**Changed:** ECB healthy -> `provider_down`. ILO healthy -> `degraded` -> healthy (flapped between runs, same chronic pattern as before).
+
+**Previous state:** cycle 1321, read from this branch's own history (`claude/sleepy-dijkstra-th5nli`, which `main` had already reached via PR #366). All twelve endpoints were healthy at 1321.
+
+**ECB**
+**Cycle saw (via `/api/status` and `/api/history`):** cycles 1321-1323 all healthy, no failing checks. Cycle 1324 (current) failed `provider_down`: gateway metadata errored (`Error: `, empty body), gateway data probe returned `HTTP 503 from provider`, and both direct metadata and direct data returned `HTTP 503`. Direct json still succeeded (`HTTP 200`), so the provider was not fully down, just the data/structure query paths.
+**Live recheck:** `https://data-api.ecb.europa.eu/service/data/EXR/M.USD.EUR.SP00.A?lastNObservations=1` returned `200` (slow, ~20s) and `https://data-api.ecb.europa.eu/service/dataflow/ECB` returned `200` within a couple seconds. Both succeeded a few minutes after the cycle finished. Control checks against OECD, IMF and ILO direct endpoints all returned `200` during the same recheck, ruling out a network problem on this routine's side.
+**Classification:** provider-side (`provider_down`, both gateway and direct metadata/data failing with `HTTP 503`), already clearing by the time of the live recheck. Not the old `HTTP 406` dialect issue (the skill's note that "ECB is no longer a known failure" refers to that 406/retry fix, which is unrelated and still holds); this is a fresh, transient 503 outage on the ECB side.
+**New or chronic:** new as of cycle 1324. No prior ECB `provider_down` cycle appears in the last 48 hours of history. One cycle only so far.
+**Recommended action:** no gateway change needed. Watch the next cycle; if `provider_down` persists past 1325 it stops being a brief blip and is worth a closer look at ECB's service status.
+**Could not determine:** whether this 503 was a scheduled ECB maintenance window or an unplanned outage; the monitor does not capture that.
+
+**ILO**
+**Cycle saw:** cycle 1322 healthy. Cycle 1323 `degraded`: direct metadata, direct data, and direct json all `HTTP 403`, gateway paths unaffected. Cycle 1324 (current) healthy again, no failing checks. `/api/contracts` shows the matching `was: 403` -> `now: 200/400/404/500` flips for nine ILO assertions, all verdict `ok` except `references:contentconstraint` (`ignored`, the known architectural fact).
+**Live recheck:** not needed separately; the ECB recheck above already hit `sdmx.ilo.org`-adjacent network paths and other providers answered normally, and cycle 1324 itself already shows ILO healthy.
+**Classification:** resolved, no gateway bug. Same recurring Cloudflare/WAF 403 flakiness on ILO's direct path already logged across many prior cycles (32, 1150, 1162, 1168, 1171, 1198, 1201, 1213, 1222, 1234, 1243, 1246, 1268, 1270, 1272, 1282, 1292-1293, 1295, 1301, 1305-1306, 1309, 1312, 1315-1318, 1320, and now 1323).
+**New or chronic:** chronic, not new. Recorded per the "report flapping once, as resolved" rule; no action needed.
+**Could not determine:** nothing outstanding; cycle data is internally consistent.
+
+**Other notes:** no contract assertion reached `broken` or `capability_appeared` this cycle; the 13 entries in `/api/contracts` `changes` are the ILO 403->recovered flips above plus one cosmetic ABS `encoding:structure_xml` charset/version parameter reordering, verdict `ok` as always. `main` is now at cycle 1321 (PR #366), one cycle behind this run's own observations; this run's merge attempt is reported separately below. 160 `claude/` branches remain on origin (up from 160 last noted), still well above the 20 the skill flags for pruning; not actioned by this read-only routine. STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) remains open, unchanged, not re-reported.
+
 ## 2026-11-12T06:42Z - cycle 1321
 
 **Changed:** ILO `provider_down` -> healthy (with a `degraded` cycle in between).

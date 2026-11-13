@@ -4,6 +4,22 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-13T18:43Z - cycle 1339
+
+**Changed:** ECB healthy -> `gateway_issue` (1337) -> healthy (1338-1339), flapped between runs.
+
+**Previous state:** cycle 1336, read from this same branch's own file (`claude/sleepy-dijkstra-r0x1us`, already carrying the merged history through PR #371).
+
+**ECB**
+**Cycle saw:** `/api/history` shows ECB healthy through 1336, then `gateway_issue` at cycle 1337 (started 2026-11-13T14:01:22+00:00): single failing check `gateway metadata: Error:`, an empty error body, direct metadata/data/json unaffected. Healthy again at 1338 and at 1339 (current).
+**Live recheck:** `/api/status` right now confirms ECB healthy at cycle 1339, all checks passing. Also hit ECB's direct endpoint myself (`GET /dataflow/ECB?references=none` on `data-api.ecb.europa.eu`) and got a clean `200`. Could not re-hit the gateway's own metadata call directly: the gateway host (`sdmx-mcp-gateway-production.up.railway.app`) is not on this environment's network allowlist, only the monitor and provider hosts are, so the live recheck is necessarily via the monitor's own subsequent cycles rather than an independent gateway call.
+**Classification:** `gateway_issue`, ours. Same empty-error-body shape as the chronic bug already catalogued in `tools/sdmx_tools.py` (around lines 207-209: `except Exception as e: ... return {"error": str(e), ...}`, which renders as exactly `"Error: "` when the caught exception's `str(e)` is empty, e.g. a bare `TimeoutError()`). This is the first time this specific recurring bug has been seen hitting ECB in this report's history; it was previously catalogued on ABS (many occurrences) and ESTAT (cycle 1143, and again at cycle 1335 in the prior run). Not fixed here; this routine only commits to `docs/monitor/`.
+**New or chronic:** the failure shape is chronic (same bug, third endpoint now confirmed to trip it); ECB specifically flapping this way is new as of cycle 1337 and self-resolved within one cycle, same pattern as the ABS/ESTAT occurrences.
+**Recommended action:** no action from this routine beyond recording it and widening the known-affected-endpoint list in `open_items`; the actual fix (give the caught exception a real message, or special-case an empty `str(e)`) belongs to a development session.
+**Could not determine:** which exception type produced the empty `str(e)` this time, and whether it is request-specific to ECB or could recur on any endpoint; the gateway's own logs are not reachable from this environment.
+
+**Other notes:** all other eleven endpoints (ABS, BIS, ESTAT, FBOS, ILO, IMF, OECD, SBS, SPC, STATSNZ, UNICEF) stayed healthy across cycles 1337-1339, no status changes. `stale` is false, `gateway_up` is true at cycle 1339. `/api/contracts` `changes` for this cycle lists only the known cosmetic `encoding:structure_xml` charset/version parameter-order flip on ABS, `verdict: ok`, not an incident. No assertion reached `broken`; STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) remains open, unchanged, not re-reported. 160 `claude/` branches remain on origin, still well above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-13T12:43Z - cycle 1336
 
 **Changed:** ILO `gateway_issue` (1333) -> healthy (1334-1336). ESTAT healthy -> `gateway_issue` (1335) -> healthy (1336), flapped between runs.

@@ -4,6 +4,30 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-13T12:43Z - cycle 1336
+
+**Changed:** ILO `gateway_issue` (1333) -> healthy (1334-1336). ESTAT healthy -> `gateway_issue` (1335) -> healthy (1336), flapped between runs.
+
+**Previous state:** cycle 1333, read from this branch's own file (`claude/sleepy-dijkstra-hp3i2m`, already merged to `main` via PR #370).
+
+**ILO**
+**Cycle saw:** `/api/history` shows ILO `gateway_issue` at 1333 (gateway metadata `403 Forbidden` from `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`, gateway data probe `HTTP 403 from provider`), healthy at 1334, 1335 and 1336 (current), with an empty `failing` list at all three. `/api/contracts` `changes` for cycle 1336 carries no ILO entries; ILO's own contract rows all read `verdict: ok` (`references:contentconstraint` stays `ignored`, the known architectural fact).
+**Live recheck:** `/api/status` at this run's time (2026-11-13T12:43Z) confirms ILO `healthy`, all checks passing, matching cycle 1336. Not rechecked against the provider directly since the monitor's own data already shows three consecutive healthy cycles.
+**Classification:** closes out the open item carried from the 1333 run. Same recurring Cloudflare/WAF 403 pattern against ILO's gateway path already catalogued across dozens of prior cycles (most recently 1327-1330, 1333); cleared within one cycle as every prior occurrence has.
+**New or chronic:** chronic, now resolved. No gateway code implicated.
+**Recommended action:** none. Drop from `open_items`.
+**Could not determine:** nothing outstanding for this occurrence.
+
+**ESTAT**
+**Cycle saw:** `/api/history` shows ESTAT healthy through 1334, then `gateway_issue` at 1335 (started 2026-11-13T10:01:22+00:00): single failing check `gateway metadata: Error:` with an empty error body, direct metadata/data/json all unaffected. Healthy again at 1336.
+**Live recheck:** not performed; the flap had already self-resolved by the monitor's own next cycle, and `/api/status` right now confirms ESTAT healthy.
+**Classification:** `gateway_issue`, ours. This is the same empty-error-body shape whose root cause was previously traced to `tools/sdmx_tools.py` (around line 208: `except Exception as e: ... return {"error": str(e), ...}`, which yields exactly `"Error: "` when a caught exception's `str(e)` is empty, e.g. a bare `TimeoutError()`). Checked the current file: the same pattern is still there (now lines ~207-209), unchanged since previously documented. Not a new bug, not fixed in this run; this routine only commits to `docs/monitor/`.
+**New or chronic:** chronic recurrence of a long-catalogued gateway bug (previously seen on ABS repeatedly and once before on ESTAT at cycle 1143); not a new failure mode.
+**Recommended action:** no action from this routine beyond recording it; the fix (giving the caught exception a real message, or special-casing empty `str(e)`) belongs to a real development session, not to this read-only triage.
+**Could not determine:** which specific exception type produced the empty `str(e)` this time (the gateway's own logs are not reachable from this environment).
+
+**Other notes:** all other ten endpoints (ABS, BIS, ECB, FBOS, IMF, OECD, SBS, SPC, STATSNZ, UNICEF) stayed healthy across cycles 1333-1336, no status changes. `stale` is false, `gateway_up` is true at cycle 1336. `/api/contracts` `changes` for this cycle lists only the known cosmetic `encoding:structure_xml` charset/version parameter-order flip on ILO and OECD, both `verdict: ok`. No assertion reached `broken`; STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) remains open, unchanged, not re-reported. 160 `claude/` branches remain on origin, still well above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-13T06:43Z - cycle 1333
 
 **Changed:** ILO `provider_down` (1330) -> healthy (1331-1332) -> `gateway_issue` (1333).

@@ -4,6 +4,22 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-13T06:43Z - cycle 1333
+
+**Changed:** ILO `provider_down` (1330) -> healthy (1331-1332) -> `gateway_issue` (1333).
+
+**Previous state:** cycle 1330, read from this branch's own file (`claude/sleepy-dijkstra-j49djk`, not yet merged to `main`).
+
+**ILO**
+**Cycle saw:** `/api/history` shows ILO `provider_down` at 1330 (gateway and direct paths both 403), healthy at 1331 and 1332, then `gateway_issue` at 1333 (current): gateway metadata failed with `403 Forbidden` from `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`, gateway data failed with the same `403`, and all three direct checks (metadata, data, json) succeeded (`200`). `/api/contracts` `changes` for cycle 1333 is empty (0 entries); no ILO assertion flipped this cycle, and ILO's own contract rows all read `verdict: ok` (`references:contentconstraint` stays `ignored`, the known architectural fact).
+**Live recheck:** `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` (direct metadata) -> `200` just now, matching the cycle. Re-querying `/api/status` a few minutes later still shows ILO `gateway_issue`, "direct path OK; gateway path failing" -- not yet cleared. Control checks against OECD and ECB direct endpoints during the same window got non-403 responses (OECD 403 was itself just a bare-path probe, not a real query), ruling out a general network problem on this routine's side.
+**Classification:** `gateway_issue` per the monitor's vocabulary (direct succeeds, gateway path fails) -- but this is the same recurring Cloudflare/WAF 403 pattern against ILO's gateway path already catalogued across dozens of prior cycles (most recently 1327-1328, and the wider-blocking variant at 1330), not a new bug in the gateway code. No gateway change is implicated: the direct path, which uses the same underlying request shape the gateway forwards, succeeds.
+**New or chronic:** chronic, recurring. Same signature as prior occurrences; all have cleared within one to a few cycles.
+**Recommended action:** none beyond watching the next cycle. Flag it only if the `gateway_issue` persists for several more cycles or widens back to `provider_down`.
+**Could not determine:** whether this cycle's gateway-side 403 has already cleared as of this write-up; only the direct path was rechecked live, and the status re-fetch minutes later still showed it active.
+
+**Other notes:** all eleven other endpoints (ABS, BIS, ECB, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ, UNICEF) stayed healthy across cycles 1328-1333, no status changes. `stale` is false, `gateway_up` is true. No contract assertion reached `broken` or `capability_appeared` this cycle (`changes` is empty). STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) remains open, unchanged, not re-reported. 160 `claude/` branches remain on origin, still well above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-13T00:43Z - cycle 1330
 
 **Changed:** ECB `degraded` -> healthy (recovered). ILO `gateway_issue` -> healthy (1329) -> `provider_down` (1330).

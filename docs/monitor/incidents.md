@@ -4,6 +4,28 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-13T00:43Z - cycle 1330
+
+**Changed:** ECB `degraded` -> healthy (recovered). ILO `gateway_issue` -> healthy (1329) -> `provider_down` (1330).
+
+**Previous state:** cycle 1327, read from this branch's own file (`claude/sleepy-dijkstra-7yaphh`).
+
+**ECB**
+**Cycle saw:** `/api/status` cycle 1330 reports ECB healthy, all checks passing. `/api/contracts` `changes` for this cycle carries no ECB entries at all, meaning no ECB assertion flipped this cycle.
+**Live recheck:** not needed; nothing is reported broken.
+**Classification:** fully recovered. The cycle 1327 contract-only `degraded` (three assertions misreading `503`) cleared by 1328 per `/api/history`, and stayed clear through 1330.
+**New or chronic:** closes out the open item carried from the 1327 run. No third ECB blip has appeared.
+**Recommended action:** none. Drop ECB from `open_items`.
+**Could not determine:** nothing outstanding.
+
+**ILO**
+**Cycle saw:** `/api/history` shows ILO `gateway_issue` at 1327-1328 (gateway metadata/data `403 Forbidden` from `sdmx.ilo.org`, direct path `ok`), healthy at 1329, then `provider_down` at 1330 -- this time gateway metadata, gateway data, direct metadata, direct data and direct json all failed with `403`. `/api/contracts` `changes` for cycle 1330 lists twelve ILO assertions flipping to `403` (`auth:listing`, `constraint:availableconstraint`, `dialect:sdmx3`, `encoding:structure_xml`, `errors:missing_artefact`, and all seven `references:*` variants), eleven read `verdict: broken` and one (`encoding:structure_xml`) reads `skipped` because the probe itself got a 403 instead of a document to inspect.
+**Live recheck:** `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` (direct metadata) -> `403` just now. `https://sdmx.ilo.org/rest/data/DF_YI_ALL_EMP_TEMP_SEX_AGE_RT/all` (direct data) -> `403` just now. Both match what the cycle saw; this is not a cycle-is-stale false alarm. Control checks against OECD (`200`) rule out a network problem on this routine's side.
+**Classification:** `provider_down` per the monitor's vocabulary (both direct and gateway paths failing) -- whose problem this is sits with ILO/Cloudflare, not the gateway. This is a worse symptom than the 1327-1328 `gateway_issue` reading (direct path was still `200` then); the block has widened to cover the direct path too.
+**New or chronic:** chronic pattern, recurring: same signature already catalogued at cycles 32, 1150, 1162, 1168, 1171, 1198, 1201, 1213, 1222, 1234, 1243, 1246, 1268, 1270, 1272, 1282, 1292-1293, 1295, 1301, 1305-1306, 1309, 1312, 1315-1318, 1320, 1327-1328. Every prior occurrence cleared within a cycle or two (it did again at 1329 before recurring at 1330), but this is the first occurrence on record where the direct path was also blocked at the same time as the gateway path, rather than the gateway-only shape most prior cycles showed.
+**Recommended action:** none beyond watching the next cycle; no gateway code is implicated since the direct path fails identically. Worth keeping an eye on whether the "direct path also blocked" shape becomes the new normal for this WAF, which would mean ILO is less reliably reachable at all, not just through the gateway.
+**Could not determine:** whether Cloudflare/WAF rate-limiting has tightened against this routine's own source IP (which would explain the direct path now failing too) versus against the wider internet.
+
 ## 2026-11-12T18:45Z - cycle 1327
 
 **Changed:** ECB healthy -> `degraded` (contract-only). ILO healthy -> `gateway_issue`.

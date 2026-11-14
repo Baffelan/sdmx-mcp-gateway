@@ -4,6 +4,30 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-14T06:43Z - cycle 1345
+
+**Changed:** ILO `gateway_issue` (1342) -> `gateway_issue` (1343) -> `provider_down` (1344) -> `degraded` (1345), continuously failing for 4 consecutive cycles (8 hours), the longest unbroken run in the catalogued history of this pattern. ECB healthy -> `gateway_issue` (1345).
+
+**Previous state:** cycle 1342, read from this same branch's own file (already carrying the merged history through PR #373).
+
+**ILO**
+**Cycle saw:** `/api/history` shows ILO `gateway_issue` at 1342 and 1343 (gateway metadata/data `403 Forbidden`, direct path still OK), widening to `provider_down` at 1344 (direct metadata, data, and json all 403 too), and `degraded` at 1345 with direct metadata, direct data, and direct json still failing. `/api/contracts` at 1345 shows ten of ILO's eleven assertions `broken`, all with `observed: "403"`, including `auth:listing` (`expected: "open"`, `observed: "403"`, `error: "provider now demands credentials"`) and `constraint:availableconstraint` (`expected: "500"`, `observed: "403"`).
+**Live recheck:** hit `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` directly from this routine's own network just now and got `HTTP 403`, confirming the monitor's cycle-1345 result rather than disagreeing with it. Response headers show `server: cloudflare` and a `cf-ray` id, the same signature as the long-catalogued WAF pattern, not a bespoke auth challenge -- the monitor's `auth:listing` message ("provider now demands credentials") is the check's own label for a blanket 403, not literal evidence ILO changed its access policy. Checked ECB direct (`200`) in the same window as a network sanity check, so this routine's own network is working and the 403 is specific to ILO.
+**Classification:** direct path is now failing too, so this is provider-side (Cloudflare/WAF blocking at `sdmx.ilo.org`), not a gateway code bug. The `broken` contract verdicts are a symptom of the blanket 403, not independent provider-behavior changes -- expect them to read `ok` again once the block clears, the same as every prior occurrence of this pattern.
+**New or chronic:** the failure mode itself is the long-catalogued recurring Cloudflare/WAF 403 pattern (most recently 1327-1333, cleared by 1334). What's new is the duration and severity: every prior occurrence in this report's history cleared within 1-3 cycles, and this one has now run 4 consecutive cycles and escalated from `gateway_issue` to `provider_down` to `degraded` rather than clearing. The previous run's own open item said to flag this if it persisted or widened to `provider_down`; it has done both.
+**Recommended action:** keep watching; if ILO is still failing at the next cycle, treat this as a materially longer outage than the historical pattern and consider raising it beyond this routine's silent-triage channel.
+**Could not determine:** whether this is still the same self-clearing WAF flakiness just running longer, or a more durable block on ILO's side; the gateway's own logs are not reachable from this environment, and there is no way from here to tell whether the block is specific to the monitor/gateway's egress IP or affects ILO broadly (this routine's own live recheck, from a different network, also got 403, which is some evidence it is not IP-specific to the gateway host).
+
+**ECB**
+**Cycle saw:** `/api/history` shows ECB healthy through cycle 1344, then `gateway_issue` at 1345 (started 2026-11-14T06:01:22+00:00): single failing check `gateway metadata: Error:`, the same empty-error-body shape as the chronic bug already catalogued in `tools/sdmx_tools.py`. Direct metadata/data/json unaffected.
+**Live recheck:** hit ECB's direct endpoint (`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest`) just now and got a clean `200`, consistent with the monitor's own direct-path result for this cycle.
+**Classification:** `gateway_issue`, ours. Same chronic empty-`str(e)` bug in `tools/sdmx_tools.py` (around lines 207-209) previously traced on ABS, ESTAT, and ECB itself at cycle 1337 (self-healed by 1338) and again flagged at cycle 1339. Not fixed here; this routine only commits to `docs/monitor/`.
+**New or chronic:** chronic recurrence of an already-catalogued bug, third time specifically on ECB (1337, 1339-adjacent note, now 1345). Not a new failure mode.
+**Recommended action:** none beyond recording it; expect self-heal at the next cycle based on every prior occurrence. The underlying fix (give the caught exception a real message, or special-case an empty `str(e)`) belongs to a development session.
+**Could not determine:** which exception type produced the empty `str(e)` this time; the gateway's own logs are not reachable from this environment.
+
+**Other notes:** all other ten endpoints (ABS, BIS, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ, UNICEF) stayed healthy across cycles 1342-1345, no status changes. `stale` is false, `gateway_up` is true at cycle 1345. `/api/contracts` `changes` for this cycle is empty (the ILO breakage already happened in an earlier cycle within this window, so the cycle-over-cycle delta shows nothing new); STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) remains open, unchanged, not re-reported. 159 `claude/` branches remain on origin, essentially unchanged from 160 last run, still well above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-14T00:43Z - cycle 1342
 
 **Changed:** ILO healthy -> `gateway_issue` (1342).

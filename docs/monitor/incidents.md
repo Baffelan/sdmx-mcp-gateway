@@ -4,6 +4,30 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-14T12:43Z - cycle 1348
+
+**Changed:** ILO `degraded` (1345) -> healthy (1346-1348). ECB `gateway_issue` (1345) -> healthy (1346-1348). This closes the open item carried from the 1345 run, which asked this run to confirm whether ILO's then-4-cycle outage had become a durable block or was still the self-clearing pattern.
+
+**Previous state:** cycle 1345, read from this same branch's own file (already carrying the merged history through PR #374).
+
+**ILO**
+**Cycle saw:** `/api/history` shows ILO `degraded` through 1345, healthy at 1346, 1347 and 1348 (current), empty `failing` list at all three. `/api/contracts` at cycle 1348 still shows one ILO assertion off nominal: `encoding:structure_xml` reads `verdict: skipped`, `observed: "403"` (`error: "HTTP 403; encoding not judged"`), a direct-path probe against a specific dataflow (`ILO/DF_GED_XLU1_SEX_HHT_CHL_RT`) that is separate from the main status checks. All ten other ILO assertions read `ok` (`references:contentconstraint` stays `ignored`, the known architectural fact).
+**Live recheck:** hit the exact URL the `encoding:structure_xml` contract check uses (`https://sdmx.ilo.org/rest/dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest?detail=allstubs`) about 40 minutes after the cycle-1348 probe ran, and got a clean `200` with the expected `application/vnd.sdmx.structure+xml` content type -> the 403 the contracts snapshot captured has already cleared on its own, same as every prior occurrence of this pattern. Also re-hit the plain `ILO/all/latest` path used by the main status checks and got `200`.
+**Classification:** closes the escalation watch from cycle 1345 as a resolved occurrence of the catalogued Cloudflare/WAF 403 pattern, not a durable block. It ran 4 consecutive cycles (1342-1345, 8 hours) before clearing at 1346, longer than any prior occurrence in this report's history, but it did clear rather than widen or persist further, and the brief 403 the contract check caught at 1348 is the same self-clearing flakiness, not a new episode.
+**New or chronic:** chronic pattern, now resolved; duration was anomalous (8 hours vs the historical 1-3 cycles) but outcome was the normal one.
+**Recommended action:** none. Drop the escalation watch from `open_items`; no further action needed from this routine. If a similarly long occurrence recurs, treat the duration itself (not just the status) as the signal worth escalating.
+**Could not determine:** what caused this occurrence to run longer than every prior one; the gateway's and provider's own logs are not reachable from this environment.
+
+**ECB**
+**Cycle saw:** `/api/history` shows ECB `gateway_issue` at 1345 (single failing check, the chronic empty `Error: ` bug), healthy at 1346, 1347 and 1348 (current). The cycle-1348 snapshot shows all five main checks passing, including direct metadata (1828ms), direct data (4522ms, 1 observation, sample `1.1052` for `2026-11-13`) and direct json (2451ms), plus all twelve contract assertions reading `ok`.
+**Live recheck:** tried ECB's direct endpoint (`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest`) myself about 40 minutes after the cycle-1348 probe and got no response at all -- TLS handshake completed, request sent, then nothing for 25-60 seconds across three attempts (`curl: (28) Operation timed out`), not an HTTP error of any kind. In the same window, OECD and ILO direct both answered in under a second, so this routine's own network and the proxy are working; the hang is specific to ECB's host right now. This disagrees with the monitor's own cycle-1348 result, which saw ECB direct respond in under 5 seconds with real data 40 minutes earlier.
+**Classification:** the monitor's own authoritative read for cycle 1348 is healthy with good data and is not overridden here. The live-recheck hang is additional information, not a correction: either ECB has become slow or unreachable in the time since the monitor's cycle ran, or this is a transient condition specific to this recheck's exact moment.
+**New or chronic:** the `gateway_issue` flap itself is chronic (same empty-`str(e)` bug previously traced on ABS, ESTAT, and ECB at cycles 1337/1339). The live-recheck hang just now is new; there is no prior record of ECB simply not responding.
+**Recommended action:** none from this routine beyond recording it. If the next cycle (due ~14:01 UTC) also shows ECB failing or stale, treat it as a fresh, different problem from the chronic empty-error bug.
+**Could not determine:** whether ECB is actually slow or down right now, or whether the hang was specific to this routine's single recheck attempt; no second independent vantage point was available. This is explicitly not evidence that "ECB is fine" -- it is unresolved and open for the next run to check.
+
+**Other notes:** `/api/contracts` `changes` for cycle 1348 also lists OECD `encoding:structure_xml`, Content-Type charset/version parameter order flip, `verdict: ok` -- the long-catalogued cosmetic flap, not an incident. `stale` is false, `gateway_up` is true at cycle 1348. STATSNZ `auth:listing` `capability_appeared` (first seen cycle 60) remains open, unchanged, not re-reported. All other nine endpoints (ABS, BIS, ESTAT, FBOS, IMF, OECD, SBS, SPC, STATSNZ, UNICEF) stayed healthy across cycles 1345-1348, no status changes. 160 `claude/` branches remain on origin (159 last run), still well above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-14T06:43Z - cycle 1345
 
 **Changed:** ILO `gateway_issue` (1342) -> `gateway_issue` (1343) -> `provider_down` (1344) -> `degraded` (1345), continuously failing for 4 consecutive cycles (8 hours), the longest unbroken run in the catalogued history of this pattern. ECB healthy -> `gateway_issue` (1345).

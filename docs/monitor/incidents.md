@@ -4,6 +4,20 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-15T18:43Z - cycle 1363
+
+**Changed:** ILO healthy (cycles 1361-1362) -> `provider_down` (cycle 1363). ECB `provider_down` live-only finding from the previous run's open item is resolved: cycle 1361 (14:01Z) came back healthy and stayed healthy through 1362 and this cycle, so the 503-maintenance-page blip reported last run never showed up in a completed cycle and needs no further tracking.
+
+**Previous state:** cycle 1360, read from this same branch's own file.
+
+**ILO**
+**Cycle saw:** `/api/status` and `/api/history` both show cycle 1363 as `provider_down`: gateway metadata failing with `403 Forbidden` from `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`, gateway data failing the same way, and all three direct checks (metadata, data, json) returning HTTP 403. `/api/contracts` shows every ILO assertion reading `now: "403"` against whatever it `was` before, so this is one blanket 403 across the whole site, not independent contract breaks.
+**Live recheck:** at 18:43Z, about 27 minutes after cycle 1363 finished (18:02:16Z), I hit `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` directly and got a clean `200`. ECB and OECD direct checks in the same window both answered `200`, so this routine's own network is fine and the recheck disagrees specifically with ILO's cycle snapshot -> the block had already cleared by the time I looked.
+**Classification:** `provider_down` per the monitor (metadata failing on both the gateway and the direct path) -> provider-side, nothing to fix in our code.
+**New or chronic:** chronic/flapping, not novel. The same blanket-403 shape hit ILO at cycles 1342-1345 (2026-11-14, 00:01-06:01Z) and again at cycles 1354-1355 (2026-11-15, 00:01-02:01Z), each time recovering within one to two cycles. This is now a third occurrence in roughly 36 hours. The skill's catalogued ILO flap (cycle 32, direct-only 403) was a single past instance; this is a recurring pattern that is starting to look like it deserves its own tracking rather than being treated as a one-off each time.
+**Recommended action:** no code action; watch cycle 1364 to confirm it clears like the prior two episodes. If blanket 403 keeps recurring every day or so, it may be worth asking whether ILO is rate-limiting or IP-blocking this monitor periodically.
+**Could not determine:** how long the 403 window lasted before cycle 1363's checks ran into it, or whether it will recur again within the next day as it has twice before.
+
 ## 2026-11-15T12:44Z - cycle 1360
 
 **Changed:** ECB `provider_down` (cycle 1357, read from this same branch's own prior state) -> healthy at cycles 1358-1360 (3 consecutive clean cycles). This is the formal recovery of the cycle 1357 incident, which the previous run's live recheck had already found cleared. That part is routine and would not alone justify an alert.

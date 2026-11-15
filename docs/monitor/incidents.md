@@ -4,6 +4,30 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-15T06:43Z - cycle 1357
+
+**Changed:** ECB healthy (1356) -> `provider_down` (1357), a fresh occurrence, not a continuation of anything catalogued. ILO `gateway_issue` (1354) -> `degraded` (1355) -> healthy (1356-1357), now fully resolved; reported once here per the "report flaps once, already resolved" rule.
+
+**Previous state:** cycle 1354, read from this same branch's own file.
+
+**ECB**
+**Cycle saw:** `/api/history` shows ECB healthy through cycle 1356, `provider_down` at 1357 (current): gateway metadata failing with the chronic empty `Error: ` message (previously traced to `tools/sdmx_tools.py` catching `Exception` with an empty `str(e)`, seen before on ABS and ESTAT, not previously on ECB this recently), direct metadata failing with `ReadTimeout: ` (no body). Direct data (200, 1 observation) and direct json (200) both passed. `/api/contracts` shows no ECB assertion `broken`; `references:children`, `references:none`, and `references:parents` read `skipped` with the same `ReadTimeout` text, and the rest read `ok`, including the known-expected `availableconstraint` 404.
+**Live recheck:** hit the exact pinned metadata URL (`https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest?detail=allstubs`) myself right after reading the cycle and got a clean `200` in 1.6s. Also re-hit the pinned data URL and got `200` in 5.3s. Both disagree with the cycle's `ReadTimeout`, so whatever slowed ECB's host has already cleared. ABS direct answered `200` in the same window, so this routine's own network is fine; the timeout was specific to ECB at that moment.
+**Classification:** `provider_down` per the monitor (metadata failing on both gateway and direct path). The direct-path `ReadTimeout` points at ECB's host being slow or briefly unresponsive rather than a code defect on our side; the gateway's empty-error failure is the separate, already-catalogued `str(e)` bug riding along on top of that slowness, not new. Nothing in this entry suggests a change in the gateway's own logic.
+**New or chronic:** new as of this cycle. ECB has been healthy continuously since the 406-on-`text/csv` fix that closed out its last known failure mode; this routine's own instructions say a fresh ECB failure is news, not an assumed-known pattern, so it is reported in full here even though the live recheck already found it cleared.
+**Recommended action:** none beyond recording it; the live recheck already shows ECB responding normally again. Watch the next cycle only to confirm it does not recur, which would turn this from a one-off timeout into a pattern worth tracking like ILO's.
+**Could not determine:** whether the `ReadTimeout` was ECB's host being genuinely overloaded for a few minutes or a one-off network hiccup between the monitor and ECB specifically; no second independent read from the monitor's own vantage point was available, only this routine's live recheck afterward.
+
+**ILO**
+**Cycle saw:** `/api/history` shows ILO `gateway_issue` at 1354 (gateway metadata/data 403, direct path OK, matching the catalogued Cloudflare/WAF pattern on `sdmx.ilo.org`), widening to `degraded` at 1355 (direct metadata, data, and json all 403 too), then healthy at 1356 and 1357 (current), with all eleven contract assertions reading `ok` or the expected-architectural `ignored`/`deviates` verdicts at 1357.
+**Live recheck:** not performed; the failure already cleared two cycles ago by the time of this read, and the monitor's own history across 1356-1357 is sufficient to call it resolved.
+**Classification:** closes the prior run's open item as the normal self-clearing outcome. It did widen to the direct path at 1355, which the prior run's escalation note flagged as a trigger to escalate, but it cleared on its own by the very next cycle, well inside the historical envelope (prior occurrences have run 1-4 cycles), so no escalation beyond this record.
+**New or chronic:** chronic pattern, now resolved. Duration (2 cycles including the widened one) is within the normal range.
+**Recommended action:** none. Drop from `open_items`.
+**Could not determine:** nothing outstanding; the pattern is well catalogued and this occurrence behaved exactly as expected.
+
+**Other notes:** `stale` is false, `gateway_up` is true at cycle 1357. ABS `encoding:structure_xml` shows the long-catalogued cosmetic charset/version parameter order flip again (verdict `ok`), not an incident. ILO `encoding:structure_xml` shows the same cosmetic flip in the `/api/contracts` `changes` array, also `ok`, not an incident. STATSNZ `auth:listing` `capability_appeared` remains open, unchanged since cycle 60, not re-reported. All other nine endpoints (ABS, BIS, ESTAT, FBOS, IMF, OECD, SBS, SPC, UNICEF) stayed healthy across cycles 1354-1357, no status changes. 160 `claude/` branches remain on origin (161 last run), still well above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-15T00:43Z - cycle 1354
 
 **Changed:** ILO healthy (1351) -> gateway_issue (1354)

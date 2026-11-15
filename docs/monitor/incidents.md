@@ -4,6 +4,26 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-15T12:44Z - cycle 1360
+
+**Changed:** ECB `provider_down` (cycle 1357, read from this same branch's own prior state) -> healthy at cycles 1358-1360 (3 consecutive clean cycles). This is the formal recovery of the cycle 1357 incident, which the previous run's live recheck had already found cleared. That part is routine and would not alone justify an alert.
+
+**Live recheck disagrees with the cycle snapshot, which is the actual news:** at 12:43Z, roughly 41 minutes after cycle 1360 finished (12:02:15Z), I hit ECB's own endpoints directly:
+- `https://data-api.ecb.europa.eu/service/dataflow/ECB` -> HTTP 503
+- `https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A` -> HTTP 503
+
+Both returned ECB's own branded HTML page: "ECB Data Portal... We are experiencing some problems at the moment. Please try again in few minutes." This is not the chronic empty-`Error:` gateway bug and not a `ReadTimeout` -- it is ECB's own maintenance/outage page, served directly, no gateway involved.
+
+**Network check:** OECD, IMF, and ABS all answered 200 in the same window, so this is specific to ECB, not a problem with the environment this routine runs in.
+
+**Classification:** provider-side outage, confirmed live right now. Distinct pattern from the cycle 1357 incident (empty-error / ReadTimeout) and from the old catalogued 406-on-text/csv pattern. The monitor's own next cycle (expected ~14:01Z) has not run yet, so this outage is not yet reflected in `/api/status` or `/api/history`; as of this run's read, every endpoint including ECB shows healthy.
+
+**History:** ECB has now shown three different failure shapes within about a week of operation: 406 on `text/csv` Accept (fixed by gateway retry), empty-`Error:`/ReadTimeout (cycle 1357), and now a direct 503 maintenance page (this run, live-only, not yet in a completed cycle).
+
+**Recommended action:** watch cycle 1361 closely. If it also shows ECB failing, this is a real, possibly multi-hour ECB-side outage worth tracking as its own pattern rather than folding into the empty-error bug. If cycle 1361 is healthy, this was a brief live-only blip between cycles.
+
+**Could not determine:** how long the 503 had been running before 12:43Z, whether it started right after cycle 1360 finished or earlier and simply missed the 12:01Z check by luck, and whether it will still be failing by the next scheduled cycle.
+
 ## 2026-11-15T06:43Z - cycle 1357
 
 **Changed:** ECB healthy (1356) -> `provider_down` (1357), a fresh occurrence, not a continuation of anything catalogued. ILO `gateway_issue` (1354) -> `degraded` (1355) -> healthy (1356-1357), now fully resolved; reported once here per the "report flaps once, already resolved" rule.

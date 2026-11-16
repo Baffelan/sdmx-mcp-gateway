@@ -4,6 +4,24 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-16T00:44Z - cycle 1366
+
+**Changed:** ILO `provider_down` (cycle 1363, last recorded state) -> healthy at cycles 1364-1365 -> `gateway_issue` again at cycle 1366 (the newest cycle). Also two unrelated single-cycle blips that already self-resolved: ABS went healthy -> `gateway_issue` -> healthy at cycle 1364, and ESTAT went healthy -> `gateway_issue` -> healthy at cycle 1365.
+
+**ILO**
+**Cycle saw:** cycle 1366 shows gateway metadata and gateway data both failing with `403 Forbidden` from `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`, while all three direct checks (metadata, data, json) succeed with HTTP 200. `/api/contracts` shows every ILO assertion at `ok` (direct-path based), so this is specifically a gateway-path-only failure this time, not the blanket 403 seen at cycle 1363.
+**Live recheck:** at 00:44Z, I hit `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` directly twice in a row and got a clean 200 both times. The monitor's own gateway_up flag reads true. This confirms the split the cycle saw: ILO answers this routine's network fine; the 403 is specific to the gateway's own outbound path.
+**Classification:** `gateway_issue` per the monitor (direct path OK, gateway path failing) -> nominally "ours," but the shape (a clean 403 from ILO's server, not a timeout or malformed-request error) looks like ILO periodically blocking or rate-limiting the gateway's outbound IP rather than a bug in gateway code. No code site to point at; `tools/sdmx_tools.py`'s request path is unchanged and the error carries an explicit HTTP status, not the empty-`Error:` shape that marks the known code-level bug.
+**New or chronic:** chronic, but the recurrence interval just got much shorter. This is the fourth occurrence of ILO's periodic-403 pattern: cycles 1343-1345 and 1354-1355 (both 2026-11-14/15, gaps of roughly 34-46 hours apart), then cycle 1363 (2026-11-15 18:01Z), and now cycle 1366 (2026-11-16 00:01Z) -- only 6 hours after cycle 1363, with two clean cycles (1364, 1365) in between. The previous run's open item asked to watch for exactly this: whether the pattern keeps recurring. It did, and faster than before.
+**Recommended action:** no code action. Keep tracking recurrence timing; if the interval keeps shrinking it may be worth asking ILO directly about rate limits or IP allowlisting for the gateway's outbound address, since a direct client from a different network is never affected.
+**Could not determine:** whether this clears again on its own by the next cycle, or whether the shortened interval is the start of a worse trend. Also could not determine from outside whether the gateway's outbound IP is shared with other Railway tenants, which would explain IP-based blocking unrelated to this project's own traffic.
+
+**ABS and ESTAT (informational, already resolved)**
+Both are single-cycle recurrences of the already-documented chronic bug: an empty `Error:` string from the gateway's own exception handling (`tools/sdmx_tools.py`, the `except Exception as e` paths around the metadata fetch, previously traced on ABS, ESTAT and ECB). ABS hit it at cycle 1364 and was healthy again by 1365; ESTAT hit it at cycle 1365 and was healthy again by 1366. Both self-resolved before this run looked at them. No new classification, no code action beyond what is already an open item; recorded here only because each is a status change since the last recorded state, not because either is news on its own.
+
+**STATSNZ (carried forward, unchanged)**
+`auth:listing` still reads `capability_appeared` at cycle 1366, same as every run since it first appeared at cycle 60. No new information this run.
+
 ## 2026-11-15T18:43Z - cycle 1363
 
 **Changed:** ILO healthy (cycles 1361-1362) -> `provider_down` (cycle 1363). ECB `provider_down` live-only finding from the previous run's open item is resolved: cycle 1361 (14:01Z) came back healthy and stayed healthy through 1362 and this cycle, so the 503-maintenance-page blip reported last run never showed up in a completed cycle and needs no further tracking.

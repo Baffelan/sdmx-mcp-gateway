@@ -4,6 +4,19 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-16T18:43Z - cycle 1375
+
+**Changed:** ILO contract-only `degraded` (cycle 1372) -> healthy (cycle 1375). Closes the open item from the previous run.
+
+**Previous state:** cycle 1372, read from this same branch's own file.
+
+**Cycle saw:** `/api/contracts` at cycle 1375 shows all twelve ILO assertions `ok` except `references:contentconstraint`, which reads `ignored` (200/200, accepted and silently dropped -- the long-standing architectural fact, not new). `auth:listing`, `constraint:availableconstraint` (500, expected), `errors:missing_artefact`, `references:all` and `references:descendants` -- the five assertions that were `broken` with `observed: "403"` at cycle 1372 -- are all `ok` now. `/api/contracts`' own `changes` array is empty at 1375, so the monitor did not even register this as a delta; the recovery must have happened at some unobserved cycle between 1372 and 1375 (history has no per-cycle contracts snapshot to pin it down more precisely). `/api/status` and `/api/history` show all twelve endpoints `healthy` throughout cycles 1372-1375, `stale: false`, `gateway_up: true`.
+**Live recheck:** hit the same ILO URLs checked last run directly: `dataflow/ILO/all` (200), `availableconstraint/ILO` (500, expected architectural status), `dataflow/ILO/all/all?references=contentconstraint` (200). All clean, agrees with the cycle-1375 read.
+**Classification:** provider-side block clearing on its own, as every prior occurrence of this pattern has. No application bug, no code site.
+**New or chronic:** chronic pattern (ILO periodic 403, tracked since cycle 1342) resolving exactly as predicted in the previous run's open item ("watch cycle 1373 to confirm it clears"). This confirms the contract-only shape from cycle 1372 was transient like its predecessors.
+**Recommended action:** none. Continue treating future ILO contract-only blocks as the known chronic pattern unless one persists past a couple of cycles or widens into the main health checks.
+**Could not determine:** the exact cycle (1373 or 1374) at which the block actually cleared, since `/api/contracts` only exposes the current cycle and `/api/history` does not track contract state at all.
+
 ## 2026-11-16T12:46Z - cycle 1372
 
 **Changed:** ILO healthy -> `degraded` (cycle 1372, current, contract-only). ESTAT `gateway_issue` (1369, last recorded state) -> healthy (1370) -> `gateway_issue` again (1371) -> healthy (1372), flapped between runs. ABS healthy -> `gateway_issue` (1371) -> healthy (1372), flapped between runs. IMF healthy -> `degraded` (1370) -> healthy (1371-1372), flapped between runs.

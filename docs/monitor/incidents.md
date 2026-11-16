@@ -4,6 +4,36 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-16T06:44Z - cycle 1369
+
+**Changed:** ILO `gateway_issue` (cycle 1366, last recorded state) -> healthy at cycles 1367-1369 (3 consecutive clean cycles, the recovery of last run's open item). ESTAT healthy -> `gateway_issue` at cycle 1369 (the newest cycle). IMF flapped healthy -> `gateway_issue` -> healthy entirely between runs: cycle 1368 failed, cycle 1369 (this run's newest) is already healthy again.
+
+**Previous state:** cycle 1366, read from this same branch's own file.
+
+**ILO (recovery, carried-forward pattern)**
+**Cycle saw:** cycles 1367, 1368, 1369 all show every ILO check passing, no `403` anywhere in `/api/history`.
+**Live recheck:** at 06:44Z, a direct hit on `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` returned a clean `200` in 3.2s, consistent with the cycle data.
+**Classification:** resolved; no action needed now.
+**New or chronic:** this is the fifth clearing of the same recurring periodic-403 pattern tracked since cycle 1342. The gap since the last 403 (cycle 1366, 00:01Z) to now (06:44Z) is about 6.5 hours with no recurrence yet, longer than the 6-hour gap that preceded cycle 1366 itself. The shrinking-interval trend flagged last run has not continued; treat that concern as open but not worsening.
+**Recommended action:** keep watching recurrence timing. Still no code site to point at -- the failure shape (clean provider-side 403, not the empty-`Error:` bug) continues to look like ILO periodically blocking or rate-limiting the gateway's outbound IP rather than an application bug.
+**Could not determine:** whether the longer gap this time means the pattern is settling down, or is coincidence given only one data point.
+
+**ESTAT (new this cycle, matches a known benign shape)**
+**Cycle saw:** cycle 1369 shows `gateway metadata: tool call list_dataflows timed out after 60.0s`. Direct path and contracts both read clean (`ok`).
+**Live recheck:** at 06:44Z I pulled ESTAT's full dataflow listing directly (`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest`): HTTP 200, 31.7s, ~38MB. The provider is up and answering, just slow -- well within the gateway's 60s deadline on this one request, but the gateway's own `list_dataflows` call (fetch + parse) going over 60s at cycle 1369 is consistent with slower-than-usual conditions at the moment that cycle ran.
+**Classification:** `gateway_issue` per the monitor's mechanical rule, but this is the catalogued ESTAT behavior: "list_dataflows times out at 60s under load, then recovers. This is our own call deadline firing, working as designed." Not a new bug.
+**New or chronic:** chronic, matches the pattern seen before at cycles 54-55 and again at cycle 1143-adjacent runs; this is simply the next occurrence.
+**Recommended action:** none. Confirm cycle 1370 is healthy; if ESTAT stays in `gateway_issue` for more than one cycle, that would be new and worth a closer look.
+**Could not determine:** whether this specific timeout was caused by ESTAT-side load or network variance on the gateway's host; both produce the same symptom.
+
+**IMF (flapped and already resolved between runs)**
+**Cycle saw:** cycle 1368 failed with `gateway metadata: Error:` (the known empty-error gateway bug, previously traced only on ABS, ESTAT and ECB) and `gateway data: probe status: error; Network or transport error — provider unreachable`. Cycle 1369 (the newest, already captured above) is healthy again.
+**Live recheck:** at 06:44Z, `https://api.imf.org/external/sdmx/2.1/dataflow` answered HTTP 200 in under a second. IMF is clearly up now.
+**Classification:** `gateway_issue`, self-resolved before this run looked at it. Noting it because the empty-`Error:` bug (`tools/sdmx_tools.py`, the bare `except Exception as e` paths) has now been observed on a fourth endpoint (IMF), in addition to ABS, ESTAT and ECB. Still not fixed by this read-only routine.
+**New or chronic:** first time this exact bug-on-IMF combination has been seen; the underlying empty-error bug itself is chronic and cross-endpoint.
+**Recommended action:** no action from this routine. Worth noting for whoever eventually fixes the empty-error bug that it is not endpoint-specific -- it is generic exception-handling code and has now hit 4 of 12 endpoints.
+**Could not determine:** whether the "Network or transport error" on the data check was a separate transient blip or a symptom of the same underlying request failure that produced the empty metadata error.
+
 ## 2026-11-16T00:44Z - cycle 1366
 
 **Changed:** ILO `provider_down` (cycle 1363, last recorded state) -> healthy at cycles 1364-1365 -> `gateway_issue` again at cycle 1366 (the newest cycle). Also two unrelated single-cycle blips that already self-resolved: ABS went healthy -> `gateway_issue` -> healthy at cycle 1364, and ESTAT went healthy -> `gateway_issue` -> healthy at cycle 1365.

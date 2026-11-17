@@ -4,6 +4,44 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-17T18:45Z - cycle 1387
+
+**Changed:** three events since cycle 1384 (last recorded state), all already resolved by the time of this run.
+1. ECB healthy (cycle 1384) -> `gateway_issue` (cycle 1385) -> `provider_down` (cycle 1386) -> healthy (cycle 1387, current). This is the first ECB failure recorded since the ECB-406-retry fix (healthy since cycle 43 per the skill doc); worth flagging as news even though resolved.
+2. UNICEF healthy (cycles 1384-1385) -> `degraded` (cycle 1386) -> healthy (cycle 1387, current). New failure shape for UNICEF, not previously seen in this file.
+3. ILO healthy (cycles 1383-1384) -> `degraded` (cycle 1385) -> healthy (cycles 1386-1387, current). Same chronic direct-path 403 pattern, one more occurrence.
+
+Also resolved: the ESTAT `list_dataflows` gateway-timeout open item from the previous run (cycles 1383-1384) did not reach a third consecutive cycle; it recovered at 1385 and stayed healthy through 1387.
+
+**Previous state:** cycle 1384, read from this same branch's own file (current branch was already at the tip the state-discovery scan returned).
+
+**Cycle saw:**
+- ECB: `/api/status` at cycle 1387 is healthy with normal latencies (1.7-6.2s across all five checks). `/api/cycle/1385` showed `gateway_issue`, reason "direct path OK; gateway path failing" -- `gateway metadata` failed with the chronic empty `Error:` message (31.6s latency, same generic empty-exception bug previously traced to `tools/sdmx_tools.py` and seen before on ABS/ESTAT/ECB/IMF) while direct metadata still returned 200, just slow (27.4s). `/api/cycle/1386` escalated to `provider_down`, reason "metadata failing on both the gateway and the direct path" -- gateway metadata still the same empty `Error:` (31.8s), and now direct metadata also failed with `ReadTimeout:` (30.5s, i.e. hit our own 30s client timeout). Gateway data, direct data and direct json stayed `ok= true` throughout on both cycles; only the metadata check was affected. `gateway_up` stayed `true` at normal latency (109-208ms) through all three cycles, so the gateway process itself was never down -- this was ECB's own metadata endpoint being slow/unresponsive.
+- UNICEF: `/api/cycle/1386` shows `degraded`, failing checks `gateway data: probe status: empty; HTTP 404 -- no data found for this query.`, `direct data: HTTP 404`, `direct json: HTTP 404`. Both gateway metadata and direct metadata stayed `ok= true` (200). The matching `/api/contracts` row for cycle 1386 (fetched via `/api/cycle/1386`) shows `constraint:availableconstraint` verdict `broken`, `spec_verdict: deviates`, expected `200` observed `404`. By cycle 1387 all of this is back to `ok`/`200`, and the live `/api/contracts` `changes` array for cycle 1387 shows exactly this: `UNICEF constraint:availableconstraint was 404 now 200, verdict ok` -- the recovery, not a new regression. `contracts_config.py` already sets `availableconstraint_status=200` for UNICEF, so 200 is the correct, expected value; cycle 1386 was the deviation, not cycle 1387.
+- ILO: `/api/cycle/1385` shows the same chronic shape as the open item from the previous run -- `direct metadata/data/json: HTTP 403`, gateway path clean, plus the same contract assertions (`auth:listing`, `constraint:availableconstraint`, `errors:missing_artefact`, all seven `references:*` checks) reading `broken` as a side effect of the direct-path block. Recovered to healthy with empty `failing` and no contract breaks by 1386 and 1387.
+- `/api/contracts` live `changes` array otherwise empty aside from the UNICEF recovery already covered above. Matrix shows only known architectural facts: STATSNZ `auth:listing` `capability_appeared` still present unchanged since cycle 60; BIS/IMF/ILO `references:contentconstraint` `ignored` as always. ECB's `references:parents` read, flagged as a 30s `ReadTimeout` watch item last run, is now `ok` at 2312ms -- that open item is resolved, not recurring.
+- `stale: false`, `gateway_up: true`, `drift: []` at cycle 1387. No monitor-health concerns.
+
+**Live recheck:**
+- ECB: `https://data-api.ecb.europa.eu/service/dataflow/ECB` direct just now -- `200` in 1.17s. Fully recovered, matches cycle 1387.
+- Network sanity: IMF (`200`, 0.81s) and OECD (`200`, 0.28s) direct dataflow listings both answered normally at the same time, so the ECB slowness at cycles 1385-1386 was not this routine's network being degraded.
+
+**Classification:**
+- ECB: `gateway_issue` then `provider_down` -- direct path degraded too by cycle 1386 (ReadTimeout, not just the gateway's own empty-error), so this is provider-side: ECB's metadata endpoint was genuinely slow or unresponsive for about 4 hours, not a gateway bug. The empty `Error:` message on the gateway side is the separate, already-chronic exception-swallowing bug (`tools/sdmx_tools.py`, generic `except Exception` with empty `str(e)`), recurring here rather than appearing fresh.
+- UNICEF: `degraded`, provider-side -- both gateway and direct data/json calls got `HTTP 404` from the provider itself for the specific probed series, with metadata unaffected on either path. Reads as a transient upstream data-availability blip for that one series, not a gateway bug and not a broad outage (metadata, the constraint check infrastructure itself, stayed reachable).
+- ILO: `degraded`, provider-side (direct 403 only, gateway stayed healthy) -- unchanged classification from every prior occurrence of this pattern.
+
+**New or chronic:**
+- ECB: new. The skill doc explicitly says ECB has been clean since cycle 43 after the SDMx-CSV 406 retry fix; this is the first ECB incident recorded in this file since then.
+- UNICEF: new failure shape. No prior UNICEF entry in this file or in the skill's known-flap list resembles a 404 "no data found" on the data/json checks.
+- ILO: chronic, tenth-plus occurrence of the standing direct-path-403 pattern. Gap from the previous recovery (cycle 1383, 10:01Z) to this failure's onset (cycle 1385, 14:01Z) is 4 hours, the same recurrence spacing noted in the last two runs -- not an acceleration.
+
+**Recommended action:** none from this routine for any of the three; all resolved on their own within one to two cycles and none point at a gateway code bug (UNICEF and the ILO/ECB direct-path symptoms are provider-side). Worth a maintainer's eye only if ECB's metadata slowness or UNICEF's 404 pattern recurs -- a second ECB incident this soon after four clean months would break the "ECB is fine now" assumption for real, and a repeat UNICEF 404 would turn this from a one-off blip into a pattern worth adding to the chronic list.
+
+**Could not determine:** whether ECB's metadata slowness and UNICEF's data 404 at roughly the same time window (1385-1386) share a common cause (e.g. a shared upstream SDMx registry or network segment) or are coincidental; this routine has no visibility into either provider's own infrastructure. Also could not determine why ECB's direct path degraded a full cycle after the gateway path did (1385 gateway-only -> 1386 both) rather than simultaneously.
+
+**Other notes:** 161 `claude/` branches remain on origin (161 last run, unchanged), still well above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-17T12:44Z - cycle 1384
 
 **Changed:** two separate events since cycle 1381 (last recorded state).

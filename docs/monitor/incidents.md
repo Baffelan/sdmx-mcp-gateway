@@ -4,6 +4,21 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-17T06:44Z - cycle 1381
+
+**Changed:** ILO `provider_down` (cycle 1378, last recorded state) -> healthy (cycles 1380-1381, current).
+
+**Previous state:** cycle 1378, read from this same branch's own file.
+
+**Cycle saw:** `/api/status` at cycle 1381 reads ILO `healthy`, all checks passing. `/api/history?hours=48` shows ILO clean (`healthy`, empty `failing`) at both 1380 and 1381, confirming two consecutive clean cycles since the 1378 403. Note: cycle 1379 (expected ~02:01Z, given the 2h `check_interval_min`) is absent from `/api/history` for every one of the twelve endpoints, not just ILO; the gap from 1378 (00:01Z) to 1380 (04:01Z) is 4 hours instead of 2. `stale` reads `false` and `gateway_up` reads `true` right now, so this looks like one cycle id that was never produced or recorded rather than an ongoing staleness problem; flagging it since a missing cycle is adjacent to the wedged-cycle failure mode this routine exists to catch, even though nothing currently indicates the watchdog itself is stuck. All eleven other endpoints stayed healthy throughout cycles 1378-1381, so this is an ILO-only event, not a wider outage. `/api/contracts` `changes` this cycle shows only the long-catalogued cosmetic ABS `encoding:structure_xml` charset/version parameter-order flip (verdict `ok`, not an incident). STATSNZ `auth:listing` `capability_appeared` is still present in the matrix, unchanged since cycle 60, not re-reported.
+**Live recheck:** direct hit on `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` just now returned `200` in 3.9s. Also hit OECD and ECB directly as a network sanity check (both `200`, both clean), so this routine's own network path is fine and the ILO recovery is real, not an artifact of this routine being unable to reach providers.
+**Classification:** resolved. This is the same chronic ILO periodic-403 pattern (`provider_down` at cycle 1378 was already fully reported and confirmed recovered on live recheck in that same run); this run's cycle data for 1380 and 1381 simply confirms the recovery held across two further cycles with no relapse.
+**New or chronic:** chronic, same recurring pattern tracked since cycle 1342 (now an eighth-plus occurrence). No change to the standing open item; still watching whether frequency keeps climbing rather than treating any single recovery as a close.
+**Recommended action:** none from this routine. Continue watching ILO recurrence frequency; separately worth a maintainer's eye on the missing cycle 1379 id if it recurs, though a single isolated gap with `stale: false` now is not itself alarming.
+**Could not determine:** why cycle 1379 never appears in `/api/history` (skipped entirely vs. recorded and then evicted); the API exposes no way to distinguish those from here.
+
+**Other notes:** 161 `claude/` branches remain on origin (161 last run), still well above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-17T00:43Z - cycle 1378
 
 **Changed:** ILO healthy (cycles 1375-1377) -> `provider_down` (cycle 1378, current).

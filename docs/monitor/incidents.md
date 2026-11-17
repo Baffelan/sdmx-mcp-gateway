@@ -4,6 +4,36 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-17T12:44Z - cycle 1384
+
+**Changed:** two separate events since cycle 1381 (last recorded state).
+1. ESTAT healthy (cycles 1381-1382) -> `gateway_issue` (cycles 1383-1384, current, still ongoing).
+2. ILO healthy (cycle 1381) -> `degraded` (cycle 1382) -> healthy (cycles 1383-1384, current). Already resolved by the time of this run.
+
+**Previous state:** cycle 1381, read from this same branch's own file (current branch was already at `main`'s tip for this state).
+
+**Cycle saw:**
+- ESTAT: `/api/status` at cycle 1384 reads `gateway_issue`, reason "direct path OK; gateway path failing". The one failing check is `gateway metadata: tool call list_dataflows timed out after 60.0s`. Direct metadata, direct data and gateway data all passed clean; direct json is skipped by design (Eurostat returns 406 for SDMx-JSON, architectural fact). `/api/history?hours=48` shows the same failure at both cycle 1383 and 1384 -- two consecutive cycles (4 hours), whereas the prior occurrences of this pattern (cycles 1365, 1369, 1371) were each isolated single cycles that recovered on the next read.
+- ILO: `/api/history?hours=48` shows cycle 1382 as `degraded` with only `direct metadata: HTTP 403`, `direct data: HTTP 403`, `direct json: HTTP 403` failing -- the gateway path was not in the `failing` list, so the gateway stayed healthy through this occurrence while only the monitor's direct-path probe was blocked. Already back to `healthy` with empty `failing` at 1383 and 1384. `/api/contracts` `changes` this cycle is empty (`[]`). Contract matrix otherwise shows only known architectural facts: BIS/ILO/IMF `references:contentconstraint` reads `ignored` as always, STATSNZ `auth:listing` `capability_appeared` still present unchanged since cycle 60, and ECB `references:parents` read `skipped` this cycle on a 30.0s `ReadTimeout` (expected 200) -- not flagged as a `changes` entry by the monitor itself and `references:descendants` on the same endpoint took 28.7s in the same cycle, so this looks like a slow-query timing edge rather than a new capability regression; watching, not reporting as an incident. No other endpoint changed status across cycles 1381-1384.
+
+**Live recheck:**
+- ESTAT: hit `https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest` directly just now -- `200` in 47.0s, 38.2 MB response body. Confirms the provider's full dataflow listing for this agency is genuinely large and slow; a 60s gateway-side deadline on top of that response plus parsing has little margin, consistent with the chronic pattern description ("our own call deadline firing, working as designed"). Still failing live at the time of this check.
+- ILO: hit `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` directly -- `200` in 3.1s. Confirms the recovery the monitor already reported; no relapse.
+
+**Classification:**
+- ESTAT: `gateway_issue` -- direct path (apart from the slow listing itself) and gateway data both fine, only the gateway's `list_dataflows` tool call blew its own deadline. This is the chronic, known-benign timeout pattern, not a new bug and not provider-side; no code site to point at beyond the existing 60s deadline already called out in prior runs.
+- ILO: `degraded`, and notably only the direct path failed this time -- gateway stayed clean. This is a new variant shape of the chronic ILO periodic-403 pattern (prior occurrences were `provider_down`, `gateway_issue`, or contract-only; this is the first direct-path-only `degraded` shape recorded in this file). Resolved by the time of this run.
+
+**New or chronic:** both chronic.
+- ESTAT: same pattern tracked since cycle 54/55 (skill doc) and seen again at 1365, 1369, 1371; this is the first time it has held for two consecutive cycles instead of one. Worth watching for a third consecutive cycle, which would suggest something beyond normal load variance.
+- ILO: ninth-plus occurrence of the standing chronic pattern (eighth-plus as of cycle 1381, now one more). Gap from the previous failure's recovery (cycle 1380, 04:01Z) to this one (cycle 1382, 08:01Z) was 4 hours -- within the range already seen, not a new acceleration. Still watching frequency per the standing open item.
+
+**Recommended action:** none from this routine for either. If ESTAT's `list_dataflows` timeout holds for a third consecutive cycle, that would be worth a maintainer's eye (possible provider-side payload growth, not just load). ILO: continue watching recurrence frequency and shape variants; no code fix indicated since the gateway itself stayed healthy through this occurrence.
+
+**Could not determine:** whether ESTAT's two-cycle persistence reflects a genuinely larger payload right now versus coincidental timing; this routine cannot compare response sizes across cycles since the monitor does not record them. Also could not determine why ILO's direct path alone was blocked this cycle while the gateway path succeeded (provider edge rule change vs. coincidental timing of a partial block).
+
+**Other notes:** 161 `claude/` branches remain on origin (161 last run), still well above the 20 the skill flags for pruning; not actioned by this read-only routine. Cycle 1379 gap noted last run has not recurred (1382 and 1383 are both present and 2 hours apart as expected).
+
 ## 2026-11-17T06:44Z - cycle 1381
 
 **Changed:** ILO `provider_down` (cycle 1378, last recorded state) -> healthy (cycles 1380-1381, current).

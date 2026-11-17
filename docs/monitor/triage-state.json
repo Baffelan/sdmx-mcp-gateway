@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1378,
-  "last_cycle_started_at": "2026-11-17T00:01:22+00:00",
-  "last_run": "2026-11-17T00:43Z",
+  "last_cycle_id": 1381,
+  "last_cycle_started_at": "2026-11-17T06:01:22+00:00",
+  "last_run": "2026-11-17T06:44Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -9,7 +9,7 @@
     "ECB": "healthy",
     "ESTAT": "healthy",
     "FBOS": "healthy",
-    "ILO": "provider_down",
+    "ILO": "healthy",
     "IMF": "healthy",
     "OECD": "healthy",
     "SBS": "healthy",
@@ -18,8 +18,9 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO: provider_down at cycle 1378 (metadata failing on both gateway and direct path, HTTP 403), already recovered on live recheck minutes later. Seventh-plus occurrence of the chronic ILO periodic-403 pattern (29 non-healthy ILO cycles in the trailing 10 days per /api/history?hours=240). Unlike the most recent prior occurrence (cycle 1366, gateway-only), this one also hit the direct path. Not closing this as a distinct open item since the pattern itself is the standing issue; watch whether frequency keeps climbing.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1378. Still open, not re-reported since no new change.",
+    "ILO: recovered to healthy at cycles 1380-1381 after provider_down at cycle 1378 (already confirmed recovered on live recheck in that same run). Eighth-plus occurrence of the chronic ILO periodic-403 pattern. Not closing this as a distinct open item since the pattern itself is the standing issue; watch whether frequency keeps climbing.",
+    "Monitor: cycle 1379 is missing from /api/history for all twelve endpoints (gap from 1378 at 00:01Z to 1380 at 04:01Z is 4h instead of the usual 2h). stale is false and gateway_up is true right now, so no evidence of an ongoing wedge, but worth checking again if a similar gap recurs.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1381. Still open, not re-reported since no new change.",
     "claude/ triage branches on origin: 161 as of this run (161 last run), still well above the 20 the skill flags for pruning; not actioned by this read-only routine.",
     "Monitor bug (standing): /api/history computes status without contracts, so a contract-only degraded state never shows up in /api/history, only in /api/status and /api/contracts. Relevant again next time ILO's periodic-403 pattern shows up as contract-only.",
     "Chronic gateway bug (empty 'Error: ' message from tools/sdmx_tools.py around lines 207-209 catching Exception with an empty str(e)): previously traced on ABS (many occurrences), ESTAT (cycle 1143, 1335, 1365, 1371), ECB (cycle 1337, 1339-adjacent, 1345, 1357), and IMF (cycle 1368). No new occurrence this run. Generic exception-handling code, not endpoint-specific. Not fixed by this routine; it only commits to docs/monitor/.",

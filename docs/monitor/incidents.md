@@ -4,6 +4,19 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-17T00:43Z - cycle 1378
+
+**Changed:** ILO healthy (cycles 1375-1377) -> `provider_down` (cycle 1378, current).
+
+**Previous state:** cycle 1375, read from this same branch's own file.
+
+**Cycle saw:** `/api/status` reads ILO `provider_down`, reason "metadata failing on both the gateway and the direct path". Checks: gateway metadata failed with `Error: Client error '403 Forbidden'` on `dataflow/ILO/all/latest`; gateway data failed with "probe status: error; HTTP 403 from provider"; direct metadata failed with plain `HTTP 403`. Direct data and direct json both passed clean (200, real observations). `/api/contracts`' `changes` array shows one ILO entry this cycle: `encoding:structure_xml` went from a clean XML content-type to `403` / verdict `skipped` -- consistent with the metadata block. No other ILO contract assertion appears in `changes`, so the rest of the contract matrix was presumably still blocked or already recovered within the same cycle; `references:contentconstraint` reads `ignored` as always (architectural fact, not new). `/api/history` confirms ILO was clean (`healthy`, empty `failing`) at 1375, 1376 and 1377, and only cycle 1378 shows the failure -- a one-cycle event, not a multi-cycle drift. No other endpoint changed status in this window (checked all twelve against cycles 1375-1378).
+**Live recheck:** hit `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` directly just after reading the cycle -- 200 OK, full structure XML returned. Already recovered by the time of this run, same as every prior occurrence. Checked OECD directly too (200 OK) to confirm this routine's own network path is fine, so the 403 is ILO-side, not ours.
+**Classification:** `provider_down` -- metadata failed on both the gateway and the direct path this time, so this is squarely provider-side (the sdmx.ilo.org Cloudflare/WAF 403 pattern already catalogued for this endpoint), not a gateway bug. Worth noting: the most recent prior occurrence (cycle 1366) was `gateway_issue` -- direct path clean, only the gateway path blocked -- while this one hit the direct path too. The shape of this chronic pattern varies cycle to cycle (sometimes gateway-only, sometimes provider-wide, sometimes contract-only as at cycle 1372); it is not always the same failure mode under one name.
+**New or chronic:** chronic. This is the same recurring ILO periodic-403 pattern documented in this file for cycles 1268, 1270, 1272, 1282, 1292-1293, 1295, 1301, 1305-1306, 1309, 1312, 1316, 1318, 1320, 1323, 1327-1328, 1330, 1333, 1342-1345, 1354-1355, 1363, 1366 and 1372 (re-derived from `/api/history?hours=240`, 29 non-healthy ILO cycles in the last 10 days). It recurs roughly every 1-3 days and has self-cleared every single time within one to a few cycles.
+**Recommended action:** none from this routine. The pattern is well-tracked and self-resolving; no code site to point at since the block sits on the provider's edge, not in the gateway. If this frequency keeps climbing it may eventually be worth a standing note in `config.py` next to the other ILO architectural facts, but that is a maintainer decision, not something this read-only routine should do.
+**Could not determine:** whether the direct-path failure this cycle means the provider's block widened this time, or whether it is coincidental timing with an already-recovering gateway-side block; `/api/contracts`'s single-cycle `changes` view cannot resolve sub-cycle timing.
+
 ## 2026-11-16T18:43Z - cycle 1375
 
 **Changed:** ILO contract-only `degraded` (cycle 1372) -> healthy (cycle 1375). Closes the open item from the previous run.

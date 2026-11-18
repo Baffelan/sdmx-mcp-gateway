@@ -4,6 +4,36 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-18T00:43Z - cycle 1390
+
+**Changed:** two events since cycle 1387 (last recorded state).
+1. ECB healthy (cycle 1387) -> `gateway_issue` (cycle 1388) -> healthy (cycles 1389-1390, current). Already resolved.
+2. ILO healthy (cycles 1387-1388) -> `degraded` (cycle 1389) -> `provider_down` (cycle 1390, current). **Not yet resolved** as of this run.
+
+**Previous state:** cycle 1387, read from this same branch's own file (current branch was already at the tip the state-discovery scan returned; `main` carries the same commit).
+
+**Cycle saw:**
+- ECB: `/api/history` shows cycle 1388 `gateway_issue`, failing check `gateway metadata: Error:` -- the chronic empty-exception message, same bug previously traced to `tools/sdmx_tools.py`. Direct path and gateway data/json were unaffected. By cycle 1389 ECB was back to healthy, and stayed healthy through 1390.
+- ILO: cycle 1389 `degraded`, failing `direct metadata/data/json: HTTP 403` only, gateway path clean -- the standard chronic shape. Cycle 1390 escalated to `provider_down`: gateway metadata now also fails (`Error: Client error '403 Forbidden' for url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`), gateway data fails (`probe status: error; HTTP 403 from provider.`), and all three direct checks still 403. All ten of ILO's contract assertions read `broken` as a side effect (standard for this pattern, not a separate finding).
+- `/api/contracts` `changes` array has one entry: ABS `encoding:structure_xml` content-type parameter order flipped (`version=2.1; charset=utf-8` -> `charset=utf-8; version=2.1`), verdict stays `ok` throughout -- the known cosmetic flip, not reportable.
+- `stale: false`, `gateway_up: true`, `drift: []` at cycle 1390. No monitor-health concerns.
+
+**Live recheck:**
+- ILO: `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` direct, just now -- still `403`. Matches cycle 1390; not yet recovered.
+- Network sanity: ECB (`200`) and OECD (`200`) direct both answered normally at the same time, so the ILO 403 is provider-side, not this routine's network.
+
+**Classification:**
+- ECB: `gateway_issue`, ours -- the chronic empty `str(e)` exception-swallowing bug in `tools/sdmx_tools.py` (around lines 207-209), not a provider outage; direct path never failed.
+- ILO: `provider_down`, theirs -- blanket 403 on gateway and direct, metadata and data alike. Nothing to fix in our code.
+
+**New or chronic:**
+- ECB: this is the **second** ECB gateway-side incident in close succession -- the previous run (cycle 1385-1386, recorded cycle 1387) flagged ECB's first incident since cycle 43 and said "a second incident this soon would be the real news." This happened only two hours after that one fully resolved. Both incidents show the same chronic empty-error gateway bug, not a provider-side ECB problem; worth a maintainer's eye on `tools/sdmx_tools.py`'s generic exception handling now that it has hit ECB twice in one day after months of quiet.
+- ILO: chronic, latest occurrence of the standing direct-path-403 pattern (now escalated to also block the gateway path). Gap from the previous recovery (cycle 1386, 1387 healthy) to this failure's onset (cycle 1389) is about 4 hours, within the previously observed 4-8h range -- not an acceleration.
+
+**Recommended action:** watch next run for whether ILO has recovered (if `provider_down` persists past one more cycle, that would be new for this pattern, which has not previously held past a single `provider_down` cycle). The ECB empty-error bug is the one open code question: it has now recurred often enough (ABS, ESTAT, ECB x2 in one day, IMF) that fixing the exception message in `tools/sdmx_tools.py` would make future entries in this file far more informative, though this routine only reports and does not fix.
+
+**Could not determine:** whether ILO's current `provider_down` cycle will clear on its own as every prior occurrence has, or whether the gateway-path involvement this time (versus direct-only in most past occurrences) signals something different upstream.
+
 ## 2026-11-17T18:45Z - cycle 1387
 
 **Changed:** three events since cycle 1384 (last recorded state), all already resolved by the time of this run.

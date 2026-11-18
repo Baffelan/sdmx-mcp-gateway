@@ -4,6 +4,30 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-18T06:43Z - cycle 1393
+
+**Changed:** one event since cycle 1390 (last recorded state), already resolved by the time of this run.
+1. ILO `provider_down` (cycle 1390, current) -> healthy (cycle 1391) -> `degraded` (cycle 1392) -> healthy (cycle 1393, current). Resolved, but flapped again on the way back.
+
+**Previous state:** cycle 1390, read from this branch's own file (the state-discovery scan returned this same branch as the newest; `main` carries the same commit).
+
+**Cycle saw:**
+- ILO: `/api/history` shows the `provider_down` from cycle 1390 cleared by cycle 1391 (healthy, matching every prior occurrence of this pattern clearing within one cycle). It then degraded again at cycle 1392 with the standard direct-only shape (`direct metadata/data/json: HTTP 403`, gateway path clean), and was healthy again at cycle 1393. `/api/contracts` `changes` for this cycle are entirely ILO assertions moving from `403` back to their expected values (`200`, `404`, the structure XML content-type, etc.), all `verdict: ok` -- confirms the recovery rather than adding a new finding.
+- No other endpoint changed status across cycles 1391-1393: all eleven others stayed healthy throughout.
+- `stale: false`, `gateway_up: true`, `drift: []` at cycle 1393. No monitor-health concerns.
+
+**Live recheck:**
+- ILO: `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` direct, just now -- `200`. Matches cycle 1393's healthy status.
+- Network sanity: ECB (`200`) and OECD (`200`) direct both answered normally at the same time.
+
+**Classification:** `provider_down` / `degraded`, theirs both times -- blanket or direct-only 403, no gateway-side code involvement at either flap. Nothing to fix in our code.
+
+**New or chronic:** chronic. This is the same standing ILO direct-path-403 pattern reported in every run back through cycle 1345 (see prior entries). The gap from provider_down (1390) to the next flap (degraded at 1392) is 4 hours, within the previously observed 4-8h range. Not an acceleration, and the gateway path was not involved in either flap this time, unlike cycle 1390's escalation.
+
+**Recommended action:** none beyond continued watching. The pattern remains self-clearing within one to two cycles every time observed so far.
+
+**Could not determine:** whether this pattern will keep recurring at this cadence indefinitely, or whether it reflects an ILO-side rate limit or maintenance window that could someday stop clearing on its own.
+
 ## 2026-11-18T00:43Z - cycle 1390
 
 **Changed:** two events since cycle 1387 (last recorded state).

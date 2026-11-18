@@ -4,6 +4,34 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-18T12:43Z - cycle 1396
+
+**Changed:** two events since cycle 1393 (last recorded state).
+1. UNICEF healthy (cycles 1393-1394) -> `degraded` (cycle 1395) -> `degraded` (cycle 1396, current). **Not yet resolved**, sustained across two consecutive cycles (at least 4h).
+2. ESTAT healthy (cycle 1394) -> `gateway_issue` (cycle 1395) -> healthy (cycle 1396, current). Already resolved.
+
+**Previous state:** cycle 1393, read from this branch's own file (the state-discovery scan returned this same branch as the newest; `main` carries the same commit).
+
+**Cycle saw:**
+- UNICEF: failing checks are `gateway data`, `direct data`, `direct json`, all `probe status: empty; HTTP 404 -- no data found for this query` / `HTTP 404`, plus the `constraint:availableconstraint` contract assertion gone `broken` (expected `200`, observed `404`). Metadata (gateway and direct) still returns `200`. First seen at cycle 1395 (2026-11-18T10:01Z), still present at 1396 (2026-11-18T12:01Z).
+- ESTAT: single failing check `gateway metadata: Error:` at cycle 1395 only -- the chronic empty-exception message traced to `tools/sdmx_tools.py` (~lines 207-209), same bug noted recurring on ABS/ESTAT/ECB/IMF in prior entries. Cleared by cycle 1396 with no further sign.
+- No other endpoint changed status across cycles 1394-1396. `/api/contracts` `changes` for this cycle are the known cosmetic charset/version param-order flip on ABS and OECD `encoding:structure_xml` (`verdict: ok`), not incidents.
+- `stale: false`, `gateway_up: true`, `drift: []` at cycle 1396. No monitor-health concerns.
+
+**Live recheck (UNICEF only, ESTAT already resolved by the time of this run):**
+- Direct data probe `GET /data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1` -- `404`, body `No data for data query against the dataflow: urn:...Dataflow=UNICEF:GLOBAL_DATAFLOW(1.0)`. Matches the cycle.
+- Widened the probe to rule out a single retired series: `GET /data/UNICEF,GLOBAL_DATAFLOW/.CME_MRY0T4._T` (any country) and `GET /data/UNICEF,GLOBAL_DATAFLOW/all` (fully wildcard, any series) both also `404`, body `No Data for Query`. So this is not one series going stale -- no data at all currently comes back from this dataflow, by any key.
+- Structure still answers: `GET /dataflow/UNICEF/GLOBAL_DATAFLOW/latest` -- `200`, dataflow is present, final, version 1.0, unchanged ("Cross-sector indicators"). `GET /datastructure/UNICEF/GLOBAL_DATAFLOW?references=all` -- `404 No Results Found`, consistent with the data-side outage rather than the dataflow being withdrawn.
+- Network sanity: ABS, BIS, ECB, OECD all answered normally (`200`) in the same window, so this is not a network problem on our end.
+
+**Classification:** UNICEF `degraded`, provider-side -- gateway and direct data paths fail identically (`404`), so this is not `gateway_issue`; nothing to fix in our code. ESTAT `gateway_issue` while it lasted, same standing bug, not newly introduced.
+
+**New or chronic:** UNICEF -- new shape of a previously-seen pattern. The skill's known flap list records UNICEF HTTP 503 at cycle 2 (ancient, different error) and this same probe query failed once before at cycle 1386, recovering by the next cycle. This time it has held for two consecutive cycles and widened on live recheck to "no data by any key," which the single-cycle 1386 flap did not show. Treat as escalated, not yet confirmed as the same self-clearing flap. ESTAT -- chronic, the same empty-"Error:" exception bug reported recurring across ABS/ESTAT/ECB/IMF in prior entries; last run's state noted it "did not recur that run," so this is simply its next occurrence.
+
+**Recommended action:** watch UNICEF for one more cycle before escalating further; if cycle 1397 is still `404` on the wildcard probe this stops looking like a flap and starts looking like a provider-side outage or a dataflow being quietly rebuilt. No action needed for ESTAT beyond the existing standing note about the exception-handling bug.
+
+**Could not determine:** whether UNICEF's data layer is mid-outage, mid-maintenance, or rebuilding the dataflow's contents server-side; the structure/metadata endpoints giving no hint either way. Also could not determine whether this is related to the single-cycle flap at 1386, or a separate event.
+
 ## 2026-11-18T06:43Z - cycle 1393
 
 **Changed:** one event since cycle 1390 (last recorded state), already resolved by the time of this run.

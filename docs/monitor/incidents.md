@@ -4,6 +4,31 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-19T06:43Z - cycle 1405
+
+**Changed:** one event since cycle 1402 (last recorded state), already resolved by the time of this run.
+1. ABS healthy (cycle 1402) -> `gateway_issue` (cycle 1403) -> healthy (cycle 1404, cycle 1405, current). Resolved.
+
+**Previous state:** cycle 1402, read from this branch's own file (the state-discovery scan returned this same branch as the newest; `main` carries the same commit).
+
+**Cycle saw:**
+- ABS: single failing check at cycle 1403 (2026-11-19T02:01Z), `gateway metadata: Error:` -- the chronic empty-exception message traced to `tools/sdmx_tools.py` (~lines 207-209), the same bug previously traced on ABS, ESTAT, ECB and IMF in prior entries. Cleared by cycle 1404 (2026-11-19T04:01Z) with no further sign through 1405.
+- UNICEF: unchanged. Still `degraded`, same three failing checks (`gateway data`, `direct data`, `direct json`, all HTTP 404), same `constraint:availableconstraint` contract `broken` (expected `200`, observed `404`). Metadata/structure still `200`. Continuously failing from cycle 1395 through 1405 (11 cycles, ~22h).
+- No other endpoint changed status across cycles 1402-1405. `/api/contracts` reports zero `changes` this cycle; the matrix shows only the two already-known standing items (STATSNZ `auth:listing` capability_appeared, open since cycle 60; UNICEF `constraint:availableconstraint` broken, as above).
+- `stale: false`, `gateway_up: true`, `drift: []` at cycle 1405. No monitor-health concerns.
+
+**Live recheck:**
+- ABS: already resolved by the time of this run (current `/api/status` for cycle 1405 shows ABS gateway metadata `ok: true`); no separate direct recheck needed since the monitor's own later cycles (1404, 1405) already show recovery.
+- UNICEF: re-ran the wildcard probes live, since it has now persisted past the point the previous entry flagged for a re-check. `GET /data/UNICEF,GLOBAL_DATAFLOW,1.0/all` -> `404`. `GET /availableconstraint/UNICEF,GLOBAL_DATAFLOW,1.0/all` -> `404`. `GET /datastructure/UNICEF,GLOBAL_DATAFLOW` -> `200`. Matches the cycle exactly; still no data by any key, structure still intact.
+
+**Classification:** ABS `gateway_issue` while it lasted -- **ours**, not the provider's; same standing empty-exception bug, not newly introduced. UNICEF `degraded`, provider-side -- gateway and direct data paths fail identically (HTTP 404), so nothing to fix in our code.
+
+**New or chronic:** ABS -- another occurrence of the long-running empty-"Error:" exception bug, previously seen on ABS (many times), ESTAT (cycles 1143, 1335, 1365, 1371, 1395), ECB (cycles 1337, 1339-adjacent, 1345, 1357, 1385-1386, 1388) and IMF (cycle 1368). Each occurrence self-clears within one or two cycles; the underlying bug itself has never been fixed. UNICEF -- chronic, unchanged, now 11 cycles (~22h) since onset at cycle 1395.
+
+**Recommended action:** ABS needs no per-occurrence action; the standing recommendation to actually fix the empty-exception-message bug in `tools/sdmx_tools.py` still stands and grows stronger with each recurrence (now traced on four providers). UNICEF: still watching; the wildcard-data outage has not resolved and has not changed shape in 22+ hours, so this now looks less like a transient flap and more like either a sustained provider-side incident or a quiet retirement of the dataflow's data (structure/metadata still intact, so not a full withdrawal).
+
+**Could not determine:** whether ABS's cycle-1403 failure and the prior occurrences on other providers share a single root cause in the exception handler, or are coincidentally-timed separate faults that happen to produce the same empty message. Also could not determine, for UNICEF, whether the data layer is mid-outage, mid-maintenance, or has quietly dropped this dataflow's observations server-side; 22+ hours with no change in shape does not by itself distinguish those.
+
 ## 2026-11-18T12:43Z - cycle 1396
 
 **Changed:** two events since cycle 1393 (last recorded state).

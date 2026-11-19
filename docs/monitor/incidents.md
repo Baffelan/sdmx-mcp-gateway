@@ -4,6 +4,55 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-19T18:42Z - cycle 1411
+
+**Changed:** UNICEF recovered, `degraded` -> `healthy`.
+
+**Previous state:** cycle 1408, read from this branch's own state file (the
+state-discovery scan returned this same branch as the newest; `main` carries
+the same commit).
+
+**Cycle saw:**
+- UNICEF: all checks passing at cycle 1411 (started 2026-11-19T18:01Z). The
+  three checks that had been failing (`gateway data`, `direct data`, `direct
+  json`, all HTTP 404) now return clean, and `constraint:availableconstraint`
+  flipped back from `broken` (expected `200`, observed `404`) to `ok`
+  (`/api/contracts` `changes` array: `was: "404", now: "200"`). This ends a
+  continuous failure that ran from cycle 1395 through cycle 1410 -- 16 cycles,
+  roughly 32 hours.
+- No other endpoint changed status between cycles 1408 and 1411 (checked
+  1409 and 1410 too). ESTAT, which flapped once at cycle 1407, has stayed
+  healthy since cycle 1408; nothing new there.
+- `/api/contracts` reports one other change this cycle: the known cosmetic
+  charset/version-order flip on `encoding:structure_xml` for ILO, verdict
+  `ok` -- not an incident, consistent with prior runs.
+- `stale: false`, `gateway_up: true`, `drift: []` at cycle 1411. No
+  monitor-health concerns.
+
+**Live recheck:** confirmed live against the provider directly (not just the
+monitor's own cycle). `GET` against UNICEF's direct data path
+(`/data/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T?firstNObservations=1`)
+returned HTTP 200 with a structure-specific data payload; the same URL with
+an SDMx-JSON `Accept` header returned HTTP 200; and
+`/availableconstraint/UNICEF,GLOBAL_DATAFLOW/ALB.CME_MRY0T4._T` returned HTTP
+200. All three agree with the monitor's cycle-1411 observation -- this is a
+genuine provider-side recovery, not a monitor artifact.
+
+**Classification:** provider-side recovery. The prior failure was `degraded`
+(direct and gateway paths both failing with HTTP 404), which per the skill's
+vocabulary was never "ours" to fix; its disappearance is UNICEF's metadata
+server coming back, not a gateway change.
+
+**History:** new as of cycle 1411, ending a run that had been continuous
+since cycle 1395 (first seen in the baseline run's open items).
+
+**Recommended action:** none. Close the open item tracking this failure.
+Resume normal monitoring; re-open only if it recurs.
+
+**Could not determine:** whether UNICEF's server-side issue was a deploy, a
+dataset retirement that got reverted, or an unrelated infrastructure fix --
+the provider gives no changelog signal visible from these checks.
+
 ## 2026-11-19T12:42Z - cycle 1408
 
 **Changed:** one event since cycle 1405 (last recorded state), already resolved by the time of this run.

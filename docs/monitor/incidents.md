@@ -4,6 +4,29 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-19T12:42Z - cycle 1408
+
+**Changed:** one event since cycle 1405 (last recorded state), already resolved by the time of this run.
+1. ESTAT healthy (cycle 1406) -> `gateway_issue` (cycle 1407) -> healthy (cycle 1408, current). Resolved.
+
+**Previous state:** cycle 1405, read from this branch's own file (the state-discovery scan returned this same branch as the newest; `main` carries the same commit).
+
+**Cycle saw:**
+- ESTAT: single failing check at cycle 1407 (2026-11-19T10:01Z), `gateway metadata: Error:` -- the same chronic empty-exception message traced to `tools/sdmx_tools.py` (~lines 207-209), previously seen on ABS, ESTAT, ECB and IMF. Cleared by cycle 1408 (2026-11-19T12:01Z), no further sign.
+- UNICEF: unchanged. Still `degraded`, same three failing checks (`gateway data`, `direct data`, `direct json`, all HTTP 404), same `constraint:availableconstraint` contract `broken` (expected `200`, observed `404`). Metadata/structure still `200`. Continuously failing from cycle 1395 through 1408 (14 cycles, ~28h).
+- No other endpoint changed status across cycles 1405-1408. `/api/contracts` reports two `changes` this cycle, both the known cosmetic charset/version-order flip on `encoding:structure_xml` (ILO and OECD), verdict `ok` both times -- not an incident. The matrix shows only the two already-known standing items (STATSNZ `auth:listing` capability_appeared, open since cycle 60; UNICEF `constraint:availableconstraint` broken, as above).
+- `stale: false`, `gateway_up: true`, `drift: []` at cycle 1408. No monitor-health concerns.
+
+**Live recheck:** ESTAT already resolved by the time of this run (`/api/status` for cycle 1408 shows ESTAT `all checks passing`, cycle finished 2026-11-19T12:02Z, read at 2026-11-19T12:42Z); no separate direct recheck needed since the monitor's own later cycle (1408) already shows recovery. UNICEF not re-rechecked live this run since its shape has not changed from the last run's own live-verified state.
+
+**Classification:** ESTAT `gateway_issue` while it lasted -- **ours**, not the provider's; same standing empty-exception bug, not newly introduced. UNICEF `degraded`, provider-side -- gateway and direct data paths fail identically (HTTP 404), nothing to fix in our code.
+
+**New or chronic:** ESTAT -- another occurrence of the long-running empty-"Error:" exception bug, previously seen on ABS (many times, most recently cycle 1403), ESTAT itself (cycles 1143, 1335, 1365, 1371, 1395), ECB (cycles 1337, 1339-adjacent, 1345, 1357, 1385-1386, 1388) and IMF (cycle 1368). Self-clears within one cycle each time; the underlying bug has never been fixed. UNICEF -- chronic, unchanged, now 14 cycles (~28h) since onset at cycle 1395.
+
+**Recommended action:** ESTAT needs no per-occurrence action; the standing recommendation to fix the empty-exception-message bug in `tools/sdmx_tools.py` still stands, now with a fifth occurrence on a fourth distinct provider since it was first traced. UNICEF: still watching; approaching 30 hours with no change in shape.
+
+**Could not determine:** whether this ESTAT occurrence and the prior occurrences (on ESTAT itself and on the other three providers) share one root cause in the exception handler, or are coincidentally-timed separate faults producing the same empty message.
+
 ## 2026-11-19T06:43Z - cycle 1405
 
 **Changed:** one event since cycle 1402 (last recorded state), already resolved by the time of this run.

@@ -4,6 +4,51 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-20T06:43Z - cycle 1417
+
+**Changed:** ILO `gateway_issue` -> healthy. Resolved.
+
+**Previous state:** cycle 1414, read from this same branch's state file
+(`claude/sleepy-dijkstra-0gparv`, the newest across origin).
+
+**Cycle saw:** `/api/history?hours=24` shows ILO at `gateway_issue` for cycle
+1414 only, then healthy at 1415, 1416 and 1417 (current), three consecutive
+clean cycles. `/api/status` at cycle 1417 shows ILO `healthy, all checks
+passing`. No new failing checks for ILO appeared in between.
+
+**Live recheck:** direct `GET /dataflow/ILO/all/latest` on
+`https://sdmx.ilo.org/rest` returns `200` right now, consistent with the
+monitor's own healthy reading.
+
+**Classification:** was `gateway_issue` (direct path OK, gateway path
+blocked), matching the chronic Cloudflare/WAF 403 pattern against ILO's
+gateway path noted in the previous run's open items (non-healthy at cycles
+1295, 1301, 1305-1306, 1309, 1312, 1316, 1318, 1320, 1323, 1327-1328, 1330,
+1333, 1342-1345, 1354-1355, 1363, 1366, 1378, 1382, 1385, 1389-1390, 1392,
+1414). Single-cycle occurrence this time, shortest yet seen for this
+pattern. Nothing to fix in our code; this is the provider's edge WAF being
+intermittently unhappy with the gateway's requests specifically.
+
+**History:** gap since the previous occurrence (cycle 1392) was ~44h before
+this one hit at 1414; now healthy again after a single bad cycle. No other
+endpoint changed status between cycle 1414 and 1417.
+
+**Contracts:** `/api/contracts` `changes` is empty this cycle. The only
+non-`ok` verdict in the matrix is the standing `STATSNZ auth:listing`
+`capability_appeared`, first seen cycle 60, unchanged, not re-reported as a
+new finding.
+
+**Could not determine:** whether this ILO occurrence was caused by the same
+root cause as the earlier ones in the list (no visibility into ILO's edge
+WAF decisioning from here); only that the symptom and shape match.
+
+**Other open items, unchanged:** `claude/` triage branches on origin: 161
+(161 last run). Monitor bug (standing): `/api/history` computes status
+without contracts, so a contract-only degraded state would not show up
+there. Chronic empty `Error: ` exception-message bug in
+`tools/sdmx_tools.py` (~lines 207-209): no new occurrence this run (cycles
+1415-1417 clean for ABS, ESTAT, ECB, IMF).
+
 ## 2026-11-20T00:44Z - cycle 1414
 
 **Changed:** two items. (1) ABS healthy -> `provider_down` (cycle 1413) -> healthy

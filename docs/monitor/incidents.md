@@ -4,6 +4,80 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-20T18:44Z - cycle 1423
+
+**Changed:** two findings this run.
+
+### 1. ESTAT healthy -> gateway_issue (ongoing, 3 cycles)
+
+**Cycle saw:** `/api/status` and `/api/history?hours=48` both show ESTAT
+`gateway_issue` starting at cycle 1421 (14:01) and still present at 1422
+(16:01) and 1423 (18:01, current). Failing check each time: `gateway
+metadata: tool call list_dataflows timed out after 60.0s` (2 attempts,
+60001ms). Direct metadata and data checks pass; direct json is skipped by
+design (Eurostat returns 406 for SDMx-JSON).
+
+**Live recheck:** `GET /dataflow/ESTAT/all/latest?detail=allstubs` direct
+against `https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1` returns
+`200` in 7.2s with a 7.1MB body right now. The provider itself is not slow;
+the gateway's `list_dataflows` call is timing out at its own 60s deadline
+for some other reason (likely parsing/processing the full ESTAT catalog
+under load, consistent with the known architectural note that this is our
+own call deadline firing).
+
+**Classification:** `gateway_issue` - direct path OK, gateway path
+failing. This is ours to look at, not Eurostat's.
+
+**History:** `list_dataflows` timeouts against ESTAT have happened before
+(cycles 1369, 1383-1384) but as single or two-cycle blips that recovered.
+Three consecutive cycles (6h) is the longest streak of this specific
+symptom seen so far. A separate, already-known chronic symptom (empty
+`Error:` gateway messages, most recently cycle 1407) is unrelated and did
+not recur this run.
+
+**Recommended action:** watch whether this clears at the next cycle; if it
+persists past 3-4 more cycles, worth profiling `list_dataflows` against
+ESTAT's ~tens-of-thousands-dataflow catalog for a processing bottleneck
+rather than a network one.
+
+**Could not determine:** whether the 60s gateway deadline is being hit due
+to provider-side load at the exact check moment (which a 7s direct probe
+minutes later would not show) or a gateway-side processing cost that scales
+with catalog size.
+
+### 2. ILO contract `references:parentsandsiblings` broken -> ok (already resolved)
+
+**Cycle saw:** `/api/contracts` `changes` for cycle 1423 lists
+`references:parentsandsiblings` going from `200` (`ok`) to `500`
+(`broken`, spec_verdict `deviates`). This made `/api/status` report ILO as
+`degraded` for this cycle (all five health checks still `ok: true`; the
+degraded status came entirely from this one contract assertion). Note
+`/api/history` still shows ILO `healthy` for cycle 1423, which matches the
+standing monitor bug that `/api/history` computes status without
+contracts.
+
+**Live recheck:** `GET /dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest?references=parentsandsiblings&detail=allstubs`
+direct against `https://sdmx.ilo.org/rest` returns `200` right now, a few
+minutes after the cycle ran.
+
+**Classification:** transient provider-side blip, already resolved by the
+time of the live recheck. Not the chronic ILO Cloudflare/WAF 403 pattern
+(that one hits the gateway path with 403s; this one was a 500 on the
+direct path for one specific reference-expansion value).
+
+**History:** first time this specific assertion has shown up as `broken`;
+not in any previously recorded open item. The cosmetic
+`encoding:structure_xml` charset/version order flip also appeared in the
+same `changes` list, which is the known harmless reordering, not reported
+further.
+
+**Recommended action:** none; treat as a one-off provider hiccup unless it
+recurs.
+
+**Could not determine:** whether ILO's backend had a brief internal error
+at the exact moment of cycle 1423's check, since it was not reproducible
+minutes later.
+
 ## 2026-11-20T06:43Z - cycle 1417
 
 **Changed:** ILO `gateway_issue` -> healthy. Resolved.

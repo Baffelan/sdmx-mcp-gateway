@@ -4,6 +4,90 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-20T00:44Z - cycle 1414
+
+**Changed:** two items. (1) ABS healthy -> `provider_down` (cycle 1413) -> healthy
+(cycle 1414, current). Already resolved; reported once per the flap rule. (2) ILO
+healthy -> `gateway_issue` (cycle 1414, current, new). Not yet resolved as of this
+run.
+
+**Previous state:** cycle 1411, read from this same branch's state file (the
+state-discovery scan returned this branch, `claude/sleepy-dijkstra-hwahcp`, as
+the newest; `main` carries the same commit).
+
+**Cycle saw:**
+
+- ABS: `/api/history` shows ABS healthy at cycles 1411-1412, then
+  `provider_down` at 1413 with every single check failing the same way --
+  `gateway metadata: Error: Server error '504 Gateway Time-out'`, `gateway
+  data: probe status: error; HTTP 504 from provider.`, `direct metadata: HTTP
+  504`, `direct data: HTTP 504`, `direct json: HTTP 504`. Both paths blocked
+  identically, so this is a blanket provider-side timeout, not a gateway
+  code issue. Healthy again by 1414 with an empty `failing` list. `/api/contracts`
+  `changes` for this cycle is entirely the ABS recovery: thirteen assertions
+  moving from `504` (or `absent`) back to their expected `200`/`404`/content-type
+  values, all `verdict: ok`. This specific full-outage 504 shape has not
+  appeared for ABS before in this file; prior ABS blips (cycles 1364, 1371,
+  1403) were `gateway_issue` only (direct path staying healthy while the
+  gateway path failed), not a blanket 504 across both paths.
+- ILO: `/api/history` shows ILO healthy through cycle 1413, then
+  `gateway_issue` at 1414 (current): gateway metadata failed with `Error:
+  Client error '403 Forbidden' for url
+  'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'`, gateway data failed
+  with `probe status: error; HTTP 403 from provider.`, both after 2 attempts.
+  All three direct checks passed (metadata 200, data 200 with 119
+  observations, sample `8.973`/`2011`, json 200). `/api/contracts` shows all
+  twelve ILO assertions `ok` (`references:contentconstraint` stays `ignored`,
+  the known architectural fact), and `/api/contracts` `changes` has no ILO
+  entries, so no contract flipped this cycle -- the block is isolated to the
+  listing-style gateway request. No other endpoint changed status across
+  cycles 1411-1414.
+
+**Live recheck:** `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` direct,
+twice, just now -- `200` both times. Re-querying `/api/status` a few minutes
+after the first read still shows ILO `gateway_issue`, "direct path OK;
+gateway path failing" -- not yet cleared. ABS was not live-rechecked since it
+had already recovered by the time this run started; the monitor's own two
+clean cycles (1413 recovered by 1414, plus `/api/status` at read time) are
+sufficient confirmation.
+
+**Classification:**
+- ABS `provider_down`: theirs. Blanket 504 on gateway and direct, metadata
+  and data alike. Nothing to fix in our code.
+- ILO `gateway_issue` per the monitor (direct path OK, gateway path failing)
+  -> nominally "ours," but this is the long-catalogued recurring
+  Cloudflare/WAF 403 pattern against ILO's gateway path specifically (most
+  recently documented at cycles 1390-1392, cleared by 1393), not a new bug.
+  The direct path, hitting the same URL with the same request shape,
+  succeeds both in the monitor's own check and in this routine's live
+  recheck, so no gateway code change is implicated.
+
+**New or chronic:**
+- ABS: new shape (first full blanket-504 `provider_down`), but a single
+  isolated cycle that cleared on its own, consistent with a transient
+  provider timeout rather than a new standing pattern.
+- ILO: chronic. Re-derived from `/api/history?hours=240` (119 cycles, ~10
+  days): non-healthy ILO cycles at 1295, 1301, 1305-1306, 1309, 1312,
+  1316, 1318, 1320, 1323, 1327-1328, 1330, 1333, 1342-1345, 1354-1355,
+  1363, 1366, 1378, 1382, 1385, 1389-1390, 1392, and now 1414. The gap
+  from the previous occurrence (cycle 1392, 2026-11-18T04:01Z) to this one
+  (cycle 1414, 2026-11-20T00:01Z) is about 44 hours -- the longest clean
+  stretch in the whole 10-day catalogue, where prior gaps ran from a few
+  hours up to about a day. Not an acceleration; if anything the pattern has
+  been recurring less often lately.
+
+**Recommended action:** none from this routine for either. ABS: watch for a
+repeat of the blanket-504 shape; if it recurs, that would be new information
+worth escalating since all three prior ABS incidents were gateway-only. ILO:
+continue watching recurrence frequency and shape; the block sits on the
+provider's edge, not in the gateway, so no code fix indicated.
+
+**Could not determine:** whether ABS's 504 was a one-off provider blip or the
+start of a less-reliable period for that endpoint (one cycle is not enough to
+tell); whether ILO's unusually long 44h quiet stretch before this occurrence
+reflects a real change in the provider's blocking cadence or is coincidental
+timing.
+
 ## 2026-11-19T18:42Z - cycle 1411
 
 **Changed:** UNICEF recovered, `degraded` -> `healthy`.

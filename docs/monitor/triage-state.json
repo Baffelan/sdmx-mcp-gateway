@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1426,
-  "last_cycle_started_at": "2026-11-21T00:01:22+00:00",
-  "last_run": "2026-11-21T00:44Z",
+  "last_cycle_id": 1429,
+  "last_cycle_started_at": "2026-11-21T06:01:22+00:00",
+  "last_run": "2026-11-21T06:43Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,13 +18,13 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ESTAT: gateway_issue from cycles 1421-1423 (3 cycles, 6h, longest streak of the list_dataflows-vs-60s-deadline symptom seen so far) cleared at cycle 1424 and stayed clear through cycle 1426 (3 clean cycles since). Live recheck this run: ESTAT's full dataflow listing takes 30-33s direct, well under the gateway's 60s deadline, consistent with the known architectural note rather than a new problem. Closed unless a streak this long or longer recurs.",
-    "ILO: contract assertion references:parentsandsiblings one-off 200 -> 500 at cycle 1423 confirmed back to ok at cycle 1426 (stayed ok). Closed; was a one-off provider blip, not the chronic 403/WAF pattern.",
-    "ILO: chronic Cloudflare/WAF 403 pattern against ILO's gateway path stayed quiet through cycle 1426 (12 consecutive clean cycles since the cycle 1414 occurrence). Full occurrence list (re-derived from /api/history?hours=240 as of cycle 1414, carried forward, unchanged): cycles 1295, 1301, 1305-1306, 1309, 1312, 1316, 1318, 1320, 1323, 1327-1328, 1330, 1333, 1342-1345, 1354-1355, 1363, 1366, 1378, 1382, 1385, 1389-1390, 1392, 1414. Not a gateway code bug; nothing to fix.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1426. Still open, not re-reported since no new change.",
+    "ESTAT: single-cycle gateway_issue at cycle 1427 (list_dataflows timed out after 60.0s), resolved at cycle 1428, stayed clear through cycle 1429 (2 clean cycles since). Shorter than the 1421-1423 streak (still the longest to date). Live recheck this run: direct dataflow listing took 7.0s, well under the gateway's 60s deadline; OECD control request returned in 0.4s, so not this session's network. Same known architectural pattern (list_dataflows vs 60s deadline), not a new problem. Closed unless a streak as long as or longer than 1421-1423 recurs.",
+    "ILO: chronic Cloudflare/WAF 403 pattern against ILO's gateway path stayed quiet through cycle 1429 (15 consecutive clean cycles since the cycle 1414 occurrence). Full occurrence list (re-derived from /api/history?hours=240 as of cycle 1414, carried forward, unchanged): cycles 1295, 1301, 1305-1306, 1309, 1312, 1316, 1318, 1320, 1323, 1327-1328, 1330, 1333, 1342-1345, 1354-1355, 1363, 1366, 1378, 1382, 1385, 1389-1390, 1392, 1414. Not a gateway code bug; nothing to fix.",
+    "ILO: contract assertion references:parentsandsiblings one-off 200 -> 500 at cycle 1423, confirmed back to ok at cycle 1426 and still ok at cycle 1429. Closed; was a one-off provider blip, not the chronic 403/WAF pattern.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1429. Still open, not re-reported since no new change.",
     "claude/ triage branches on origin: 161 as of this run (161 last run, unchanged), still well above the 20 the skill flags for pruning; not actioned by this read-only routine.",
     "Monitor bug (standing): /api/history computes status without contracts, so a contract-only degraded state never shows up in /api/history, only in /api/status and /api/contracts. No contract-only degraded state occurred this run to re-confirm it, but the bug itself is unfixed.",
-    "Chronic gateway bug (empty 'Error: ' message from tools/sdmx_tools.py around lines 207-209 catching Exception with an empty str(e)): previously traced on ABS (many occurrences, most recently cycle 1403), ESTAT (cycles 1143, 1335, 1365, 1371, 1395, 1407), ECB (cycles 1337, 1339-adjacent, 1345, 1357, 1385-1386, 1388), and IMF (cycle 1368). No new occurrence this run (cycle 1426's checks and skips all clean of this symptom). Still unfixed; recommend addressing the exception handler.",
+    "Chronic gateway bug (empty 'Error: ' message from tools/sdmx_tools.py around lines 207-209 catching Exception with an empty str(e)): previously traced on ABS (many occurrences, most recently cycle 1403), ESTAT (cycles 1143, 1335, 1365, 1371, 1395, 1407), ECB (cycles 1337, 1339-adjacent, 1345, 1357, 1385-1386, 1388), and IMF (cycle 1368). No new occurrence this run (cycles 1427-1429's checks and skips all clean of this symptom). Still unfixed; recommend addressing the exception handler.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ECB does not support /availableconstraint/ (404 is expected, not an error); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); IMF direct json check is skipped by design (IMF ignores the JSON Accept header and returns XML); STATSNZ direct json check is skipped by design (Stats NZ ignores the JSON Accept header and returns CSV); BIS/IMF/ILO references:contentconstraint reads ignored (accepted and silently dropped); encoding:structure_xml charset/version order flips cosmetically from time to time, verdict stays ok."
   ],
   "alerted": true

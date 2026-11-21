@@ -4,6 +4,45 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-21T00:44Z - cycle 1426
+
+**Changed:** ESTAT gateway_issue -> healthy (recovered)
+
+**Cycle saw:** `/api/history?hours=12` shows ESTAT `gateway_issue` through
+cycle 1423 (last run's last observed cycle) and `healthy` at cycles 1424,
+1425, and 1426 (current). `/api/status` for cycle 1426 confirms all five
+ESTAT checks `ok: true` and the `constraint:availableconstraint` and
+`dialect:sdmx3` contract assertions both read their expected `405`/`405`
+with verdict `ok`.
+
+**Live recheck:** `GET /dataflow/ESTAT` direct against
+`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1` returns `200`
+in 30-33s right now (two attempts), well under the gateway's 60s
+`list_dataflows` deadline. A control request to OECD's dataflow listing
+returned in under a second, so this is not this session's network; ESTAT's
+full catalog listing is just slow by nature, consistent with the known
+architectural note.
+
+**Classification:** resolved `gateway_issue`. The underlying cause matches
+the already-documented pattern (`list_dataflows` racing the gateway's own
+60s deadline against ESTAT's large catalog, not a provider outage).
+
+**History:** the previous run (cycle 1423) recorded this as the longest
+streak yet of this symptom - 3 consecutive cycles (6h), versus prior
+single/two-cycle blips at cycles 1369 and 1383-1384. It cleared at the very
+next cycle (1424) and has stayed clear for 3 cycles since. No profiling
+action taken, per the previous run's recommendation to watch a few more
+cycles before escalating; the streak did not extend further.
+
+**Recommended action:** none for now. If a streak of this length or longer
+recurs, revisit the recommendation to profile `list_dataflows` for a
+processing bottleneck against ESTAT's catalog size.
+
+**Could not determine:** whether the 6h streak reflected elevated load on
+ESTAT's side at the time or gateway-side resource pressure, since neither
+side logs enough detail for this routine to distinguish them after the
+fact.
+
 ## 2026-11-20T18:44Z - cycle 1423
 
 **Changed:** two findings this run.

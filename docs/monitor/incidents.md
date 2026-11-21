@@ -4,6 +4,40 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-21T06:43Z - cycle 1429
+
+**Changed:** ESTAT healthy -> gateway_issue -> healthy, single-cycle flap (already resolved)
+
+**Cycle saw:** `/api/history?hours=48` shows ESTAT `healthy` at cycle 1426
+(last run's observed cycle), `gateway_issue` at cycle 1427 (failing check:
+`gateway metadata: tool call list_dataflows timed out after 60.0s`), then
+`healthy` again at cycles 1428 and 1429 (current). `/api/status` for cycle
+1429 confirms all five ESTAT checks `ok: true` and both ESTAT contract
+assertions read `ok`.
+
+**Live recheck:** `GET /dataflow/ESTAT/all/latest?detail=allstubs` direct
+against `https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1` returns
+`200` in 7.0s with a 7.1MB body right now, well under the gateway's 60s
+`list_dataflows` deadline. A control request to OECD's dataflow listing
+returned in 0.4s, so this run's network is not the cause.
+
+**Classification:** resolved `gateway_issue`. Same already-documented
+pattern as cycles 1369, 1383-1384, 1408, and 1421-1423: `list_dataflows`
+racing the gateway's own 60s deadline against ESTAT's large catalog, not a
+provider outage and not new gateway code behavior.
+
+**History:** single-cycle blip, shorter than the 3-cycle (6h) streak seen
+at cycles 1421-1423 which was the longest to date. Cleared at the very next
+cycle and stayed clear through 1429 (2 clean cycles since).
+
+**Recommended action:** none. Consistent with prior guidance: only worth
+profiling `list_dataflows` if a streak longer than the 1421-1423 one
+recurs.
+
+**Could not determine:** whether cycle 1427's timeout reflects momentary
+load on ESTAT's side or gateway-side processing cost at that exact moment,
+same limitation as every prior occurrence of this symptom.
+
 ## 2026-11-21T00:44Z - cycle 1426
 
 **Changed:** ESTAT gateway_issue -> healthy (recovered)

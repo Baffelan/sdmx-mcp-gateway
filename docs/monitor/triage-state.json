@@ -1,7 +1,7 @@
 {
-  "last_cycle_id": 1432,
-  "last_cycle_started_at": "2026-11-21T12:01:22+00:00",
-  "last_run": "2026-11-21T12:42Z",
+  "last_cycle_id": 1435,
+  "last_cycle_started_at": "2026-11-21T18:01:22+00:00",
+  "last_run": "2026-11-21T18:42Z",
   "baseline_established": true,
   "endpoint_status_at_last_run": {
     "ABS": "healthy",
@@ -18,11 +18,12 @@
     "UNICEF": "healthy"
   },
   "open_items": [
-    "ILO: chronic Cloudflare/WAF 403 pattern against ILO's gateway path stayed quiet through cycle 1432 (18 consecutive clean cycles since the cycle 1414 occurrence). Full occurrence list (re-derived from /api/history?hours=240 as of cycle 1414, carried forward, unchanged): cycles 1295, 1301, 1305-1306, 1309, 1312, 1316, 1318, 1320, 1323, 1327-1328, 1330, 1333, 1342-1345, 1354-1355, 1363, 1366, 1378, 1382, 1385, 1389-1390, 1392, 1414. Not a gateway code bug; nothing to fix.",
-    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1432. Still open, not re-reported since no new change.",
+    "ILO: chronic Cloudflare/WAF 403 pattern against ILO's gateway path stayed quiet through cycle 1435 (21 consecutive clean cycles since the cycle 1414 occurrence). Full occurrence list (re-derived from /api/history?hours=240 as of cycle 1414, carried forward, unchanged): cycles 1295, 1301, 1305-1306, 1309, 1312, 1316, 1318, 1320, 1323, 1327-1328, 1330, 1333, 1342-1345, 1354-1355, 1363, 1366, 1378, 1382, 1385, 1389-1390, 1392, 1414. Not a gateway code bug; nothing to fix.",
+    "STATSNZ auth:listing capability_appeared, first seen cycle 60, still present at cycle 1435 (reconfirmed by /api/contracts this run). Still open, not re-reported since no new change.",
+    "FBOS encoding:structure_xml charset/version order flip seen again this run (cycle ~1433-1435), verdict stays ok; this is the known cosmetic flip, not an incident.",
     "claude/ triage branches on origin: 161 as of this run (161 last run, unchanged), still well above the 20 the skill flags for pruning; not actioned by this read-only routine.",
     "Monitor bug (standing): /api/history computes status without contracts, so a contract-only degraded state never shows up in /api/history, only in /api/status and /api/contracts. No contract-only degraded state occurred this run to re-confirm it, but the bug itself is unfixed.",
-    "Chronic gateway bug (empty 'Error: ' message from tools/sdmx_tools.py around lines 207-209 catching Exception with an empty str(e)): previously traced on ABS (many occurrences, most recently cycle 1403), ESTAT (cycles 1143, 1335, 1365, 1371, 1395, 1407), ECB (cycles 1337, 1339-adjacent, 1345, 1357, 1385-1386, 1388), and IMF (cycle 1368). No new occurrence this run (cycles 1430-1432 all clean of this symptom). Still unfixed; recommend addressing the exception handler.",
+    "Chronic gateway bug (empty 'Error: ' message from tools/sdmx_tools.py around lines 207-209 catching Exception with an empty str(e)): previously traced on ABS (many occurrences, most recently cycle 1403), ESTAT (cycles 1143, 1335, 1365, 1371, 1395, 1407), ECB (cycles 1337, 1339-adjacent, 1345, 1357, 1385-1386, 1388), and IMF (cycle 1368). No new occurrence this run (cycles 1433-1435 all clean of this symptom). Still unfixed; recommend addressing the exception handler.",
     "Long-running architectural facts, not incidents: ILO /availableconstraint/ returns 500 (constraints come via ?references=all); ECB does not support /availableconstraint/ (404 is expected, not an error); ESTAT has no practical constraint support; ESTAT direct json check is skipped by design (Eurostat returns 406 for SDMx-JSON); IMF direct json check is skipped by design (IMF ignores the JSON Accept header and returns XML); STATSNZ direct json check is skipped by design (Stats NZ ignores the JSON Accept header and returns CSV); BIS/IMF/ILO references:contentconstraint reads ignored (accepted and silently dropped); encoding:structure_xml charset/version order flips cosmetically from time to time, verdict stays ok."
   ],
   "alerted": false

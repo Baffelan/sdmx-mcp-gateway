@@ -4,6 +4,55 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-22T18:44Z - cycle 1447
+
+**Changed:** ESTAT healthy -> provider_down (cycle 1446) -> gateway_issue (cycle 1447)
+
+**Cycle saw:** cycle 1446: gateway metadata, gateway data, direct metadata, and
+direct data all failed with HTTP 500 from Eurostat (`Server error '500
+Internal Server Error'` on `dataflow/ESTAT/...`). `/api/contracts` shows the
+same cycle: all 7 ESTAT assertions read `500` for `was`. Cycle 1447: direct
+metadata, direct data, and gateway data all recovered to `ok`; all 7 contract
+assertions recovered to normal values (`now`), verdict `ok` throughout. Only
+gateway metadata still fails, now with a different symptom: `tool call
+list_dataflows timed out after 60.0s`.
+
+**Live recheck:** direct fetch of the single pinned dataflow
+(`dataflow/ESTAT/nama_10_gdp`) returned HTTP 200 in 0.46s just now, confirming
+the provider-side 500 from cycle 1446 is over. A live fetch of the full,
+unfiltered ESTAT dataflow catalog (`dataflow/ESTAT`, what the gateway's
+`list_dataflows` tool fetches, not the monitor's own pinned single-dataflow
+check) took 30.8s to download 38MB with no other load. That leaves little
+margin under a 60s deadline once gateway-side XML parsing and any contention
+are added, so the cycle 1447 timeout is consistent with the gateway hitting
+its own call deadline on a large catalog rather than a new bug.
+
+**Classification:** cycle 1446 was provider-side (`provider_down`, both
+gateway and direct paths failed identically with the same HTTP 500, so
+Eurostat's server was erroring, not our code). Cycle 1447 is `gateway_issue`
+on paper (direct path OK, gateway path failing) but matches the already-known
+architectural pattern: `monitor/endpoints_config.py` documents ESTAT's full
+dataflow catalog as large enough to hang, and the skill's own history
+("ESTAT: list_dataflows times out at 60s under load, then recovers", cycles
+54/55) already covers this exact symptom. Nothing to fix in gateway code
+based on this occurrence alone.
+
+**History:** ESTAT was healthy for cycles 1440 through 1445 (6 clean cycles)
+before this. The HTTP-500 provider outage at cycle 1446 is a new shape not
+seen in the previously catalogued ESTAT flap list; the cycle 1447 timeout
+matches the previously catalogued `list_dataflows` timeout pattern.
+
+**Recommended action:** watch the next cycle. If gateway metadata recovers to
+`ok` on its own (as the documented pattern predicts), no action needed. If it
+stays down for more than one more cycle, escalate as a real gateway-side
+problem rather than a load-induced timeout.
+
+**Could not determine:** whether the cycle 1446 HTTP 500 was a one-off
+Eurostat blip or a deploy/maintenance window on their side; Eurostat gives no
+status page checked here. Also could not confirm from outside whether the
+gateway process itself was under unusual load at cycle 1447 versus the
+catalog size alone explaining the timeout.
+
 ## 2026-11-22T00:43Z - cycle 1438
 
 **Changed:** ILO healthy -> degraded

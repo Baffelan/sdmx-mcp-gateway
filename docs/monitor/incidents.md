@@ -4,6 +4,53 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-22T00:43Z - cycle 1438
+
+**Changed:** ILO healthy -> degraded
+
+**Cycle saw:** `/api/status` for cycle 1438 shows ILO `degraded`, reason
+"failing: gateway data, direct metadata, direct data". Per-check detail:
+gateway metadata ok (slow, 24.4s), gateway data failed after 2 attempts
+("probe status: error; Network or transport error - provider unreachable",
+38.7s), direct metadata HTTP 403 (847ms), direct data HTTP 403 (832ms),
+direct json ok but slow (200, 29.5s). All ILO contract assertions this
+cycle read `ok` or the expected `ignored` (`references:contentconstraint`),
+nothing `broken`.
+
+**Live recheck:** ~40 minutes after the cycle, direct metadata
+(`GET /dataflow/ILO/DF_GED_XLU1_SEX_HHT_CHL_RT/latest`) returned 200 in
+0.8s and direct data (`GET /data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....`)
+returned 200 in 8.9s against `https://sdmx.ilo.org/rest`. Already recovered.
+Could not independently recheck the gateway-path probe itself from this
+session (no gateway client available here); only the direct-path symptoms
+were reverified live. Controls against ECB and IMF direct endpoints both
+returned 200 in the same window, so this is not a network problem on the
+session's side.
+
+**Classification:** `degraded` (mixed: gateway metadata ok, gateway data
+and both direct checks failing). Re-derived from `/api/history?hours=240`:
+this is the same recurring Cloudflare/WAF-shaped 403 fingerprint against
+ILO's direct path seen repeatedly over the last 10 days (22 bad cycles out
+of 119 in that window), not a new failure mode. The exact mix of which
+checks fail varies cycle to cycle (sometimes gateway metadata also 403s,
+sometimes direct json also 403s); this cycle it was direct metadata+data
+only, with gateway data erroring on transport rather than a clean 403.
+
+**History:** last prior occurrence of this fingerprint was cycle 1414
+(2026-11-20T00:01Z), 24 clean cycles ago (~2 days). Full occurrence list
+in the last 240h, re-derived this run: 1320, 1323, 1327-1328, 1330, 1333,
+1342-1345, 1354-1355, 1363, 1366, 1378, 1382, 1385, 1389-1390, 1392, 1414,
+1438. Chronic, intermittent, provider-side; nothing to fix in gateway code.
+
+**Recommended action:** none beyond continuing to watch. Consistent with
+prior guidance on this fingerprint.
+
+**Could not determine:** whether cycle 1438's specific "Network or
+transport error" wording on the gateway-data check (rather than the usual
+"HTTP 403 from provider") reflects a slightly different failure on ILO's
+or Railway's side, since the live recheck could only reach ILO directly,
+not through the deployed gateway.
+
 ## 2026-11-21T06:43Z - cycle 1429
 
 **Changed:** ESTAT healthy -> gateway_issue -> healthy, single-cycle flap (already resolved)

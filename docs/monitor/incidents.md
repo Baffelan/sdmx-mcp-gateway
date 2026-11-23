@@ -4,6 +4,71 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-23T00:43Z - cycle 1450
+
+**Changed:** ILO healthy -> provider_down (cycle 1450); ESTAT flapped gateway_issue (cycle 1449) -> healthy (cycle 1450), already resolved
+
+**Cycle saw (ILO):** cycle 1450 shows gateway metadata, gateway data, direct
+metadata, direct data, and direct json all failing with HTTP 403. `/api/contracts`
+`changes` array lists 9 ILO assertions moving to `403` in this same cycle
+(`auth:listing`, `constraint:availableconstraint`, `dialect:sdmx3`,
+`encoding:structure_xml` now `skipped`, `errors:missing_artefact`, and five
+`references:*` checks), all with verdict `broken` or `skipped`. This is one
+underlying block surfacing across every check, not nine separate contract
+breaks.
+
+**Live recheck (ILO):** `curl` against `https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`
+just now still returns HTTP 403, `server: cloudflare`, with a `__cf_bm` cookie
+in the response -- the same Cloudflare/WAF-shaped block this routine has seen
+before. A simultaneous request to ECB (`data-api.ecb.europa.eu`) returned 200,
+so this is not a network problem on the monitor's or this session's side; ILO
+specifically is blocking.
+
+**Classification (ILO):** `provider_down` -- metadata fails on both the
+gateway and direct paths identically, so this is ILO's edge/WAF, not a gateway
+bug. Nothing to fix in our code.
+
+**History (ILO):** matches the long-running chronic Cloudflare 403 pattern
+(prior occurrences through cycle 1438: 1320, 1323, 1327-1328, 1330, 1333,
+1342-1345, 1354-1355, 1363, 1366, 1378, 1382, 1385, 1389-1390, 1392, 1414,
+1438). ILO was healthy continuously from cycle 1439 through 1449 (11 clean
+cycles), so this is a fresh occurrence after the longest clean streak in the
+tracked history, not a continuation. Recommended action: none, this is
+provider-side and self-resolving historically; keep watching for recovery.
+
+**Cycle saw (ESTAT):** the cycle 1447 `gateway_issue` reported last run (the
+`list_dataflows` 60s timeout) cleared at cycle 1448 as expected. It then
+recurred at cycle 1449 with a different symptom: `gateway metadata: Error:`
+with an empty message body, and recovered again by cycle 1450 (current,
+healthy).
+
+**Live recheck (ESTAT):** not applicable; both the 1447 timeout and the 1449
+empty-error flap had already resolved by the time this run started (cycle
+1450 is healthy now).
+
+**Classification (ESTAT):** the cycle 1449 empty `Error:` message is the
+chronic gateway bug already tracked in `open_items`: `tools/sdmx_tools.py`
+around lines 208-210 catches `Exception` and returns `str(e)`, which is empty
+for some exception types. Previously traced on ABS, ESTAT, ECB, and IMF; this
+is a new occurrence on ESTAT, not a new bug. This one is `ours` in the sense
+that the exception handler is swallowing the real error, but the underlying
+transient itself self-resolved one cycle later.
+
+**History (ESTAT):** flapped twice in three cycles (1447, 1449) after 6 clean
+cycles before that (1440-1445), bracketing one genuine provider 500 at 1446.
+Currently healthy.
+
+**Could not determine:** what exception actually fired at cycle 1449 (the
+monitor's own log only shows the empty-string result, not the underlying
+exception type or traceback) -- that detail is lost unless the gateway's own
+logs are checked at the time, which this routine does not have access to.
+
+**Recommended action:** fix the exception handler at `tools/sdmx_tools.py:208-210`
+to log and surface `repr(e)` or `type(e).__name__` instead of bare `str(e)`,
+so the next occurrence of this chronic bug is diagnosable instead of just
+"Error:". Not urgent since the underlying transient keeps self-resolving
+within one cycle.
+
 ## 2026-11-22T18:44Z - cycle 1447
 
 **Changed:** ESTAT healthy -> provider_down (cycle 1446) -> gateway_issue (cycle 1447)

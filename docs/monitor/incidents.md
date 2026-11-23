@@ -4,6 +4,26 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-23T18:45Z - cycle 1459
+
+**Changed:** IMF `healthy` -> `provider_down` -> `healthy`; ECB `healthy` -> `degraded` -> `healthy`. Both flapped and recovered between runs. Last run's recorded state (cycle 1456, this branch) had all 12 endpoints healthy.
+
+**Cycle saw (IMF):** `/api/history?hours=48` shows IMF healthy through cycle 1457, then `provider_down` at cycle 1458 (2026-11-23T16:01:22Z): gateway metadata `Error: Client error '401 Unauthorized' for url 'https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest'`, gateway data `probe status: error; HTTP 401 from provider.`, direct metadata `HTTP 401`, direct data `HTTP 401` - all four basic checks on both paths. Cycle 1459 (current, 18:01:22Z) is clean, `failing: []`. `/api/contracts`' `changes` array for cycle 1459 shows the same episode on the contract layer: `references:descendants` and `references:parents` both flipped `401 -> 200`, verdict `ok`, spec_verdict `conforms`.
+
+**Cycle saw (ECB):** healthy through 1457, `degraded` at 1458 with only `direct metadata: ReadTimeout:` failing (gateway metadata, gateway data, direct data, direct json all stayed ok that cycle). Healthy again at 1459.
+
+**Live recheck:** `GET https://api.imf.org/external/sdmx/2.1/dataflow/IMF.STA/all/latest` -> 200. `GET https://api.imf.org/external/sdmx/2.1/data/IMF.STA,CPI/all?startPeriod=2023&endPeriod=2023` -> 200. `GET https://data-api.ecb.europa.eu/service/dataflow/ECB/all/latest` -> 200 in 1.2s. All three clean, matching the cycle-1459 recovery, no disagreement. A control hit against ECB while checking IMF, and vice versa, both answered normally at the time of each other's failure window, so this routine's own network is not implicated and the two episodes look independent rather than one shared network blip.
+
+**Classification:** both provider-side. IMF: `provider_down` (metadata and data failed identically on gateway and direct paths - a clean HTTP 401 on both, not a timeout, so this reads as something IMF's edge/auth layer did, not our code). ECB: `degraded`/timeout on a single check (direct metadata `ReadTimeout`), the same "host briefly slow or unresponsive" shape as ECB's prior intermittent timeouts; gateway path was unaffected this time, so no gateway-side empty-exception bug rode along on this occurrence.
+
+**History:** IMF - new shape. IMF has flapped twice before: a `references:*`-only contract-probe 401 that never touched the basic checks (first seen cycle 161), and separate `503 no healthy upstream` provider outages (e.g. cycle 1096). This is the first recorded case of IMF's basic gateway/direct metadata and data checks failing with a clean 401 together; one cycle wide (1458), already resolved by 1459. ECB - chronic. Matches the intermittent direct-metadata `ReadTimeout` pattern logged repeatedly before (e.g. cycles 1357, 1382); still only ever a single cycle each time, never escalating to the gateway path this run.
+
+**Recommended action:** no code change for either. Watch for a second IMF 401 occurrence - if it recurs, treat it like the other providers' transient auth/rate-limit blips (ILO 403) rather than a gateway bug, since this episode's both-path 401 shape with the other 11 endpoints unaffected points at IMF's side. ECB's single-check timeout needs no action; it has self-resolved every time so far.
+
+**Could not determine:** whether IMF's 401 came from a real auth/rate-limit system or a different transient fault on IMF's edge; the response carries no extra detail and the episode had already cleared by the time of the live recheck.
+
+**Open items carried forward (unchanged, not re-reported as new):** ILO chronic Cloudflare/WAF-shaped 403 pattern (healthy through this run, no new occurrence); chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run); STATSNZ `auth:listing` `capability_appeared` since cycle 60 (still present, confirmed by `/api/contracts` this run); `/api/history` not reflecting contract-only degraded states (no contract-only case to re-confirm this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. 162 `claude/` triage branches still on origin, unchanged from last run, still above the 20-branch pruning threshold, not actioned by this read-only routine.
+
 ## 2026-11-23T06:43Z - cycle 1453
 
 **Changed:** ILO provider_down -> healthy (recovered)

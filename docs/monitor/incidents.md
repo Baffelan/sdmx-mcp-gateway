@@ -4,6 +4,29 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-23T06:43Z - cycle 1453
+
+**Changed:** ILO provider_down -> healthy (recovered)
+
+**Cycle saw:** ILO was `provider_down` at cycle 1450 (reported last run as an
+ALERT). `/api/history?hours=12` shows it back to `healthy` at cycle 1451 and
+holding healthy through cycles 1452 and 1453 (3 clean cycles).
+**Live recheck:** `curl https://sdmx.ilo.org/rest/dataflow/ILO` returns `200`
+directly, confirming the recovery live, ~41 minutes after cycle 1453 finished.
+`/api/contracts` shows no `broken` assertions for ILO this cycle; the one
+`changes` entry for ILO is the known cosmetic `encoding:structure_xml`
+charset/version order flip, verdict `ok`, not an incident.
+**Classification:** provider-side recovery; matches the prior occurrences of
+this chronic Cloudflare/WAF-shaped 403 pattern, which has always self-resolved
+within a few cycles.
+**History:** this is the same chronic pattern tracked in the prior entry
+(occurrences through cycle 1450 listed there); add 1450 to that list. No new
+pattern.
+**Recommended action:** none; continue watching for recurrence as before.
+**Could not determine:** nothing outstanding for this item; ESTAT and the
+other endpoints were all healthy at cycle 1450 and remain healthy through
+1453, so no other investigation was needed this run.
+
 ## 2026-11-23T00:43Z - cycle 1450
 
 **Changed:** ILO healthy -> provider_down (cycle 1450); ESTAT flapped gateway_issue (cycle 1449) -> healthy (cycle 1450), already resolved

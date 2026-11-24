@@ -4,6 +4,26 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-24T00:45Z - cycle 1462
+
+**Changed:** ILO `healthy` -> `degraded` (direct path only); SBS `healthy` -> `gateway_issue`. Both new as of this cycle; cycles 1460-1461 were clean for both, matching last run's all-healthy baseline (cycle 1459).
+
+**Cycle saw (ILO):** direct metadata and direct data both `HTTP 403`; gateway metadata and gateway data both `ok: true` (slow: 8.2s and 18.1s respectively, but succeeded). `/api/contracts` `changes` for this cycle: `auth:listing` `200 -> 403` (verdict `broken`), `constraint:availableconstraint` `500 -> 403` (verdict `broken`), `errors:missing_artefact` `404 -> 403` (verdict `broken`), `dialect:sdmx3` `400 -> 403` (verdict stayed `ok`, expected value already allowed for 403), `encoding:structure_xml` skipped (403 blocked the judge). All five changes are the same single root cause: ILO's direct edge started answering 403 to everything this cycle.
+
+**Cycle saw (SBS):** gateway metadata failed with `Error: [Errno -3] Temporary failure in name resolution`; gateway data failed with `probe status: error; Network or transport error - provider unreachable`. Direct metadata, direct data (636 obs) and direct json all `200`/ok. No contract changes for SBS (`broken: []`, no entries in `changes` array for SBS this cycle). `gateway_up` for the cycle as a whole was `true`, and every other endpoint's gateway check succeeded this same cycle (ABS, ILO, etc.), so this was not a gateway-wide outage - the DNS failure was isolated to resolving SBS's own hostname.
+
+**Live recheck:** `GET https://sdmx.ilo.org/rest/dataflow/ILO` -> `200`, twice in a row, ~40 minutes after the cycle. ILO's direct 403 had already cleared. `GET https://data-sdmx-disseminate.sbs.gov.ws/rest/dataflow/SBS` -> `200` on the second attempt (first attempt hit a transport-level reset in this session's own egress path, not an SBS or provider response - see agent-proxy diagnostics; retried once per the proxy README's guidance and got a clean `200`). Both endpoints are clean now; both disagree with what their respective failing check saw in-cycle, consistent with transient faults rather than ongoing ones.
+
+**Classification:** ILO - provider-side. Direct path alone failed (gateway path succeeded), so this is not a `gateway_issue`; it is the provider's own edge/WAF answering 403, same shape as every prior ILO occurrence. SBS - `gateway_issue` by the monitor's own rule (direct ok, gateway failed), but the specific error signature (`Temporary failure in name resolution`) is a DNS lookup failure, the same infrastructure-side error class already documented for FBOS (cycle 50) rather than a code defect in `tools/sdmx_tools.py`. Nothing in the gateway's own retry/exception-handling code is implicated; this looks like a transient DNS hiccup on whatever host resolves outbound names for the gateway.
+
+**History:** ILO - chronic, not new. This is a continuation of the long-running Cloudflare/WAF-shaped 403 pattern recorded in `open_items` (prior occurrences through cycle 1450); it had simply not recurred since then. SBS - new. No non-healthy SBS cycle appears anywhere in the last 240 hours (119 cycles) before this one; this is the first recorded SBS incident of any kind.
+
+**Recommended action:** no code change for either. ILO needs none, as always for this pattern. SBS: if the DNS-resolution failure recurs on the gateway path for SBS or any other endpoint, treat it the same way as FBOS's precedent (infrastructure, not a provider or gateway-code problem) unless a pattern of repeated DNS failures for the *same* endpoint starts to emerge, which would point at something endpoint-specific (e.g. a provider that recently changed DNS/CDN setup).
+
+**Could not determine:** whether SBS's DNS failure originated on the gateway's container/network or from a transient resolver issue upstream of it; the error message gives no further detail and the condition had already cleared by the time of the live recheck.
+
+**Open items carried forward (unchanged, not re-reported as new):** chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run); STATSNZ `auth:listing` `capability_appeared` since cycle 60 (still present, confirmed by `/api/contracts` this run); BIS/IMF `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (no contract-only case to re-confirm this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. 162 `claude/` triage branches still on origin, unchanged from last run, still above the 20-branch pruning threshold, not actioned by this read-only routine.
+
 ## 2026-11-23T18:45Z - cycle 1459
 
 **Changed:** IMF `healthy` -> `provider_down` -> `healthy`; ECB `healthy` -> `degraded` -> `healthy`. Both flapped and recovered between runs. Last run's recorded state (cycle 1456, this branch) had all 12 endpoints healthy.

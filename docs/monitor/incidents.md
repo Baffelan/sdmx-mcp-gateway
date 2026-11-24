@@ -4,6 +4,28 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-24T18:46Z - cycle 1471
+
+**Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy` (recovered, cycle 1469). ILO `healthy` -> `gateway_issue` -> `healthy` (recovered, cycle 1470). Both are single-cycle flaps already clean again by cycle 1471, the newest cycle at this run; the boundary comparison against last run's cycle 1468 (all 12 endpoints healthy) shows no net change, but both flaps fell inside the gap and are reported per the routine's own rule not to let intermediate flapping hide.
+
+**Cycle saw (ESTAT):** cycle 1469 `failing: ["gateway metadata: tool call list_dataflows timed out after 60.0s"]`. Cycles 1470 and 1471 both `failing: []`. This is the documented 60-second call-deadline pattern, not the empty-`Error:` variant reported at cycle 1467/1468.
+
+**Cycle saw (ILO):** cycle 1470 `failing: ["gateway metadata: Error: Client error '403 Forbidden' for url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'...", "gateway data: probe status: error; HTTP 403 from provider."]`. Cycles 1469 and 1471 both `failing: []`. No `direct` failures listed for this cycle, so this occurrence hit the gateway path only (classified `gateway_issue`), unlike the cycle 1462 occurrence which hit the direct path only (`degraded`). Same chronic Cloudflare/WAF-shaped 403 signature either way.
+
+`/api/status` at this run (cycle 1471) shows all 12 endpoints `healthy`, `stale: false`, `gateway_up: true`. `/api/contracts` `changes` for this cycle has one entry, ILO `encoding:structure_xml` charset/version order flip (`ok` verdict) - the known cosmetic flip, not an incident. The one `capability_appeared` present (STATSNZ `auth:listing`) is the same standing item open since cycle 60, not new.
+
+**Live recheck:** `GET https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?references=none` -> `200` (took the full ~30s, consistent with the endpoint being slow under load rather than actually broken). `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` -> `200` in ~2.8s. Both agree with the monitor's own cycle 1471 reading; neither is failing now.
+
+**Classification:** ESTAT - `gateway_issue`, ours by the monitor's rule, but this specific signature (`list_dataflows timed out after 60.0s`) is the gateway's own call deadline firing under provider load, working as designed, not a code defect. ILO - `gateway_issue`, same chronic Cloudflare/WAF-shaped 403 pattern tracked in `open_items` since early in the project; provider-side, nothing to fix in gateway code.
+
+**History:** both chronic, not new. Full 240-hour scan (`/api/history?hours=240`) shows 18 non-healthy ESTAT cycles (list_dataflows timeout and the empty-`Error:` bug, mixed) and 15 non-healthy ILO cycles (403 in various shapes: `gateway_issue`, `degraded`, `provider_down`) in the last 10 days. Both patterns recur every few days and have always self-resolved within one to two cycles, as they did again here.
+
+**Recommended action:** none for either. Continue watching for a shape change (e.g. ILO 403 persisting past 2-3 cycles, or ESTAT timeouts clustering tightly enough to suggest the deadline itself needs raising) rather than any single-cycle recurrence of either known pattern.
+
+**Could not determine:** nothing outstanding; both endpoints are confirmed healthy right now by live recheck, matching the monitor's own cycle 1471 reading.
+
+**Open items carried forward (unchanged otherwise, not re-reported as new):** chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run; last seen cycle 1467); STATSNZ `auth:listing` `capability_appeared` since cycle 60 (still present, confirmed by `/api/contracts` this run); SBS DNS-resolution failure (still only the one cycle-1462 occurrence, no second); IMF single-cycle 401 episode at cycle 1458 (no recurrence through 1471); BIS/IMF/ILO `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (no contract-only case to re-confirm this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. 162 `claude/` triage branches on origin (161 last run, effectively unchanged), still above the 20-branch pruning threshold, not actioned by this read-only routine.
+
 ## 2026-11-24T12:43Z - cycle 1468
 
 **Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy` (recovered). Single-cycle flap at cycle 1467, already clean again by cycle 1468. Not a new incident class: this is a recurrence of the chronic empty `Error: ` exception-swallowing bug already tracked in `open_items`, so it is reported here as a tracked recurrence rather than a fresh finding.

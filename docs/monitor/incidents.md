@@ -4,6 +4,24 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-24T06:42Z - cycle 1465
+
+**Changed:** ILO `degraded` -> `healthy` (recovered); SBS `gateway_issue` -> `healthy` (recovered). Both were reported as new incidents in the cycle 1462 entry; `/api/history?hours=48` shows both already clean at cycle 1463 (02:01:22Z) and holding healthy through cycles 1464 and 1465, 3 consecutive clean cycles (4 hours) for each.
+
+**Cycle saw:** cycle 1465 `failing: []` for both endpoints, same as 1463 and 1464. `/api/contracts` `changes` for this cycle has one entry, ILO `encoding:structure_xml` charset/version order flip (`ok` verdict) - the known cosmetic flip, not an incident. No `broken` verdicts anywhere this cycle. The one `capability_appeared` present (STATSNZ `auth:listing`) is the same standing item open since cycle 60, not new.
+
+**Live recheck:** `GET https://sdmx.ilo.org/rest/dataflow/ILO` -> `200` in 4.9s. `GET https://data-sdmx-disseminate.sbs.gov.ws/rest/dataflow/SBS` -> `200` in 2.5s. Both agree with the monitor's own 3-cycle clean run.
+
+**Classification:** both provider-side recoveries, consistent with the classification given at cycle 1462 (ILO: chronic Cloudflare/WAF-shaped 403, provider-side; SBS: DNS-resolution hiccup on the gateway path, infrastructure-side, same class as FBOS cycle 50). Nothing in gateway code was implicated then and nothing changed since to revise that.
+
+**History:** ILO - continuation of the long-running chronic pattern; this was already its shortest-ever excursion (one cycle). SBS - still the only SBS incident in the last 240 hours; no second occurrence yet, so still too early to call it a recurring, endpoint-specific issue rather than a one-off resolver hiccup.
+
+**Recommended action:** none for either. Continue watching for recurrence as before; SBS specifically needs a second occurrence before it would be worth treating as more than a one-off.
+
+**Could not determine:** nothing outstanding for this item; all 12 endpoints are healthy at cycle 1465 and no other investigation was needed this run.
+
+**Open items carried forward (unchanged, not re-reported as new):** chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run); STATSNZ `auth:listing` `capability_appeared` since cycle 60 (still present, confirmed by `/api/contracts` this run); BIS/IMF/ILO `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (no contract-only case to re-confirm this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. 162 `claude/` triage branches still on origin, unchanged from last run, still above the 20-branch pruning threshold, not actioned by this read-only routine.
+
 ## 2026-11-24T00:45Z - cycle 1462
 
 **Changed:** ILO `healthy` -> `degraded` (direct path only); SBS `healthy` -> `gateway_issue`. Both new as of this cycle; cycles 1460-1461 were clean for both, matching last run's all-healthy baseline (cycle 1459).

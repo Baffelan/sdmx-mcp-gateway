@@ -4,6 +4,24 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-24T12:43Z - cycle 1468
+
+**Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy` (recovered). Single-cycle flap at cycle 1467, already clean again by cycle 1468. Not a new incident class: this is a recurrence of the chronic empty `Error: ` exception-swallowing bug already tracked in `open_items`, so it is reported here as a tracked recurrence rather than a fresh finding.
+
+**Cycle saw:** cycle 1467 `failing: ["gateway metadata: Error:"]` for ESTAT, identical signature to the prior occurrences (cycle 1449 and earlier). Cycles 1465, 1466 and 1468 all show `failing: []` for ESTAT. `/api/status` at this run (cycle 1468) shows all 12 endpoints `healthy`, `stale: false`, `gateway_up: true`. `/api/contracts` `changes` for this cycle has one entry, ILO `encoding:structure_xml` charset/version order flip (`ok` verdict) - the known cosmetic flip, not an incident. The one `capability_appeared` present (STATSNZ `auth:listing`) is the same standing item open since cycle 60, not new.
+
+**Live recheck:** `GET https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?references=none` -> `200` at 2026-11-24T12:43:48Z. ESTAT's direct path is healthy now, consistent with the monitor's own cycle 1468 reading and with the failure being gateway-side rather than provider-side (the empty-message bug only ever fires on the gateway metadata check, never on the direct path).
+
+**Classification:** `gateway_issue` by the monitor's own rule, direct path unaffected. This is **ours**: the known `tools/sdmx_tools.py` bug around lines 208-210, which catches `Exception` and returns bare `str(e)`, producing an empty message for whichever exception type ESTAT's gateway metadata call raised this cycle. Nothing to fix provider-side.
+
+**History:** chronic, not new. This is the same bug previously traced on ESTAT at cycles 1143, 1335, 1365, 1371, 1395, 1407 and 1449, and on ABS (1403), ECB (1337, ~1339, 1345, 1357, 1385-1386, 1388) and IMF (1368). Cycle 1467 is simply the next occurrence; it recovered on the very next cycle as it always has.
+
+**Recommended action:** still unfixed and still recommended: log `repr(e)` or `type(e).__name__` in the gateway's exception handler instead of bare `str(e)`, so the next occurrence carries enough information to diagnose instead of just confirming the pattern again.
+
+**Could not determine:** which exception type fired this time, because the gateway still only logs the empty string. That is itself the open defect, not a gap in this run's investigation.
+
+**Open items carried forward (unchanged otherwise, not re-reported as new):** STATSNZ `auth:listing` `capability_appeared` since cycle 60 (still present, confirmed by `/api/contracts` this run); ILO chronic Cloudflare/WAF-shaped 403 pattern (no new occurrence since cycle 1462, still healthy through 1468); SBS DNS-resolution failure (still only the one cycle-1462 occurrence, no second); IMF single-cycle 401 episode at cycle 1458 (no recurrence); BIS/IMF/ILO `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (no contract-only case to re-confirm this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. 161 `claude/` triage branches on origin (161 vs 162 last run, effectively unchanged), still above the 20-branch pruning threshold, not actioned by this read-only routine.
+
 ## 2026-11-24T06:42Z - cycle 1465
 
 **Changed:** ILO `degraded` -> `healthy` (recovered); SBS `gateway_issue` -> `healthy` (recovered). Both were reported as new incidents in the cycle 1462 entry; `/api/history?hours=48` shows both already clean at cycle 1463 (02:01:22Z) and holding healthy through cycles 1464 and 1465, 3 consecutive clean cycles (4 hours) for each.

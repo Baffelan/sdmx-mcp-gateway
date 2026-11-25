@@ -4,6 +4,24 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-25T06:43Z - cycle 1477
+
+**Changed:** ILO `provider_down` -> `healthy` (recovered). Last run (cycle 1474) recorded ILO `provider_down` with both the gateway and direct paths returning 403. `/api/history?hours=48` shows ILO back to `healthy` with `failing: []` already at cycle 1475, and still `healthy` through cycles 1476 and 1477 (the newest cycle at this run). This confirms the recovery that last run's entry flagged as "not yet confirmed by the monitor's own next cycle."
+
+**Cycle saw:** cycle 1477 `/api/status` shows all 12 endpoints `healthy`, `stale: false`, `gateway_up: true`, `drift: []`. ILO's contract rows show only the standing informational `references:contentconstraint` (`ignored`, architectural, unchanged). `/api/contracts` `changes` is empty: none of the twelve ILO contract assertions that went `broken` at cycle 1474 are reported as changed this cycle, consistent with them having already reverted to `ok` by the time the failure cleared.
+
+**Live recheck:** `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at 2026-11-25T06:43Z -> `200`, agreeing with the monitor's own cycle 1477 reading.
+
+**Classification:** provider-side recovery, no gateway code involved. Same chronic Cloudflare/WAF-shaped 403 signature as the cycle 1474 (and 1462, 1470) occurrences; this entry just closes out that episode.
+
+**History:** fourth tracked occurrence of this chronic ILO 403 pattern overall (cycles 1462, 1470, 1474), and the third time it has self-resolved within one to a few cycles (previously: cycle 1453, cycle 1465). The cycle 1474 occurrence was notable for hitting both paths at once, which had not happened before; it did not turn out to persist past a single cycle, so the "first time this lasts past one cycle" escalation flagged last run did not materialize.
+
+**Recommended action:** none. Continue treating this as the known chronic ILO pattern unless it starts persisting across multiple cycles or the both-paths-at-once shape repeats.
+
+**Could not determine:** nothing outstanding on this item; the recovery is confirmed by three consecutive healthy cycles (1475-1477) and a live recheck.
+
+**Open items carried forward (unchanged otherwise, not re-reported as new):** chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run); ESTAT `list_dataflows` 60s call-deadline timeout pattern (no new occurrence this run); SBS DNS-resolution failure (still only the one cycle-1462 occurrence); IMF single-cycle 401 episode at cycle 1458 (no recurrence); STATSNZ `auth:listing` `capability_appeared` (still open, unchanged, not re-reported as new); BIS/IMF/ILO `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (unfixed, not re-confirmed this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. `claude/` triage branches on origin were not recounted this run (not relevant to this entry); still well above the 20-branch pruning threshold per prior runs, not actioned by this read-only routine.
+
 ## 2026-11-25T00:44Z - cycle 1474
 
 **Changed:** ILO `healthy` -> `provider_down`. Last run (cycle 1471) and the intervening cycles 1472-1473 in `/api/history` were all clean; the failure appears for the first time at cycle 1474, the newest cycle at this run.

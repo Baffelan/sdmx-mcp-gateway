@@ -4,6 +4,26 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-25T00:44Z - cycle 1474
+
+**Changed:** ILO `healthy` -> `provider_down`. Last run (cycle 1471) and the intervening cycles 1472-1473 in `/api/history` were all clean; the failure appears for the first time at cycle 1474, the newest cycle at this run.
+
+**Cycle saw:** `failing: ["gateway metadata: Error: Client error '403 Forbidden' for url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'...", "gateway data: probe status: error; HTTP 403 from provider.", "direct metadata: HTTP 403", "direct json: HTTP 403"]`. Both the gateway path and the direct path failed in the same cycle, which is new: the two prior occurrences of this chronic pattern (cycle 1462, direct-path only, `degraded`; cycle 1470, gateway-path only, `gateway_issue`) each hit only one path. This is the first occurrence tracked in `open_items` to hit both at once, which is why it classified `provider_down` rather than `degraded` or `gateway_issue`.
+
+`/api/contracts` `changes` has twelve entries, all ILO, all stemming from the same 403: `auth:listing`, `constraint:availableconstraint`, `errors:missing_artefact`, `references:all/children/contentconstraint/descendants/none/parents/parentsandsiblings` all went `broken` (expected 200/404/500, observed 403), plus `dialect:sdmx3` and `encoding:structure_xml` which read `403` too but kept verdicts `ok`/`skipped` since 403 is outside what those two assertions score against. No non-ILO contract changed. The standing `capability_appeared` (STATSNZ `auth:listing`) is unchanged, not re-reported.
+
+**Live recheck:** `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` at 2026-11-25T00:43Z and again two retries later -> `200` every time, consistently, about 42 minutes after the cycle 1474 timestamp (00:01:22Z). This disagrees with the cycle's `direct metadata: HTTP 403` reading: the provider is answering normally again by the time of this live check. Checked ECB and OECD in the same window to rule out a network-side problem on this session; both answered `200` immediately, so the 403 was specific to ILO, not this run's network path.
+
+**Classification:** `provider_down` per the monitor's own rule (both gateway and direct paths failing in-cycle). Provider-side: the live recheck confirms it is the same Cloudflare/WAF-shaped 403 signature tracked since early in the project, not a new gateway code defect. Nothing to fix in gateway code.
+
+**History:** chronic pattern, third tracked occurrence (cycles 1462, 1470, 1474), each roughly an hour to a few hours apart in wall-clock terms but separated by multiple healthy cycles in between (1463-1469 all healthy, 1471-1473 all healthy). No clustering that would suggest a worsening trend yet, but this occurrence is the first to take out both paths simultaneously, worth watching for whether that becomes the new normal shape or stays a one-off.
+
+**Recommended action:** none beyond watching. If the next run or the next scheduled cycle still shows ILO non-healthy, that would be a real escalation (first time this pattern has lasted past a single cycle) and should be called out explicitly rather than filed as "same chronic thing."
+
+**Could not determine:** whether cycle 1475 (not yet run as of this check, next due ~02:01Z) already shows ILO recovered; the live recheck strongly suggests it will, but that is not confirmed by the monitor's own next cycle yet.
+
+**Open items carried forward (unchanged otherwise, not re-reported as new):** chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run); ESTAT `list_dataflows` 60s call-deadline timeout pattern (no new occurrence this run); SBS DNS-resolution failure (still only the one cycle-1462 occurrence); IMF single-cycle 401 episode at cycle 1458 (no recurrence); BIS/IMF/ILO `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (unfixed, not re-confirmed this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. 162 `claude/` triage branches on origin (unchanged from last run), still above the 20-branch pruning threshold, not actioned by this read-only routine.
+
 ## 2026-11-24T18:46Z - cycle 1471
 
 **Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy` (recovered, cycle 1469). ILO `healthy` -> `gateway_issue` -> `healthy` (recovered, cycle 1470). Both are single-cycle flaps already clean again by cycle 1471, the newest cycle at this run; the boundary comparison against last run's cycle 1468 (all 12 endpoints healthy) shows no net change, but both flaps fell inside the gap and are reported per the routine's own rule not to let intermediate flapping hide.

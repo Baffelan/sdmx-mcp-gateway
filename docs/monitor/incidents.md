@@ -4,6 +4,38 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-26T00:45Z - cycle 1486
+
+**Changed:** SPC `healthy` -> `provider_down`; ILO `healthy` -> `gateway_issue`; ESTAT `healthy` -> `gateway_issue`. Last run (cycle 1483) had all 12 endpoints `healthy`. All three changes land in this single cycle (started 2026-11-26T00:01:22Z).
+
+**SPC**
+- Cycle saw: HTTP 502 on every path - gateway metadata, gateway data, direct metadata, direct data, direct json - against `https://stats-sdmx-disseminate.pacificdata.org/rest/dataflow/SPC/all/latest?detail=allstubs` and the `/data/SPC,DF_ADBKI/all?firstNObservations=1` probe. `/api/contracts` `changes` shows 11 of SPC's 12 assertions moving to `broken` (`500`/`502`) in the same cycle, plus `auth:listing` and `dialect:sdmx3` moving to `500` with verdict still `ok` (those only check for a non-crash response).
+- Live recheck (2026-11-26T00:45Z, ~44 min after cycle start): both exact URLs above now return HTTP 200.
+- Classification: `provider_down` at cycle time (both gateway and direct paths failing) -> provider-side, nothing to fix in gateway code.
+- History: new as of cycle 1486. This all-paths-and-contracts-at-once shape has not appeared anywhere in the last 48h of `/api/history`. SPC's only prior flap (HTTP 500, direct path only, cycle 26) is old and unrelated.
+- Recommended action: none needed on our side. Watch the next cycle to confirm this does not recur.
+- Could not determine: the exact start time or cause of the 502 window; only that it covered the cycle-1486 probe (00:01-00:03Z) and had cleared by the time of this live recheck.
+
+**ILO**
+- Cycle saw: only the `gateway data` check failed, with "probe status: error; HTTP 403 from provider" against `/data/ILO,DF_GED_XLU1_SEX_HHT_CHL_RT/ITA.....?firstNObservations=1`. Gateway metadata and all three direct checks (metadata, data, json) passed this same cycle.
+- Live recheck: both the exact metadata URL and the exact data-probe URL return HTTP 200 now.
+- Classification: `gateway_issue` per the monitor, but this is the single-check, gateway-path-only shape of the chronic Cloudflare/WAF-shaped 403 pattern already open in state (last seen cycle 1474, which was the more severe both-paths-at-once variant). This occurrence does not escalate that pattern.
+- History: matches prior occurrences at cycles 1462, 1470, 1474. No multi-cycle persistence this time.
+- Recommended action: none; self-resolved, consistent with the standing open item.
+- Could not determine: nothing outstanding.
+
+**ESTAT**
+- Cycle saw: `gateway metadata` hit "tool call list_dataflows timed out after 60.0s". Gateway data and both live direct checks passed; direct json remains skipped by design (Eurostat returns 406 for SDMx-JSON).
+- Live recheck: a direct Eurostat dataflow-listing call took ~31s and returned 200, under the 60s deadline but slow.
+- Classification: `gateway_issue` per the monitor, matching the documented 60s call-deadline timeout under provider load (same shape as cycles 1463, 1464, 1467, 1469, 1484) - working as designed, not a gateway bug.
+- History: recurring; most recently also seen at cycle 1484, two cycles before this run's baseline.
+- Recommended action: none.
+- Could not determine: nothing outstanding.
+
+**Contract changes:** all 13 entries in `/api/contracts` `changes` are on SPC and attributable to the same 502 outage window above. No contract changes on any other endpoint. STATSNZ's `auth:listing` `capability_appeared` assertion is still present, unchanged from baseline, and not re-reported.
+
+**Housekeeping:** `claude/` triage branches on origin: 162, still above the 20 the skill flags for pruning; not actioned by this read-only routine.
+
 ## 2026-11-25T06:43Z - cycle 1477
 
 **Changed:** ILO `provider_down` -> `healthy` (recovered). Last run (cycle 1474) recorded ILO `provider_down` with both the gateway and direct paths returning 403. `/api/history?hours=48` shows ILO back to `healthy` with `failing: []` already at cycle 1475, and still `healthy` through cycles 1476 and 1477 (the newest cycle at this run). This confirms the recovery that last run's entry flagged as "not yet confirmed by the monitor's own next cycle."

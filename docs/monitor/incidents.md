@@ -4,6 +4,24 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-26T06:43Z - cycle 1489
+
+**Changed:** SPC `provider_down` -> `healthy` (recovered); ILO `gateway_issue` -> `healthy` (recovered); ESTAT `gateway_issue` -> `healthy` (recovered). Last run (cycle 1486) recorded all three as non-healthy and already flagged, from its own live recheck, that all three looked recovered. `/api/history?hours=48` shows all three already `healthy` at cycle 1487, two cycles before this run's own cycle 1489, and holding healthy through 1488 and 1489 (3 consecutive clean cycles each).
+
+**Cycle saw:** cycle 1489 `/api/status` shows all 12 endpoints `healthy`, `stale: false`, `gateway_up: true`, `drift: []`. `/api/contracts` `changes` for this cycle has one entry, OECD `encoding:structure_xml` charset/version order flip (verdict `ok`) - the known cosmetic flip, not an incident. The only non-`ok` contract row is STATSNZ `auth:listing` `capability_appeared`, the same standing item open since cycle 60, not new.
+
+**Live recheck:** direct SPC (`.../dataflow/SPC/all/latest?detail=allstubs`), direct ESTAT (`.../dataflow/ESTAT/all/latest?references=none`) and direct ILO (`.../dataflow/ILO/all/latest`) all returned `200` at this run, agreeing with the monitor's own cycle 1489 reading for all three.
+
+**Classification:** all three were provider-side or working-as-designed at cycle 1486 (SPC `provider_down` on a transient 502 window; ILO `gateway_issue` matching the chronic Cloudflare/WAF-shaped 403 pattern; ESTAT `gateway_issue` matching the documented 60s call-deadline timeout under load). This entry just closes out that episode for all three; nothing to fix in gateway code.
+
+**History:** none of the three recurred or worsened across the two intervening cycles (1487, 1488). SPC's cycle-1486 502 shape (all paths + 11 contract assertions at once) has not recurred, consistent with it being a one-off outage window rather than a new chronic pattern. ILO's and ESTAT's recoveries match their own established chronic patterns, already tracked in open items.
+
+**Recommended action:** none. Keep SPC's cycle-1486 shape in open items for one more run in case it resurfaces, since it was a new shape not seen elsewhere in the last 48h; ILO and ESTAT recoveries need no further watching beyond the standing chronic-pattern tracking already in place.
+
+**Could not determine:** nothing outstanding; all three are confirmed healthy now by both the monitor's own last three cycles and this run's live recheck.
+
+**Open items carried forward (unchanged otherwise, not re-reported as new):** chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run; last traced on ESTAT at cycle 1467); STATSNZ `auth:listing` `capability_appeared` since cycle 60 (still present, confirmed by `/api/contracts` this run); SBS DNS-resolution failure (still only the one cycle-1462 occurrence); IMF single-cycle 401 episode at cycle 1458 (no recurrence); BIS/IMF/ILO `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (unfixed, not re-confirmed this run, not needed this run since all changes also showed in `/api/history`); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. `claude/` triage branches on origin: 162, unchanged from last run, still above the 20 the skill flags for pruning, not actioned by this read-only routine.
+
 ## 2026-11-26T00:45Z - cycle 1486
 
 **Changed:** SPC `healthy` -> `provider_down`; ILO `healthy` -> `gateway_issue`; ESTAT `healthy` -> `gateway_issue`. Last run (cycle 1483) had all 12 endpoints `healthy`. All three changes land in this single cycle (started 2026-11-26T00:01:22Z).

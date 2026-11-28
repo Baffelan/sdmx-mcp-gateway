@@ -4,6 +4,28 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-28T00:44Z - cycle 1510
+
+**Changed:** ESTAT `healthy` -> `gateway_issue`; ILO `healthy` -> `gateway_issue`. Last run (cycle 1507) had all 12 endpoints `healthy`. `/api/history?hours=48` shows cycles 1508 and 1509 both clean for both endpoints, so the failures land for the first time at cycle 1510, the newest cycle at this run; neither has recovered yet by a later cycle, since there isn't one.
+
+**Cycle saw (ESTAT):** `failing: ["gateway metadata: tool call list_dataflows timed out after 60.0s"]`. Gateway data and both live direct checks (metadata, data) passed; direct json remains skipped by design (Eurostat returns 406 for SDMx-JSON). Contracts: 0 broken, 0 informational for ESTAT this cycle.
+
+**Cycle saw (ILO):** `failing: ["gateway metadata: Error: Client error '403 Forbidden' for url 'https://sdmx.ilo.org/rest/dataflow/ILO/all/latest'..."]`. Gateway data and all three direct checks (metadata, data, json) passed. Contracts: 0 broken, 0 informational for ILO this cycle.
+
+**Live recheck:** `GET https://sdmx.ilo.org/rest/dataflow/ILO/all/latest` (the exact URL the gateway's `list_dataflows` call hit) -> `200` in ~4.7s at 2026-11-28T00:44Z, disagreeing with the cycle's gateway-side 403 and agreeing with the monitor's own direct-path reading. `GET https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?detail=allstubs` (the bulk listing `list_dataflows` hits) -> `200` in ~7.3s, well under the 60s deadline, consistent with the endpoint being slow under load rather than down. Both ECB and 9 other endpoints were healthy this same cycle, ruling out a network-wide problem on this run's side.
+
+**Classification:** both `gateway_issue` per the monitor (direct path OK, gateway path failing - ours by definition), but both match previously documented chronic patterns rather than new defects. ESTAT: the documented 60s call-deadline timeout on `list_dataflows` under provider load, working as designed. ILO: the chronic Cloudflare/WAF-shaped 403 pattern on the gateway path, last seen cycle 1486 (recovered by 1487); the live recheck's clean 200 on the identical URL supports this being transient/WAF-side rather than a persistent provider or gateway defect.
+
+**History:** both chronic and recurring every few days to weeks. ESTAT last flapped at cycle 1505 (recovered by 1506), so this is 5 cycles (~10 hours) later, tighter than the typical multi-day gap - worth watching if it starts clustering further. ILO last flapped at cycle 1486 (recovered by 1487), 24 cycles (~48 hours) ago, in line with its historical cadence.
+
+**Recommended action:** none beyond watching. Flag as a real escalation only if either endpoint is still non-healthy at the next run, or if ESTAT's timeout starts recurring on a sub-day cadence, or if ILO's 403 starts hitting the direct path too (the both-paths-at-once shape last seen cycle 1486).
+
+**Could not determine:** whether the next scheduled cycle (not yet run as of this check) already shows both endpoints recovered; the live recheck strongly suggests both will clear, but that is not yet confirmed by the monitor's own next cycle.
+
+**Contract changes:** one entry in `/api/contracts` `changes`, OECD `encoding:structure_xml` charset/version order flip (verdict `ok`) - the known cosmetic flip, not an incident. The only non-`ok` contract row is STATSNZ `auth:listing` `capability_appeared`, the same standing item open since cycle 60, not new.
+
+**Open items carried forward (unchanged otherwise, not re-reported as new):** chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run; last traced on ESTAT at cycle 1467, still unfixed); SPC cycle-1486 all-paths 502 outage (closed, no recurrence through 1510); SBS DNS-resolution failure (still only the one cycle-1462 occurrence); IMF single-cycle 401 episode at cycle 1458 (no recurrence through 1510); STATSNZ `auth:listing` `capability_appeared` since cycle 60 (still present, confirmed by `/api/contracts` this run); BIS/IMF/ILO `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (unfixed, not exercised this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. `claude/` triage branches on origin: 162, unchanged from last run, still well above the 20 the skill flags for pruning, not actioned by this read-only routine.
+
 ## 2026-11-27T18:44Z - cycle 1507
 
 **Changed:** ESTAT `healthy` -> `gateway_issue` -> `healthy` (recovered). Last run (cycle 1504) had all 12 endpoints `healthy`. `/api/history?hours=48` shows the flap landed at cycle 1505 and was already clean again by cycle 1506, so the boundary comparison against this run's cycle 1507 shows no net change, but the flap fell inside the gap between runs.

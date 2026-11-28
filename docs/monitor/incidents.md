@@ -4,6 +4,26 @@ Written by the `monitor-triage` routine. Newest entry first.
 Each scheduled run commits to its own branch and merges into `main`, so this
 file is the canonical record and the routine's memory across runs.
 
+## 2026-11-28T06:43Z - cycle 1513
+
+**Changed:** ESTAT `gateway_issue` -> `healthy` (recovered); ILO `gateway_issue` -> `healthy` (recovered). Last run (cycle 1510) recorded both as non-healthy and flagged, from its own live recheck, that both looked likely to clear. `/api/history?hours=48` shows both already `healthy` at cycle 1511, two cycles before this run's own cycle 1513, and holding healthy through 1512 and 1513 (3 consecutive clean cycles each). No other endpoint changed status in that window.
+
+**Cycle saw:** `/api/status` at this run (cycle 1513) shows all 12 endpoints `healthy`, `stale: false`, `gateway_up: true`, `drift: []`. `/api/history?hours=48` for cycles 1505-1513 confirms ESTAT and ILO are each clean on every cycle except 1505 and 1510 respectively (ESTAT) and only 1510 (ILO), with no further occurrence through 1513.
+
+**Live recheck:** direct ESTAT (`https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/dataflow/ESTAT/all/latest?references=none`) -> `200` in ~32s at 2026-11-28T06:43Z, well under the 60s deadline. Direct ILO (`https://sdmx.ilo.org/rest/dataflow/ILO/all/latest`) -> `200` in ~3s. Both agree with the monitor's own cycle 1513 reading.
+
+**Classification:** both were `gateway_issue` at cycle 1510 (direct path OK, gateway path failing - ours by definition), but both matched previously documented chronic patterns rather than new defects: ESTAT's 60s call-deadline timeout on `list_dataflows` under provider load (working as designed), and ILO's chronic Cloudflare/WAF-shaped 403 pattern on the gateway path. This entry closes out that episode for both; nothing to fix in gateway code.
+
+**History:** neither recurred or worsened across the two intervening cycles (1511, 1512). ESTAT's gap between its last two occurrences (cycle 1505 -> 1510, 5 cycles) was tighter than its usual multi-day cadence, as flagged last run; it did not cluster further - no occurrence in 1511-1513 (3 clean cycles since recovery). ILO's recovery matches its own established chronic cadence (prior occurrence cycle 1486, recovered by 1487).
+
+**Recommended action:** none. Continue treating both as the known chronic patterns unless ESTAT's timeout starts recurring on a sub-day cadence again, or ILO's 403 starts hitting the direct path too (the both-paths-at-once shape last seen cycle 1486).
+
+**Could not determine:** nothing outstanding; cycles 1511-1513 plus this run's live recheck all confirm ESTAT and ILO are healthy now.
+
+**Contract changes:** `/api/contracts` `changes` for this cycle is empty. The only non-`ok` contract row is STATSNZ `auth:listing` `capability_appeared`, the same standing item open since cycle 60, not new.
+
+**Open items carried forward (unchanged otherwise, not re-reported as new):** chronic empty `Error: ` exception-swallowing bug in `tools/sdmx_tools.py` (no new occurrence this run; last traced on ESTAT at cycle 1467, still unfixed); SPC cycle-1486 all-paths 502 outage (closed, no recurrence through 1513); SBS DNS-resolution failure (still only the one cycle-1462 occurrence); IMF single-cycle 401 episode at cycle 1458 (no recurrence through 1513); STATSNZ `auth:listing` `capability_appeared` since cycle 60 (still present, confirmed by `/api/contracts` this run); BIS/IMF/ILO `references:contentconstraint` reads `ignored` (architectural, unchanged); `/api/history` not reflecting contract-only degraded states (unfixed, not exercised this run); architectural facts for ILO/ECB/ESTAT/IMF/STATSNZ/BIS as previously documented. `claude/` triage branches on origin: 162, unchanged from last run, still well above the 20 the skill flags for pruning, not actioned by this read-only routine.
+
 ## 2026-11-28T00:44Z - cycle 1510
 
 **Changed:** ESTAT `healthy` -> `gateway_issue`; ILO `healthy` -> `gateway_issue`. Last run (cycle 1507) had all 12 endpoints `healthy`. `/api/history?hours=48` shows cycles 1508 and 1509 both clean for both endpoints, so the failures land for the first time at cycle 1510, the newest cycle at this run; neither has recovered yet by a later cycle, since there isn't one.
